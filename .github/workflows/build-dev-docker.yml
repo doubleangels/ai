@@ -16,10 +16,32 @@ permissions:
   packages: write
 
 jobs:
+  prebuild:
+    name: install-and-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
   build:
     name: build-and-push-image
+    needs: [prebuild]
     runs-on: ubuntu-latest
-    concurrency: build-dev
+    concurrency:
+      group: build-dev
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -42,7 +64,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
@@ -66,7 +88,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=chatgpt-dev
           cache-to: type=gha,mode=max,scope=chatgpt-dev
-          provenance: false
+          provenance: ${{ github.event_name != 'pull_request' }}
+          sbom: ${{ github.event_name != 'pull_request' }}
 
       - name: Output image info
         if: github.event_name != 'pull_request'
@@ -100,10 +123,87 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
+      issues: write
     steps:
+      - name: Check PR mergeability
+        id: check-mergeable
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+
+            // GitHub may return null while mergeability is still being computed
+            if (pr.mergeable === null) {
+              core.setFailed(`PR #${context.issue.number} mergeability not yet computed. Please re-run the workflow in a moment.`);
+              return;
+            }
+
+            if (pr.mergeable === false) {
+              core.setFailed(`PR #${context.issue.number} is not mergeable. State: ${pr.mergeable_state}`);
+              return;
+            }
+
+            if (pr.mergeable_state === 'dirty' || pr.mergeable_state === 'blocked' || pr.mergeable_state === 'unknown') {
+              core.setFailed(`PR #${context.issue.number} cannot be merged. State: ${pr.mergeable_state}`);
+              return;
+            }
+
+            core.info(`PR #${context.issue.number} is mergeable. State: ${pr.mergeable_state}`);
+            core.setOutput('mergeable', 'true');
+
+      - name: Comment on PR
+        if: steps.check-mergeable.outputs.mergeable == 'true'
+        uses: actions/github-script@v8
+        continue-on-error: true
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Build passed! PR is mergeable. Enabling automerge...'
+            });
+
       - name: Automerge Dependabot PR
+        if: steps.check-mergeable.outputs.mergeable == 'true'
         uses: peter-evans/enable-pull-request-automerge@v3
+        continue-on-error: true
+        id: automerge
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ github.event.pull_request.number }}
           merge-method: merge
+
+      - name: Comment on automerge success
+        if: steps.automerge.outcome == 'success'
+        uses: actions/github-script@v8
+        continue-on-error: true
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Automerge enabled successfully! This PR will be merged automatically once all checks pass.'
+            });
+
+      - name: Comment on automerge failure
+        if: steps.automerge.outcome == 'failure'
+        uses: actions/github-script@v8
+        continue-on-error: true
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ Failed to enable automerge. Please merge this PR manually or check branch protection settings.'
+            });
+
+      - name: Fail job when automerge did not succeed
+        if: steps.check-mergeable.outputs.mergeable == 'true' && steps.automerge.outcome == 'failure'
+        run: exit 1
