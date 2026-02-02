@@ -102,7 +102,7 @@ You can either:
 | `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `MODEL_NAME` if unset. | `gemini-2.5-flash` |
 
 **OpenAI models:** `gpt-5`, `gpt-5-nano`, `gpt-5-mini`  
-**Gemini models:** `gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`
+**Gemini models:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`
 
 Set `OPENAI_API_KEY` when using OpenAI; set `GEMINI_API_KEY` when using Gemini (get a key from [Google AI Studio](https://aistudio.google.com/apikey)).
 

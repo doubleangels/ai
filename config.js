@@ -3,7 +3,7 @@ require('dotenv').config();
 const SUPPORTED_MODELS = ['gpt-5', 'gpt-5-nano', 'gpt-5-mini'];
 const DEFAULT_MODEL = 'gpt-5-nano';
 
-const SUPPORTED_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+const SUPPORTED_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
