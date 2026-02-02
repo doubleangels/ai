@@ -1,18 +1,26 @@
 # Dockerfile for AI Bot
 # Multi-stage build for optimized image size and security
+# Debian-based image for bws (Bitwarden) compatibility
 
-# Use specific Node.js Alpine version for smaller image size
-FROM node:24.13.0-alpine3.23 AS base
+# Use specific Node.js slim version for smaller image size (Debian for bws compatibility)
+FROM node:24.13.0-trixie-slim AS base
 
-ENV NODE_ENV=production
+ENV DEBIAN_FRONTEND=noninteractive \
+    NODE_ENV=production
 
 WORKDIR /app
 
 # Install runtime dependencies and create user in a single layer with BuildKit cache
-RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
-    apk add --no-cache dumb-init gosu procps && \
-    addgroup -g 1001 nodejs && \
-    adduser -u 1001 -G nodejs -s /bin/sh -D discordbot
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    dumb-init \
+    gosu \
+    procps && \
+    groupadd -g 1001 nodejs && \
+    useradd -u 1001 -g nodejs -s /bin/bash -m discordbot && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy package files for dependency installation (better caching)
 COPY package*.json ./
@@ -21,8 +29,15 @@ COPY package*.json ./
 FROM base AS builder
 
 # Install build dependencies for native modules with BuildKit cache
-RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
-    apk add --no-cache python3 build-base
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install dependencies with BuildKit cache mount for faster rebuilds
 # Using --omit=dev to exclude dev dependencies in production build
@@ -31,21 +46,34 @@ RUN --mount=type=cache,target=/root/.npm \
     npm cache clean --force
 
 # Remove build dependencies to reduce image size
-RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
-    apk del python3 build-base
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get purge -y --auto-remove \
+    python3 \
+    make \
+    g++ \
+    build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 # Final runtime stage
 FROM base AS runtime
 
 # Install runtime dependencies and bws in a single layer with BuildKit cache
 # jq is kept as it's needed by the entrypoint script
-RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
-    apk add --no-cache ca-certificates curl jq unzip && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    jq \
+    unzip && \
     curl -fL -o /tmp/bws.zip https://github.com/bitwarden/sdk/releases/download/bws-v1.0.0/bws-x86_64-unknown-linux-gnu-1.0.0.zip && \
     unzip -q /tmp/bws.zip -d /usr/local/bin/ && \
     rm -f /tmp/bws.zip && \
     chmod +x /usr/local/bin/bws && \
-    apk del curl unzip
+    apt-get purge -y --auto-remove curl unzip && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy node_modules from builder stage (before app files for better caching)
 COPY --from=builder --chown=discordbot:nodejs /app/node_modules ./node_modules
