@@ -2,7 +2,7 @@
 # Multi-stage build for optimized image size and security
 
 # Use specific Node.js slim version for smaller image size
-FROM node:24.13.0-slim AS base
+FROM node:24.13.0-alpine3.23 AS base
 
 # Set environment variables early for better caching
 ENV DEBIAN_FRONTEND=noninteractive \
