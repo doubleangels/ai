@@ -1,7 +1,7 @@
 services:
   ai:
     image: ghcr.io/doubleangels/ai:latest
-    container_name: ai-discord-bot
+    container_name: ai
     restart: unless-stopped
     cap_drop:
       - ALL
