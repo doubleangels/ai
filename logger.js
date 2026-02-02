@@ -2,30 +2,9 @@ const pino = require('pino');
 
 const config = require('./config');
 
-// Determine transport configuration
-let transportConfig = undefined;
-if (process.env.NODE_ENV !== 'production') {
-  try {
-    // Try to require pino-pretty to see if it's available
-    require.resolve('pino-pretty');
-    transportConfig = {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
-        translateTime: 'SYS:standard',
-        ignore: 'pid,hostname'
-      }
-    };
-  } catch (e) {
-    // pino-pretty not available, use default JSON output
-    transportConfig = undefined;
-  }
-}
-
 // Create base logger with configuration
 const baseLogger = pino({
   level: config.logLevel || 'info',
-  transport: transportConfig,
   formatters: {
     level: (label) => {
       return { level: label.toUpperCase() };
