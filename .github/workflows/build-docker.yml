@@ -165,7 +165,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '✅ Build passed! PR is mergeable. Enabling automerge...'
+              body: 'Build passed! PR is mergeable. Enabling automerge...'
             });
 
       - name: Automerge Dependabot PR
@@ -188,7 +188,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '✅ Automerge enabled successfully! This PR will be merged automatically once all checks pass.'
+              body: 'Automerge enabled successfully! This PR will be merged automatically once all checks pass.'
             });
 
       - name: Comment on automerge failure
@@ -201,7 +201,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '⚠️ Failed to enable automerge. Please merge this PR manually or check branch protection settings.'
+              body: 'Failed to enable automerge. Please merge this PR manually or check branch protection settings.'
             });
 
       - name: Fail job when automerge did not succeed
