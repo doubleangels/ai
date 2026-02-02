@@ -1,7 +1,7 @@
 services:
-  chatgpt:
-    image: ghcr.io/doubleangels/chatgpt:latest
-    container_name: chatgpt-discord-bot
+  ai:
+    image: ghcr.io/doubleangels/ai:latest
+    container_name: ai-discord-bot
     restart: unless-stopped
     cap_drop:
       - ALL

@@ -1,4 +1,4 @@
-# Dockerfile for ChatGPT Bot
+# Dockerfile for AI Bot
 # Multi-stage build for optimized image size and security
 
 # Use specific Node.js slim version for smaller image size

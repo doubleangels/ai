@@ -1,11 +1,11 @@
-# ChatGPT Discord Bot
+# AI Discord Bot
 
 <div align="center">
   <img src="logo.png" alt="Logo" width="250">
 </div>
 <br>
 
-A feature-rich Discord bot powered by OpenAI's ChatGPT models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
+A feature-rich Discord bot powered by OpenAI's AI models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
 
 ## 🚀 Quick Start
 
@@ -32,9 +32,9 @@ A feature-rich Discord bot powered by OpenAI's ChatGPT models, designed to provi
 
 ```yaml
 services:
-  chatgpt:
-    image: ghcr.io/doubleangels/chatgpt:latest
-    container_name: chatgpt-discord-bot
+  ai:
+    image: ghcr.io/doubleangels/ai:latest
+    container_name: ai-discord-bot
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -136,7 +136,7 @@ The bot supports comprehensive image analysis when using vision-capable models:
 
 ### Interaction Methods
 
-- **Mentions**: `@ChatGPT What's the weather like?`
+- **Mentions**: `@AI What's the weather like?`
 - **Replies**: Reply to any bot message to continue the conversation
 
 ### Safety Defaults

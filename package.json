@@ -1,7 +1,7 @@
 {
-  "name": "chatgpt",
+  "name": "ai",
   "version": "1.0.0",
-  "description": "A Discord bot that uses ChatGPT to respond to messages.",
+  "description": "A Discord bot that uses AI to respond to messages.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,13 +10,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/doubleangels/chatgpt.git"
+    "url": "git+https://github.com/doubleangels/ai.git"
   },
   "author": "doubleangels",
   "bugs": {
-    "url": "https://github.com/doubleangels/chatgpt/issues"
+    "url": "https://github.com/doubleangels/ai/issues"
   },
-  "homepage": "https://github.com/doubleangels/chatgpt#readme",
+  "homepage": "https://github.com/doubleangels/ai#readme",
   "overrides": {
     "tar": ">=7.5.4",
     "undici": ">=6.23.0"
