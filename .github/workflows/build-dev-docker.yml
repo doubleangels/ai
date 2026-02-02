@@ -112,6 +112,8 @@ jobs:
           repository: ${{ github.repository }}
           retain_days: 30
           keep_minimum_runs: 5
+          delete_workflow_pattern: build-dev-docker
+          check_pullrequest_exist: true
 
   automerge:
     needs: [build]
