@@ -7,6 +7,7 @@ const {
   maxHistoryLength,
   maxHistoryTokens,
   modelName,
+  aiProvider,
   userCooldownMs,
   channelCooldownMs,
   maxPendingPerChannel
@@ -198,7 +199,7 @@ module.exports = {
 
       if (!client.conversationHistory.has(channelId)) {
         logger.debug(`No conversation history found for channel ${channelId}.`);
-        const systemMessage = createSystemMessage(modelName);
+        const systemMessage = createSystemMessage(modelName, aiProvider === 'openai');
         client.conversationHistory.set(channelId, [systemMessage]);
         logger.info(`Created new conversation history for channel ${channelId}.`);
       }
