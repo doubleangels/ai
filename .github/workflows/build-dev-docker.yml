@@ -71,7 +71,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/chatgpt
+          images: ghcr.io/${{ github.repository_owner }}/ai
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -86,8 +86,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=chatgpt-dev
-          cache-to: type=gha,mode=max,scope=chatgpt-dev
+          cache-from: type=gha,scope=ai-dev
+          cache-to: type=gha,mode=max,scope=ai-dev
           provenance: ${{ github.event_name != 'pull_request' }}
           sbom: ${{ github.event_name != 'pull_request' }}
 

@@ -172,7 +172,7 @@ module.exports = {
       });
       logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
 
-      const userText = message.content.replace(botMention, '@ChatGPT').trim();
+      const userText = message.content.replace(botMention, '@AI').trim();
       
       let imageContents = [];
       if (message.attachments && message.attachments.size > 0) {
