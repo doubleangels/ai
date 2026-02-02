@@ -1,13 +1,32 @@
 require('dotenv').config();
 
-const SUPPORTED_MODELS = ['gpt-5', 'gpt-5-nano', 'gpt-5-mini'];
+// OpenAI: Responses API models with text + image support. Reasoning (gpt-5*, o3, o4-mini), verbosity (gpt-5*), web search (built-in tool).
+const SUPPORTED_MODELS = [
+  'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
+  'gpt-5.2-pro', 'gpt-5-pro',
+  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  'o3', 'o4-mini', 'o3-pro', 'o3-mini'
+];
 const DEFAULT_MODEL = 'gpt-5-nano';
 
-const SUPPORTED_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+// Gemini: text + image, search grounding, thinking. Excludes image-gen-only, TTS, Live.
+const SUPPORTED_GEMINI_MODELS = [
+  'gemini-3-pro-preview', 'gemini-3-flash-preview',
+  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
+  'gemini-2.0-flash', 'gemini-2.0-flash-lite'
+];
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
-const SUPPORTED_CLAUDE_MODELS = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20240620'];
-const DEFAULT_CLAUDE_MODEL = 'claude-3-5-sonnet-20241022';
+// Claude: vision, extended thinking (4.5). Aliases and versioned IDs.
+const SUPPORTED_CLAUDE_MODELS = [
+  'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5',
+  'claude-haiku-4-5-20251001', 'claude-haiku-4-5',
+  'claude-opus-4-5-20251101', 'claude-opus-4-5',
+  'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
+  'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307',
+  'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20240620'
+];
+const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
 const resolvedProvider = ['gemini', 'claude'].includes(aiProvider) ? aiProvider : 'openai';
@@ -73,8 +92,9 @@ const config = {
   geminiApiKey: process.env.GEMINI_API_KEY,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   aiProvider: resolvedProvider,
-  reasoningEffort: process.env.REASONING_EFFORT || 'minimal',
+  reasoningEffort: process.env.REASONING_EFFORT || 'none',
   responsesVerbosity: process.env.RESPONSES_VERBOSITY || 'low',
+  enableWebSearch: process.env.ENABLE_WEB_SEARCH === 'true' || process.env.ENABLE_WEB_SEARCH === '1',
   // Basic anti-spam/cost controls (in-memory, per process).
   userCooldownMs: parseInt(process.env.USER_COOLDOWN_MS, 10) || 4000,
   channelCooldownMs: parseInt(process.env.CHANNEL_COOLDOWN_MS, 10) || 1500,

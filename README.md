@@ -84,10 +84,9 @@ The following environment variables can be set in your `docker-compose.yml`:
 - `DISCORD_CLIENT_ID`
 - `LOG_LEVEL`
 - `MAX_HISTORY_LENGTH`
-- `MODEL_NAME` (OpenAI) or `GEMINI_MODEL_NAME` (Gemini)
-- `OPENAI_API_KEY` (when `AI_PROVIDER=openai`) or `GEMINI_API_KEY` (when `AI_PROVIDER=gemini`)
-- `REASONING_EFFORT`
-- `RESPONSES_VERBOSITY`
+- `MODEL_NAME` (OpenAI), `GEMINI_MODEL_NAME` (Gemini), or `CLAUDE_MODEL_NAME` (Claude)
+- `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` (depending on `AI_PROVIDER`)
+- `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH` (optional)
 
 You can either:
 - Add additional `bws secret get ...` lines to `docker-entrypoint.sh` to retrieve more optional settings from Bitwarden, **or**
@@ -100,13 +99,26 @@ You can either:
 | `AI_PROVIDER` | Backend to use: `openai`, `gemini`, or `claude`. | `openai` |
 | `MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
 | `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `MODEL_NAME` if unset. | `gemini-2.5-flash` |
-| `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `MODEL_NAME` if unset. | `claude-3-5-sonnet-20241022` |
+| `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `MODEL_NAME` if unset. | `claude-haiku-4-5-20251001` |
 
-**OpenAI models:** `gpt-5`, `gpt-5-nano`, `gpt-5-mini`  
-**Gemini models:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`  
-**Claude models:** `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`, `claude-3-haiku-20240307`, `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20240620`
+**OpenAI (Responses API, text + image, reasoning, verbosity, optional web search):**  
+`gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.2-pro`, `gpt-5-pro`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3`, `o4-mini`, `o3-pro`, `o3-mini`
+
+**Gemini (text + image, search grounding, thinking):**  
+`gemini-3-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.0-flash-lite`
+
+**Claude (vision, extended thinking on 4.5):**  
+`claude-sonnet-4-5-20250929`, `claude-sonnet-4-5`, `claude-haiku-4-5-20251001`, `claude-haiku-4-5`, `claude-opus-4-5-20251101`, `claude-opus-4-5`, `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`, `claude-3-haiku-20240307`, `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20240620`
 
 Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio](https://aistudio.google.com/apikey)); `ANTHROPIC_API_KEY` for Claude ([Anthropic Console](https://console.anthropic.com)).
+
+#### Reasoning, verbosity, and search
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `REASONING_EFFORT` | **OpenAI only.** Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`. GPT-5.2 also supports `none`; GPT-5.2-pro supports `medium`, `high`, `xhigh`. | `low` |
+| `RESPONSES_VERBOSITY` | **OpenAI GPT-5 only.** Response verbosity: `low`, `medium`, `high`. | `low` |
+| `ENABLE_WEB_SEARCH` | **OpenAI and Gemini.** Set to `true` or `1` to enable web search (OpenAI built-in tool; Gemini Google Search grounding). | off |
 
 #### Optional tuning variables
 

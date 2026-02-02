@@ -9,7 +9,8 @@ const {
   getTemperature,
   reasoningEffort,
   responsesVerbosity,
-  aiProvider
+  aiProvider,
+  enableWebSearch
 } = require('../config');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -179,11 +180,15 @@ async function generateGeminiResponse(conversation) {
     temperature: getTemperature()
   };
   if (systemWithImageHint) config.systemInstruction = systemWithImageHint;
+  if (enableWebSearch) {
+    config.tools = [{ googleSearch: {} }];
+  }
 
   logger.debug(`Sending conversation to Gemini API using model: ${modelName}.`, {
     messageCount: conversation.length,
     model: modelName,
     contentsLength: contents.length,
+    searchGrounding: enableWebSearch,
     hasImages: hasImages(conversation)
   });
 
@@ -241,7 +246,7 @@ async function generateClaudeResponse(conversation) {
 
   const params = {
     model: modelName,
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages,
     temperature: getTemperature()
   };
@@ -313,7 +318,7 @@ async function generateOpenAIResponse(conversation) {
       ? reasoningEffort.trim().toLowerCase()
       : '';
 
-    if (['low', 'medium', 'high'].includes(normalizedReasoningEffort)) {
+    if (['none', 'low', 'medium', 'high', 'xhigh'].includes(normalizedReasoningEffort)) {
       requestParams.reasoning = { effort: normalizedReasoningEffort };
     }
 
@@ -326,6 +331,10 @@ async function generateOpenAIResponse(conversation) {
         ...(requestParams.text || {}),
         verbosity: normalizedVerbosity
       };
+    }
+
+    if (enableWebSearch) {
+      requestParams.tools = [{ type: 'web_search' }];
     }
 
     let temperatureValue = null;
@@ -341,6 +350,7 @@ async function generateOpenAIResponse(conversation) {
       temperature: temperatureValue,
       reasoningEffort: normalizedReasoningEffort || undefined,
       verbosity: normalizedVerbosity || undefined,
+      webSearch: enableWebSearch,
       hasImages: hasImages(conversation)
     });
 
