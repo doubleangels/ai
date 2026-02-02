@@ -3,19 +3,40 @@ require('dotenv').config();
 const SUPPORTED_MODELS = ['gpt-5', 'gpt-5-nano', 'gpt-5-mini'];
 const DEFAULT_MODEL = 'gpt-5-nano';
 
-const envModel = (process.env.MODEL_NAME || '').trim();
-let resolvedModel = DEFAULT_MODEL;
+const SUPPORTED_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
-if (!envModel) {
-  resolvedModel = DEFAULT_MODEL;
-} else if (SUPPORTED_MODELS.includes(envModel)) {
-  resolvedModel = envModel;
+const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
+const resolvedProvider = aiProvider === 'gemini' ? 'gemini' : 'openai';
+
+const envModel = (process.env.MODEL_NAME || '').trim();
+const envGeminiModel = (process.env.GEMINI_MODEL_NAME || '').trim();
+
+let resolvedModel = DEFAULT_MODEL;
+const modelList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : SUPPORTED_MODELS;
+const defaultForProvider = resolvedProvider === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_MODEL;
+
+if (resolvedProvider === 'gemini') {
+  const candidate = envGeminiModel || envModel || defaultForProvider;
+  resolvedModel = modelList.includes(candidate) ? candidate : defaultForProvider;
+  if (candidate && !modelList.includes(candidate)) {
+    console.warn(
+      `Unsupported Gemini model "${candidate}". Falling back to "${resolvedModel}". ` +
+      `Supported: ${modelList.join(', ')}.`
+    );
+  }
 } else {
-  console.warn(
-    `Unsupported MODEL_NAME "${envModel}" provided. Falling back to default "${DEFAULT_MODEL}". ` +
-    `Supported models: ${SUPPORTED_MODELS.join(', ')}.`
-  );
-  resolvedModel = DEFAULT_MODEL;
+  if (!envModel) {
+    resolvedModel = DEFAULT_MODEL;
+  } else if (SUPPORTED_MODELS.includes(envModel)) {
+    resolvedModel = envModel;
+  } else {
+    console.warn(
+      `Unsupported MODEL_NAME "${envModel}" provided. Falling back to default "${DEFAULT_MODEL}". ` +
+      `Supported models: ${SUPPORTED_MODELS.join(', ')}.`
+    );
+    resolvedModel = DEFAULT_MODEL;
+  }
 }
 
 /**
@@ -32,6 +53,8 @@ const config = {
   maxHistoryTokens: parseInt(process.env.MAX_HISTORY_TOKENS, 10) || 0,
   modelName: resolvedModel,
   openaiApiKey: process.env.OPENAI_API_KEY,
+  geminiApiKey: process.env.GEMINI_API_KEY,
+  aiProvider: resolvedProvider,
   reasoningEffort: process.env.REASONING_EFFORT || 'minimal',
   responsesVerbosity: process.env.RESPONSES_VERBOSITY || 'low',
   // Basic anti-spam/cost controls (in-memory, per process).
@@ -55,5 +78,6 @@ function getTemperature() {
 module.exports = {
   ...config,
   SUPPORTED_MODELS,
+  SUPPORTED_GEMINI_MODELS,
   getTemperature
 };

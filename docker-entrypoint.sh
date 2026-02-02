@@ -11,6 +11,10 @@ export MODEL_NAME=$(bws secret get 93f40e94-f127-41da-990d-b3c9015e89f5 2>/dev/n
 export OPENAI_API_KEY=$(bws secret get 2380da26-4120-4f9f-a8bc-b3c9015e7487 2>/dev/null | jq -r '.value')
 export REASONING_EFFORT=$(bws secret get 19a9ee05-2b3f-419d-9d68-b3c9015ebeb8 2>/dev/null | jq -r '.value' 2>/dev/null || echo "minimal")
 export RESPONSES_VERBOSITY=$(bws secret get fee44254-3ab6-4f94-a221-b3c9015ee682 2>/dev/null | jq -r '.value' 2>/dev/null || echo "low")
+# Optional: use Gemini instead of OpenAI. Add AI_PROVIDER and GEMINI_API_KEY (and optionally GEMINI_MODEL_NAME) in Bitwarden, then set their secret IDs below.
+# export AI_PROVIDER=$(bws secret get YOUR_AI_PROVIDER_SECRET_ID 2>/dev/null | jq -r '.value' 2>/dev/null || echo "openai")
+# export GEMINI_API_KEY=$(bws secret get YOUR_GEMINI_API_KEY_SECRET_ID 2>/dev/null | jq -r '.value')
+# export GEMINI_MODEL_NAME=$(bws secret get YOUR_GEMINI_MODEL_NAME_SECRET_ID 2>/dev/null | jq -r '.value' 2>/dev/null || echo "gemini-2.5-flash")
 
 # Execute the command passed as arguments
 exec "$@"

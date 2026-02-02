@@ -5,14 +5,14 @@
 </div>
 <br>
 
-A feature-rich Discord bot powered by OpenAI's ChatGPT models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
+A feature-rich Discord bot powered by OpenAI's ChatGPT or Google's Gemini models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - [Discord Bot Token](https://discord.com/developers/applications) - Create a new application and bot
-- [OpenAI API Key](https://platform.openai.com/overview) - Get your API key from OpenAI
+- [OpenAI API Key](https://platform.openai.com/overview) or [Gemini API Key](https://aistudio.google.com/apikey) - Depending on which provider you use
 - [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) - For secure secret management
 - Docker and Docker Compose
 
@@ -23,8 +23,8 @@ A feature-rich Discord bot powered by OpenAI's ChatGPT models, designed to provi
    - Create secrets in your Bitwarden Secrets Manager project for:
      - `DISCORD_BOT_TOKEN`
      - `DISCORD_CLIENT_ID`
-     - `OPENAI_API_KEY`
-     - Optionally: `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `MODEL_NAME`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`
+     - `OPENAI_API_KEY` (when using OpenAI) or `GEMINI_API_KEY` (when using Gemini)
+     - Optionally: `AI_PROVIDER`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `MODEL_NAME`, `GEMINI_MODEL_NAME`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`
    - Note the secret IDs for each secret
    - Update `docker-entrypoint.sh` with your actual Bitwarden secret IDs
 
@@ -84,14 +84,27 @@ The following environment variables can be set in your `docker-compose.yml`:
 - `DISCORD_CLIENT_ID`
 - `LOG_LEVEL`
 - `MAX_HISTORY_LENGTH`
-- `MODEL_NAME`
-- `OPENAI_API_KEY`
+- `MODEL_NAME` (OpenAI) or `GEMINI_MODEL_NAME` (Gemini)
+- `OPENAI_API_KEY` (when `AI_PROVIDER=openai`) or `GEMINI_API_KEY` (when `AI_PROVIDER=gemini`)
 - `REASONING_EFFORT`
 - `RESPONSES_VERBOSITY`
 
 You can either:
 - Add additional `bws secret get ...` lines to `docker-entrypoint.sh` to retrieve more optional settings from Bitwarden, **or**
 - Provide optional settings as normal environment variables in your `docker-compose.yml` (recommended for non-sensitive tuning knobs).
+
+#### AI provider and models
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `AI_PROVIDER` | Backend to use: `openai` or `gemini`. | `openai` |
+| `MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
+| `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `MODEL_NAME` if unset. | `gemini-2.5-flash` |
+
+**OpenAI models:** `gpt-5`, `gpt-5-nano`, `gpt-5-mini`  
+**Gemini models:** `gemini-2.0-flash`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`
+
+Set `OPENAI_API_KEY` when using OpenAI; set `GEMINI_API_KEY` when using Gemini (get a key from [Google AI Studio](https://aistudio.google.com/apikey)).
 
 #### Optional tuning variables
 
@@ -103,12 +116,6 @@ You can either:
 | `MAX_PENDING_PER_CHANNEL` | Max queued requests per channel before the bot responds “busy”. | `3` |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | Timeout for downloading image attachments. | `8000` |
 | `MAX_IMAGE_BYTES` | Max bytes downloaded per image attachment. | `6000000` |
-
-### Supported Models
-
-- `gpt-5`
-- `gpt-5-nano`
-- `gpt-5-mini`
 
 ## 🖼️ Image Analysis
 
