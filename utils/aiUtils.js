@@ -6,12 +6,18 @@ const { URL } = require('url');
 const { imageDownloadTimeoutMs, maxImageBytes } = require('../config');
 
 /**
+ * Shared format rules for all providers: no titles, same general structure.
+ */
+const FORMAT_RULES = 'Do not start with a title or ## header; reply directly in a consistent, plain format. Keep every reply under 1500 characters, stay focused on the user\'s goal, and avoid filler. Use Discord markdown sparingly for clarity: **bold** for key terms, *italics* for subtle emphasis, bullet lists or numbered steps only when they organize information, `inline code` for identifiers, and fenced code blocks for longer snippets. If the user\'s request is ambiguous, ask for clarification before proceeding. Always provide actionable, trustworthy information tailored to the conversation context.';
+
+/**
  * System message constants. BASE includes the model name (for OpenAI); BASE_GENERIC does not (for Gemini/Claude).
+ * All providers use the same format rules (no titles, same structure).
  */
 const SYSTEM_MESSAGES = {
-  BASE: (modelName) => `You are an AI assistant running inside a Discord bot and powered by the ${modelName} model. You can analyze both text and images—describe only the details relevant to the user's request. Keep every reply under 1500 characters, stay focused on the user's goal, and avoid filler. Start with a concise title using \`##\` only when the response has multiple sentences or sections; skip the title for very short answers. Use Discord markdown sparingly for clarity: **bold** for key terms, *italics* for subtle emphasis, bullet lists or numbered steps only when they organize information, \`inline code\` for identifiers, and fenced code blocks for longer snippets. If the user's request is ambiguous, ask for clarification before proceeding. Always provide actionable, trustworthy information tailored to the conversation context.`,
-  BASE_GENERIC: 'You are an AI assistant running inside a Discord bot. You can analyze both text and images—describe only the details relevant to the user\'s request. Keep every reply under 1500 characters, stay focused on the user\'s goal, and avoid filler. Start with a concise title using `##` only when the response has multiple sentences or sections; skip the title for very short answers. Use Discord markdown sparingly for clarity: **bold** for key terms, *italics* for subtle emphasis, bullet lists or numbered steps only when they organize information, `inline code` for identifiers, and fenced code blocks for longer snippets. If the user\'s request is ambiguous, ask for clarification before proceeding. Always provide actionable, trustworthy information tailored to the conversation context.',
-  IMAGE_ANALYSIS: "When analyzing images, focus on the elements that answer the user's question. Keep the description short, factual, and relevant; avoid ornamental details.",
+  BASE: (modelName) => `You are an AI assistant running inside a Discord bot and powered by the ${modelName} model. You can analyze both text and images—describe only the details relevant to the user's request. ${FORMAT_RULES}`,
+  BASE_GENERIC: `You are an AI assistant running inside a Discord bot. You can analyze both text and images—describe only the details relevant to the user's request. ${FORMAT_RULES}`,
+  IMAGE_ANALYSIS: "When analyzing images, focus on the elements that answer the user's question. Keep the description short, factual, and relevant; avoid ornamental details. Do not use titles or headers.",
   IMAGE_DESCRIPTION_PROMPT: "Give a brief description of this image, highlighting only the key elements."
 };
 

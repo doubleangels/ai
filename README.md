@@ -116,7 +116,7 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `REASONING_EFFORT` | **OpenAI only.** Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`. GPT-5.2 also supports `none`; GPT-5.2-pro supports `medium`, `high`, `xhigh`. | `low` |
+| `REASONING_EFFORT` | **OpenAI only.** Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`. GPT-5.2 also supports `none`; GPT-5.2-pro supports `medium`, `high`, `xhigh`. | `none` |
 | `RESPONSES_VERBOSITY` | **OpenAI GPT-5 only.** Response verbosity: `low`, `medium`, `high`. | `low` |
 | `ENABLE_WEB_SEARCH` | **OpenAI and Gemini.** Set to `true` or `1` to enable web search (OpenAI built-in tool; Gemini Google Search grounding). | off |
 
@@ -124,6 +124,7 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 
 | Variable | Description | Default |
 | --- | --- | --- |
+| `MAX_OUTPUT_TOKENS` | Max tokens per reply (all providers). Clamped 256–65536. Lower values reduce cost. | `1024` |
 | `MAX_HISTORY_TOKENS` | Rough token-estimated cap for stored per-channel conversation history (in addition to `MAX_HISTORY_LENGTH`). `0` disables token trimming. | `0` |
 | `USER_COOLDOWN_MS` | Minimum time between requests per user (basic anti-spam/cost control). | `4000` |
 | `CHANNEL_COOLDOWN_MS` | Minimum time between requests per channel (reduces pile-ups). | `1500` |

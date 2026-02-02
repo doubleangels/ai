@@ -13,6 +13,7 @@ export GEMINI_API_KEY=$(bws secret get 040ab025-5ab8-4818-905d-b3e50137fad2 2>/d
 export GEMINI_MODEL_NAME=$(bws secret get 9b60afa3-5db8-470a-8c01-b3e501379a7a 2>/dev/null | jq -r '.value' 2>/dev/null || echo "gemini-2.5-flash")
 export LOG_LEVEL=$(bws secret get 8d4bad36-599b-4de5-856a-b3c9015efb4e 2>/dev/null | jq -r '.value' 2>/dev/null || echo "info")
 export MAX_HISTORY_LENGTH=$(bws secret get e957f841-7c04-4aea-9a6a-b3c9015ea3ad 2>/dev/null | jq -r '.value' 2>/dev/null || echo "20")
+export MAX_OUTPUT_TOKENS=$(bws secret get 46d9763d-3f6b-4fd2-a17f-b3e501843298 2>/dev/null | jq -r '.value' 2>/dev/null || echo "1024")
 export MODEL_NAME=$(bws secret get 93f40e94-f127-41da-990d-b3c9015e89f5 2>/dev/null | jq -r '.value' 2>/dev/null || echo "gpt-5-nano")
 export OPENAI_API_KEY=$(bws secret get 2380da26-4120-4f9f-a8bc-b3c9015e7487 2>/dev/null | jq -r '.value')
 export REASONING_EFFORT=$(bws secret get 19a9ee05-2b3f-419d-9d68-b3c9015ebeb8 2>/dev/null | jq -r '.value' 2>/dev/null || echo "none")

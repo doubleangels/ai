@@ -10,7 +10,8 @@ const {
   reasoningEffort,
   responsesVerbosity,
   aiProvider,
-  enableWebSearch
+  enableWebSearch,
+  maxOutputTokens
 } = require('../config');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -246,7 +247,7 @@ async function generateClaudeResponse(conversation) {
 
   const params = {
     model: modelName,
-    max_tokens: 8192,
+    max_tokens: maxOutputTokens,
     messages,
     temperature: getTemperature()
   };
@@ -311,7 +312,8 @@ async function generateOpenAIResponse(conversation) {
 
     const requestParams = {
       model: modelName,
-      input: messages
+      input: messages,
+      max_output_tokens: maxOutputTokens
     };
 
     const normalizedReasoningEffort = typeof reasoningEffort === 'string'

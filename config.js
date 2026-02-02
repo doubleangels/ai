@@ -95,6 +95,8 @@ const config = {
   reasoningEffort: process.env.REASONING_EFFORT || 'none',
   responsesVerbosity: process.env.RESPONSES_VERBOSITY || 'low',
   enableWebSearch: process.env.ENABLE_WEB_SEARCH === 'true' || process.env.ENABLE_WEB_SEARCH === '1',
+  // Max output tokens per response (all providers). Cost-effective default; increase via MAX_OUTPUT_TOKENS if needed.
+  maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
   // Basic anti-spam/cost controls (in-memory, per process).
   userCooldownMs: parseInt(process.env.USER_COOLDOWN_MS, 10) || 4000,
   channelCooldownMs: parseInt(process.env.CHANNEL_COOLDOWN_MS, 10) || 1500,
