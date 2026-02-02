@@ -11,10 +11,10 @@ export MODEL_NAME=$(bws secret get 93f40e94-f127-41da-990d-b3c9015e89f5 2>/dev/n
 export OPENAI_API_KEY=$(bws secret get 2380da26-4120-4f9f-a8bc-b3c9015e7487 2>/dev/null | jq -r '.value')
 export REASONING_EFFORT=$(bws secret get 19a9ee05-2b3f-419d-9d68-b3c9015ebeb8 2>/dev/null | jq -r '.value' 2>/dev/null || echo "minimal")
 export RESPONSES_VERBOSITY=$(bws secret get fee44254-3ab6-4f94-a221-b3c9015ee682 2>/dev/null | jq -r '.value' 2>/dev/null || echo "low")
-# Gemini: load AI_PROVIDER and GEMINI_API_KEY from Bitwarden. Replace the IDs below with your actual secret IDs (run "bws secret list" to see them).
-export AI_PROVIDER=$(bws secret get YOUR_AI_PROVIDER_SECRET_ID 2>/dev/null | jq -r '.value' 2>/dev/null || echo "openai")
-export GEMINI_API_KEY=$(bws secret get YOUR_GEMINI_API_KEY_SECRET_ID 2>/dev/null | jq -r '.value')
-export GEMINI_MODEL_NAME=$(bws secret get YOUR_GEMINI_MODEL_NAME_SECRET_ID 2>/dev/null | jq -r '.value' 2>/dev/null || echo "gemini-2.5-flash")
-
+export AI_PROVIDER=$(bws secret get ca2456a9-366c-4096-ac9d-b3e501374eb9 2>/dev/null | jq -r '.value' 2>/dev/null || echo "openai")
+export GEMINI_API_KEY=$(bws secret get 040ab025-5ab8-4818-905d-b3e50137fad2 2>/dev/null | jq -r '.value')
+export GEMINI_MODEL_NAME=$(bws secret get 9b60afa3-5db8-470a-8c01-b3e501379a7a 2>/dev/null | jq -r '.value' 2>/dev/null || echo "gemini-2.5-flash")
+export ANTHROPIC_API_KEY=$(bws secret get 1353220e-5248-47af-92ac-b3e5013d80b5 2>/dev/null | jq -r '.value')
+export CLAUDE_MODEL_NAME=$(bws secret get c76a1f90-6f82-4f74-92bd-b3e5013d9c83 2>/dev/null | jq -r '.value' 2>/dev/null || echo "claude-3-5-sonnet-20241022")
 # Execute the command passed as arguments
 exec "$@"

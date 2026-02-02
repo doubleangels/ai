@@ -1,8 +1,10 @@
 const { OpenAI } = require('openai');
 const { GoogleGenAI } = require('@google/genai');
+const Anthropic = require('@anthropic-ai/sdk');
 const {
   openaiApiKey,
   geminiApiKey,
+  anthropicApiKey,
   modelName,
   getTemperature,
   reasoningEffort,
@@ -35,6 +37,12 @@ const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
  * @type {GoogleGenAI|null}
  */
 const genAI = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+
+/**
+ * Anthropic client (used when aiProvider === 'claude').
+ * @type {Anthropic|null}
+ */
+const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) : null;
 
 /**
  * Parses a data URL (e.g. data:image/png;base64,XXX) into mimeType and base64 data for Gemini.
@@ -94,6 +102,56 @@ function conversationToGeminiFormat(conversation) {
 }
 
 /**
+ * Converts internal conversation format to Claude API system and messages.
+ * @param {Array<{role: string, content: string|Array}>} conversation - Internal conversation messages
+ * @returns {{ system: string|undefined, messages: Array<{ role: string, content: string|Array }> }}
+ */
+function conversationToClaudeFormat(conversation) {
+  let system;
+  const messages = [];
+
+  for (const msg of conversation) {
+    if (msg.role === 'system') {
+      const text = typeof msg.content === 'string' ? msg.content : '';
+      if (text.trim()) system = text;
+      continue;
+    }
+
+    if (msg.role === 'user') {
+      const content = msg.content;
+      if (Array.isArray(content)) {
+        const blocks = [];
+        for (const item of content) {
+          if (item.type === 'input_text' && typeof item.text === 'string' && item.text.trim()) {
+            blocks.push({ type: 'text', text: item.text.trim() });
+          }
+          if (item.type === 'input_image' && item.image_url) {
+            const parsed = parseDataUrl(item.image_url);
+            if (parsed) {
+              blocks.push({
+                type: 'image',
+                source: { type: 'base64', media_type: parsed.mimeType, data: parsed.data }
+              });
+            }
+          }
+        }
+        if (blocks.length > 0) messages.push({ role: 'user', content: blocks });
+      } else if (typeof content === 'string' && content.trim()) {
+        messages.push({ role: 'user', content: content.trim() });
+      }
+      continue;
+    }
+
+    if (msg.role === 'assistant') {
+      const text = typeof msg.content === 'string' ? msg.content : '';
+      if (text.trim()) messages.push({ role: 'assistant', content: text.trim() });
+    }
+  }
+
+  return { system, messages };
+}
+
+/**
  * Generates an AI response using the Gemini API.
  * @param {Array<{role: string, content: string|Array}>} conversation - Conversation history
  * @returns {Promise<string>} Generated reply or empty string on failure
@@ -149,6 +207,72 @@ async function generateGeminiResponse(conversation) {
     return text.trim();
   } catch (apiError) {
     logger.error('Gemini API request failed.', {
+      error: apiError?.stack,
+      message: apiError?.message,
+      model: modelName
+    });
+    return '';
+  }
+}
+
+/**
+ * Generates an AI response using the Claude (Anthropic) API.
+ * @param {Array<{role: string, content: string|Array}>} conversation - Conversation history
+ * @returns {Promise<string>} Generated reply or empty string on failure
+ */
+async function generateClaudeResponse(conversation) {
+  if (!anthropic) {
+    logger.error('Anthropic API key not configured (ANTHROPIC_API_KEY).');
+    return '';
+  }
+
+  const { system, messages } = conversationToClaudeFormat(conversation);
+  if (messages.length === 0) {
+    logger.error('No valid user/assistant turns for Claude.');
+    return '';
+  }
+
+  let systemWithImageHint = system;
+  if (hasImages(conversation) && system) {
+    systemWithImageHint = system + '\n\n' + SYSTEM_MESSAGES.IMAGE_ANALYSIS;
+  } else if (hasImages(conversation)) {
+    systemWithImageHint = SYSTEM_MESSAGES.IMAGE_ANALYSIS;
+  }
+
+  const params = {
+    model: modelName,
+    max_tokens: 4096,
+    messages,
+    temperature: getTemperature()
+  };
+  if (systemWithImageHint) params.system = systemWithImageHint;
+
+  logger.debug(`Sending conversation to Claude API using model: ${modelName}.`, {
+    messageCount: conversation.length,
+    model: modelName,
+    messagesLength: messages.length,
+    hasImages: hasImages(conversation)
+  });
+
+  try {
+    const response = await anthropic.messages.create(params);
+    const textBlock = response.content && response.content[0] && response.content[0].type === 'text'
+      ? response.content[0].text
+      : '';
+    const text = (textBlock && textBlock.trim()) || '';
+
+    if (!text) {
+      logger.warn('Claude response is empty.');
+      return 'I apologize, but I couldn\'t generate a response. Please try again.';
+    }
+
+    logger.info('Generated AI response successfully (Claude):', {
+      charCount: text.length,
+      model: modelName
+    });
+    return text.trim();
+  } catch (apiError) {
+    logger.error('Claude API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
       model: modelName
@@ -280,7 +404,7 @@ async function generateOpenAIResponse(conversation) {
 }
 
 /**
- * Generates an AI response using the configured provider (OpenAI or Gemini).
+ * Generates an AI response using the configured provider (OpenAI, Gemini, or Claude).
  *
  * @param {Array<{role: string, content: string|Array}>} conversation - Array of conversation messages
  * @returns {Promise<string>} The generated AI response, or empty string if generation fails
@@ -293,6 +417,9 @@ async function generateAIResponse(conversation) {
 
   if (aiProvider === 'gemini') {
     return generateGeminiResponse(conversation);
+  }
+  if (aiProvider === 'claude') {
+    return generateClaudeResponse(conversation);
   }
   return generateOpenAIResponse(conversation);
 }

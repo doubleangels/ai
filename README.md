@@ -5,14 +5,14 @@
 </div>
 <br>
 
-A feature-rich Discord bot powered by OpenAI's ChatGPT or Google's Gemini models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
+A feature-rich Discord bot powered by OpenAI (ChatGPT), Google (Gemini), or Anthropic (Claude) models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - [Discord Bot Token](https://discord.com/developers/applications) - Create a new application and bot
-- [OpenAI API Key](https://platform.openai.com/overview) or [Gemini API Key](https://aistudio.google.com/apikey) - Depending on which provider you use
+- [OpenAI](https://platform.openai.com/overview), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com) API key - Depending on which provider you use
 - [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) - For secure secret management
 - Docker and Docker Compose
 
@@ -97,14 +97,16 @@ You can either:
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `AI_PROVIDER` | Backend to use: `openai` or `gemini`. | `openai` |
+| `AI_PROVIDER` | Backend to use: `openai`, `gemini`, or `claude`. | `openai` |
 | `MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
 | `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `MODEL_NAME` if unset. | `gemini-2.5-flash` |
+| `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `MODEL_NAME` if unset. | `claude-3-5-sonnet-20241022` |
 
 **OpenAI models:** `gpt-5`, `gpt-5-nano`, `gpt-5-mini`  
-**Gemini models:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`
+**Gemini models:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`  
+**Claude models:** `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`, `claude-3-haiku-20240307`, `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20240620`
 
-Set `OPENAI_API_KEY` when using OpenAI; set `GEMINI_API_KEY` when using Gemini (get a key from [Google AI Studio](https://aistudio.google.com/apikey)).
+Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio](https://aistudio.google.com/apikey)); `ANTHROPIC_API_KEY` for Claude ([Anthropic Console](https://console.anthropic.com)).
 
 #### Optional tuning variables
 

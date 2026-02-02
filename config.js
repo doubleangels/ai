@@ -6,22 +6,39 @@ const DEFAULT_MODEL = 'gpt-5-nano';
 const SUPPORTED_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
+const SUPPORTED_CLAUDE_MODELS = ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20240620'];
+const DEFAULT_CLAUDE_MODEL = 'claude-3-5-sonnet-20241022';
+
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
-const resolvedProvider = aiProvider === 'gemini' ? 'gemini' : 'openai';
+const resolvedProvider = ['gemini', 'claude'].includes(aiProvider) ? aiProvider : 'openai';
 
 const envModel = (process.env.MODEL_NAME || '').trim();
 const envGeminiModel = (process.env.GEMINI_MODEL_NAME || '').trim();
+const envClaudeModel = (process.env.CLAUDE_MODEL_NAME || '').trim();
 
 let resolvedModel = DEFAULT_MODEL;
-const modelList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : SUPPORTED_MODELS;
-const defaultForProvider = resolvedProvider === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_MODEL;
+let modelList = SUPPORTED_MODELS;
+let defaultForProvider = DEFAULT_MODEL;
 
 if (resolvedProvider === 'gemini') {
+  modelList = SUPPORTED_GEMINI_MODELS;
+  defaultForProvider = DEFAULT_GEMINI_MODEL;
   const candidate = envGeminiModel || envModel || defaultForProvider;
   resolvedModel = modelList.includes(candidate) ? candidate : defaultForProvider;
   if (candidate && !modelList.includes(candidate)) {
     console.warn(
       `Unsupported Gemini model "${candidate}". Falling back to "${resolvedModel}". ` +
+      `Supported: ${modelList.join(', ')}.`
+    );
+  }
+} else if (resolvedProvider === 'claude') {
+  modelList = SUPPORTED_CLAUDE_MODELS;
+  defaultForProvider = DEFAULT_CLAUDE_MODEL;
+  const candidate = envClaudeModel || envModel || defaultForProvider;
+  resolvedModel = modelList.includes(candidate) ? candidate : defaultForProvider;
+  if (candidate && !modelList.includes(candidate)) {
+    console.warn(
+      `Unsupported Claude model "${candidate}". Falling back to "${resolvedModel}". ` +
       `Supported: ${modelList.join(', ')}.`
     );
   }
@@ -54,6 +71,7 @@ const config = {
   modelName: resolvedModel,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   aiProvider: resolvedProvider,
   reasoningEffort: process.env.REASONING_EFFORT || 'minimal',
   responsesVerbosity: process.env.RESPONSES_VERBOSITY || 'low',
@@ -79,5 +97,6 @@ module.exports = {
   ...config,
   SUPPORTED_MODELS,
   SUPPORTED_GEMINI_MODELS,
+  SUPPORTED_CLAUDE_MODELS,
   getTemperature
 };
