@@ -1,10 +1,11 @@
+# syntax=docker/dockerfile:1.4
 # Dockerfile for AI Bot
 # Multi-stage build for optimized image size and security
 # Debian-based image for bws (Bitwarden) compatibility
 
-# Use specific Node.js slim version for smaller image size (Debian for bws compatibility)
 FROM node:24.13.0-trixie-slim AS base
 
+# Set environment variables early for better caching
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production
 
@@ -42,10 +43,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Install dependencies with BuildKit cache mount for faster rebuilds
 # Using --omit=dev to exclude dev dependencies in production build
 RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/app/.npm \
     npm ci --omit=dev && \
     npm cache clean --force
 
-# Remove build dependencies to reduce image size
+# Remove build dependencies in same layer to reduce image size
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get purge -y --auto-remove \
@@ -59,7 +61,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 FROM base AS runtime
 
 # Install runtime dependencies and bws in a single layer with BuildKit cache
-# jq is kept as it's needed by the entrypoint script
+# jq is kept as it's needed by the entrypoint script (bws requires glibc/Debian)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
@@ -85,7 +87,7 @@ COPY --chown=discordbot:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
 # Use .dockerignore to exclude unnecessary files from build context
 COPY --chown=discordbot:nodejs . .
 
-# Set permissions and create data directory
+# Set permissions and create data directory in a single layer
 RUN chmod +x /app/docker-entrypoint.sh && \
     mkdir -p /app/data && \
     chown -R discordbot:nodejs /app && \
