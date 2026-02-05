@@ -29,27 +29,19 @@ COPY package*.json ./
 # Build stage for native modules
 FROM base AS builder
 
-# Install build dependencies for native modules with BuildKit cache
+# Install build deps, install dependencies, then purge build deps in a single layer
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/app/.npm \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
     build-essential && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install dependencies with BuildKit cache mount for faster rebuilds
-# Using --omit=dev to exclude dev dependencies in production build
-RUN --mount=type=cache,target=/root/.npm \
-    --mount=type=cache,target=/app/.npm \
     npm ci --omit=dev && \
-    npm cache clean --force
-
-# Remove build dependencies in same layer to reduce image size
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    npm cache clean --force && \
     apt-get purge -y --auto-remove \
     python3 \
     make \
