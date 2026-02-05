@@ -107,12 +107,16 @@ module.exports = {
         userId,
         message: error.message
       });
-      
+
       const embed = new EmbedBuilder()
         .setColor(0xFF0000)
         .setTitle('⚠️ Error')
         .setDescription('An error occurred while trying to reset the conversation history.');
-      await interaction.deleteReply();
+      try {
+        await interaction.deleteReply();
+      } catch (_) {
+        // Reply may already be deleted or used; still try to send error via followUp
+      }
       await interaction.followUp({ embeds: [embed], ephemeral: true });
     }
   },

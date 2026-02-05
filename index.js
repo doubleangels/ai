@@ -172,6 +172,7 @@ process.on('unhandledRejection', (reason, promise) => {
     error: reason?.stack,
     message: reason?.message || String(reason)
   });
+  process.exit(1);
 });
 
 process.on('SIGINT', () => {

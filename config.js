@@ -35,44 +35,26 @@ const envModel = (process.env.MODEL_NAME || '').trim();
 const envGeminiModel = (process.env.GEMINI_MODEL_NAME || '').trim();
 const envClaudeModel = (process.env.CLAUDE_MODEL_NAME || '').trim();
 
-let resolvedModel = DEFAULT_MODEL;
-let modelList = SUPPORTED_MODELS;
-let defaultForProvider = DEFAULT_MODEL;
+let resolvedModel;
+let defaultForProvider;
 
+// Use whatever model is set for the selected provider (env or default).
 if (resolvedProvider === 'gemini') {
-  modelList = SUPPORTED_GEMINI_MODELS;
   defaultForProvider = DEFAULT_GEMINI_MODEL;
-  const candidate = envGeminiModel || envModel || defaultForProvider;
-  resolvedModel = modelList.includes(candidate) ? candidate : defaultForProvider;
-  if (candidate && !modelList.includes(candidate)) {
-    console.warn(
-      `Unsupported Gemini model "${candidate}". Falling back to "${resolvedModel}". ` +
-      `Supported: ${modelList.join(', ')}.`
-    );
-  }
+  resolvedModel = (envGeminiModel || envModel || defaultForProvider).trim() || defaultForProvider;
 } else if (resolvedProvider === 'claude') {
-  modelList = SUPPORTED_CLAUDE_MODELS;
   defaultForProvider = DEFAULT_CLAUDE_MODEL;
-  const candidate = envClaudeModel || envModel || defaultForProvider;
-  resolvedModel = modelList.includes(candidate) ? candidate : defaultForProvider;
-  if (candidate && !modelList.includes(candidate)) {
-    console.warn(
-      `Unsupported Claude model "${candidate}". Falling back to "${resolvedModel}". ` +
-      `Supported: ${modelList.join(', ')}.`
-    );
-  }
+  resolvedModel = (envClaudeModel || envModel || defaultForProvider).trim() || defaultForProvider;
 } else {
-  if (!envModel) {
-    resolvedModel = DEFAULT_MODEL;
-  } else if (SUPPORTED_MODELS.includes(envModel)) {
-    resolvedModel = envModel;
-  } else {
-    console.warn(
-      `Unsupported MODEL_NAME "${envModel}" provided. Falling back to default "${DEFAULT_MODEL}". ` +
-      `Supported models: ${SUPPORTED_MODELS.join(', ')}.`
-    );
-    resolvedModel = DEFAULT_MODEL;
-  }
+  resolvedModel = (envModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+}
+
+const supportedList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : resolvedProvider === 'claude' ? SUPPORTED_CLAUDE_MODELS : SUPPORTED_MODELS;
+if (!supportedList.includes(resolvedModel)) {
+  console.error(
+    `Unsupported ${resolvedProvider} model "${resolvedModel}". Supported: ${supportedList.join(', ')}.`
+  );
+  process.exit(1);
 }
 
 /**
@@ -95,7 +77,7 @@ const config = {
   reasoningEffort: process.env.REASONING_EFFORT || 'none',
   responsesVerbosity: process.env.RESPONSES_VERBOSITY || 'low',
   enableWebSearch: process.env.ENABLE_WEB_SEARCH === 'true' || process.env.ENABLE_WEB_SEARCH === '1',
-  // Max output tokens per response (all providers). Cost-effective default; increase via MAX_OUTPUT_TOKENS if needed.
+  // Max output tokens per response (all providers). Unset, invalid, or 0 => use default 1024; clamped to 256–65536.
   maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
   // Basic anti-spam/cost controls (in-memory, per process).
   userCooldownMs: parseInt(process.env.USER_COOLDOWN_MS, 10) || 4000,

@@ -19,9 +19,20 @@ async function deployCommands() {
   const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
   
   for (const file of commandFiles) {
-    const command = require(`./commands/${file}`);
-    commands.push(command.data.toJSON());
-    logger.debug(`Loaded command: ${file}`);
+    try {
+      const command = require(`./commands/${file}`);
+      commands.push(command.data.toJSON());
+      logger.debug(`Loaded command: ${file}`);
+    } catch (err) {
+      logger.error(`Failed to load command file: ${file}, skipping.`, {
+        error: err?.stack,
+        message: err?.message
+      });
+    }
+  }
+
+  if (commands.length === 0) {
+    throw new Error('No commands could be loaded. Check the errors above.');
   }
   
   const rest = new REST({ version: '10' }).setToken(config.token);
