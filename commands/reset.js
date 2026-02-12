@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType } = require('discord.js'); 
+const { SlashCommandBuilder, EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js'); 
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 
@@ -14,6 +14,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('reset')
     .setDescription('Reset conversation history for a specific channel or all channels.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(option =>
       option
         .setName('channel')
