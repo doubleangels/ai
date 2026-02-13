@@ -11,7 +11,10 @@ const {
   responsesVerbosity,
   aiProvider,
   enableWebSearch,
-  maxOutputTokens
+  enableGoogleMaps,
+  maxOutputTokens,
+  enableContextCache,
+  geminiCacheTtlSeconds
 } = require('../config');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -45,6 +48,9 @@ const genAI = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
  * @type {Anthropic|null}
  */
 const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) : null;
+
+/** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
+let geminiCacheEntry = null;
 
 /**
  * Parses a data URL (e.g. data:image/png;base64,XXX) into mimeType and base64 data for Gemini.
@@ -180,9 +186,41 @@ async function generateGeminiResponse(conversation) {
   const config = {
     temperature: getTemperature()
   };
-  if (systemWithImageHint) config.systemInstruction = systemWithImageHint;
-  if (enableWebSearch) {
-    config.tools = [{ googleSearch: {} }];
+
+  let useCachedContent = false;
+  if (enableContextCache && systemWithImageHint && genAI.caches) {
+    const now = Date.now();
+    if (geminiCacheEntry && geminiCacheEntry.systemInstruction === systemWithImageHint && geminiCacheEntry.expiresAt > now) {
+      config.cachedContent = geminiCacheEntry.name;
+      useCachedContent = true;
+    } else {
+      try {
+        const cache = await genAI.caches.create({
+          model: modelName,
+          config: {
+            systemInstruction: systemWithImageHint,
+            ttl: `${geminiCacheTtlSeconds}s`,
+            displayName: 'ai-bot-system'
+          }
+        });
+        const expiresAt = now + geminiCacheTtlSeconds * 1000;
+        geminiCacheEntry = { name: cache.name, expiresAt, systemInstruction: systemWithImageHint };
+        config.cachedContent = cache.name;
+        useCachedContent = true;
+        logger.debug('Created Gemini context cache.', { name: cache.name, ttlSeconds: geminiCacheTtlSeconds });
+      } catch (cacheErr) {
+        logger.warn('Gemini context cache creation failed, falling back to uncached.', {
+          message: cacheErr?.message
+        });
+        config.systemInstruction = systemWithImageHint;
+      }
+    }
+  }
+  if (!useCachedContent && systemWithImageHint) config.systemInstruction = systemWithImageHint;
+  if (enableWebSearch || enableGoogleMaps) {
+    config.tools = [];
+    if (enableWebSearch) config.tools.push({ googleSearch: {} });
+    if (enableGoogleMaps) config.tools.push({ googleMaps: {} });
   }
 
   logger.debug(`Sending conversation to Gemini API using model: ${modelName}.`, {
@@ -190,7 +228,9 @@ async function generateGeminiResponse(conversation) {
     model: modelName,
     contentsLength: contents.length,
     searchGrounding: enableWebSearch,
-    hasImages: hasImages(conversation)
+    mapsGrounding: enableGoogleMaps,
+    hasImages: hasImages(conversation),
+    usingContextCache: useCachedContent
   });
 
   try {
@@ -251,13 +291,20 @@ async function generateClaudeResponse(conversation) {
     messages,
     temperature: getTemperature()
   };
-  if (systemWithImageHint) params.system = systemWithImageHint;
+  if (systemWithImageHint) {
+    if (enableContextCache) {
+      params.system = [{ type: 'text', text: systemWithImageHint, cache_control: { type: 'ephemeral' } }];
+    } else {
+      params.system = systemWithImageHint;
+    }
+  }
 
   logger.debug(`Sending conversation to Claude API using model: ${modelName}.`, {
     messageCount: conversation.length,
     model: modelName,
     messagesLength: messages.length,
-    hasImages: hasImages(conversation)
+    hasImages: hasImages(conversation),
+    promptCacheEnabled: enableContextCache
   });
 
   try {
@@ -302,6 +349,7 @@ async function generateOpenAIResponse(conversation) {
   try {
     const supportsTemp = supportsCustomTemperature(modelName);
 
+    // Keep system and static content first for OpenAI automatic prompt caching (≥1024 tokens; cache-friendly order).
     let messages = [...conversation];
     if (hasImages(conversation)) {
       messages.push({

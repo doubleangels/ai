@@ -78,6 +78,10 @@ const config = {
   reasoningEffort: process.env.REASONING_EFFORT || 'none',
   responsesVerbosity: process.env.RESPONSES_VERBOSITY || 'low',
   enableWebSearch: process.env.ENABLE_WEB_SEARCH === 'true' || process.env.ENABLE_WEB_SEARCH === '1',
+  enableGoogleMaps: process.env.ENABLE_GOOGLE_MAPS === 'true' || process.env.ENABLE_GOOGLE_MAPS === '1',
+  // Context / prompt caching (reduces cost and latency for repeated static content). Single switch for all providers.
+  enableContextCache: process.env.ENABLE_CONTEXT_CACHE === 'true' || process.env.ENABLE_CONTEXT_CACHE === '1',
+  geminiCacheTtlSeconds: Math.max(60, Math.min(86400 * 24, parseInt(process.env.GEMINI_CACHE_TTL_SECONDS, 10) || 3600)),
   // Max output tokens per response (all providers). Unset, invalid, or 0 => use default 1024; clamped to 256–65536.
   maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
   // Basic anti-spam/cost controls (in-memory, per process).

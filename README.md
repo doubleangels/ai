@@ -86,7 +86,8 @@ The following environment variables can be set in your `docker-compose.yml`:
 - `MAX_HISTORY_LENGTH`
 - `MODEL_NAME` (OpenAI), `GEMINI_MODEL_NAME` (Gemini), or `CLAUDE_MODEL_NAME` (Claude)
 - `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` (depending on `AI_PROVIDER`)
-- `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH` (optional)
+- `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS` (optional)
+- Context caching: `ENABLE_CONTEXT_CACHE`, `GEMINI_CACHE_TTL_SECONDS` (optional)
 
 You can either:
 - Add additional `bws secret get ...` lines to `docker-entrypoint.sh` to retrieve more optional settings from Bitwarden, **or**
@@ -119,6 +120,7 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 | `REASONING_EFFORT` | **OpenAI only.** Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`. GPT-5.2 also supports `none`; GPT-5.2-pro supports `medium`, `high`, `xhigh`. | `none` |
 | `RESPONSES_VERBOSITY` | **OpenAI GPT-5 only.** Response verbosity: `low`, `medium`, `high`. | `low` |
 | `ENABLE_WEB_SEARCH` | **OpenAI and Gemini.** Set to `true` or `1` to enable web search (OpenAI built-in tool; Gemini Google Search grounding). | off |
+| `ENABLE_GOOGLE_MAPS` | **Gemini only.** Set to `true` or `1` to enable grounding with Google Maps (places, area summaries, location-aware answers). | off |
 
 #### Optional tuning variables
 
@@ -131,6 +133,15 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 | `MAX_PENDING_PER_CHANNEL` | Max queued requests per channel before the bot responds “busy”. | `3` |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | Timeout for downloading image attachments. | `8000` |
 | `MAX_IMAGE_BYTES` | Max bytes downloaded per image attachment. | `6000000` |
+
+#### Context caching
+
+Reduces cost and latency by caching static prompt content. Single switch for all providers. Can be stored in Bitwarden Secrets Manager or set in your environment.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `ENABLE_CONTEXT_CACHE` | Set to `true` or `1` to enable context/prompt caching for all providers. | `false` |
+| `GEMINI_CACHE_TTL_SECONDS` | TTL for Gemini context cache (60–2073600). | `3600` |
 
 ## 🖼️ Image Analysis
 
