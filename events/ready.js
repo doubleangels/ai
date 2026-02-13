@@ -41,16 +41,6 @@ module.exports = {
       });
     }
 
-    if (!client.conversationHistory) {
-      client.conversationHistory = new Map();
-      logger.debug('Initialized conversation history storage.');
-    }
-
-    if (!client.channelLocks) {
-      client.channelLocks = new Map();
-      logger.debug('Initialized channel locks storage.');
-    }
-
     logger.info('Bot is ready and setup complete.', {
       readyTimestamp: new Date().toISOString()
     });

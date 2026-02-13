@@ -83,8 +83,7 @@ COPY --chown=discordbot:nodejs . .
 RUN chmod +x /app/docker-entrypoint.sh && \
     mkdir -p /app/data && \
     chown -R discordbot:nodejs /app && \
-    chmod 750 /app/data && \
-    chmod +x /app/scripts/*.sh 2>/dev/null || true
+    chmod 750 /app/data
 
 # Create volume mount point for database persistence
 VOLUME ["/app/data"]

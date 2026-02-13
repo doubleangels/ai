@@ -268,9 +268,16 @@ module.exports = {
         logger.info(`Sending AI response (${reply.length} chars) for message ${message.id} in channel ${channelId}.`);
 
         const messageChunks = splitMessage(reply);
-        
+
         try {
-          if (messageChunks.length === 1) {
+          if (messageChunks.length === 0) {
+            const fallback = "⚠️ No response to send.";
+            if (thinkingMessage) {
+              await thinkingMessage.edit({ content: fallback, allowedMentions: SAFE_ALLOWED_MENTIONS });
+            } else {
+              await message.reply({ content: fallback, allowedMentions: SAFE_ALLOWED_MENTIONS });
+            }
+          } else if (messageChunks.length === 1) {
             if (thinkingMessage) {
               await thinkingMessage.edit({
                 content: messageChunks[0],

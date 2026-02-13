@@ -62,10 +62,11 @@ if (!supportedList.includes(resolvedModel)) {
  * Loads environment variables with fallback values where appropriate.
  * @type {Object}
  */
+const parsedHistoryLength = parseInt(process.env.MAX_HISTORY_LENGTH, 10);
 const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
   logLevel: process.env.LOG_LEVEL || 'info',
-  maxHistoryLength: parseInt(process.env.MAX_HISTORY_LENGTH, 10) || 20,
+  maxHistoryLength: (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) ? 20 : parsedHistoryLength,
   // Rough, token-estimated cap for stored history (in addition to maxHistoryLength).
   // If unset/invalid, token trimming is effectively disabled.
   maxHistoryTokens: parseInt(process.env.MAX_HISTORY_TOKENS, 10) || 0,

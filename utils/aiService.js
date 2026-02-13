@@ -361,10 +361,10 @@ async function generateOpenAIResponse(conversation) {
       response = await openai.responses.create(requestParams);
     } catch (apiError) {
       logger.error('API request failed.', {
-        error: apiError.stack,
-        message: apiError.message,
+        error: apiError?.stack,
+        message: apiError?.message,
         model: modelName,
-        statusCode: apiError.status || 'unknown'
+        statusCode: apiError?.status ?? 'unknown'
       });
       return '';
     }
@@ -404,12 +404,12 @@ async function generateOpenAIResponse(conversation) {
     return reply;
   } catch (error) {
     logger.error('Error generating AI response:', {
-      error: error.stack,
-      message: error.message,
+      error: error?.stack,
+      message: error?.message,
       model: modelName,
-      errorType: error.type || 'unknown',
-      errorCode: error.code || 'unknown',
-      statusCode: error.status || 'unknown'
+      errorType: error?.type ?? 'unknown',
+      errorCode: error?.code ?? 'unknown',
+      statusCode: error?.status ?? 'unknown'
     });
     return '';
   }

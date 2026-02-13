@@ -42,7 +42,7 @@ function splitMessage(text, limit = 2000) {
   try {
     if (!text) {
       logger.debug('Empty text provided to splitMessage, returning empty array.');
-      return [''];
+      return [];
     }
     
     if (text.length <= limit) {
@@ -357,11 +357,12 @@ function estimateMessageTokens(message) {
 
 /**
  * Trims conversation history to maintain maximum length while preserving system message.
- * 
- * @param {Array} channelHistory - The conversation history array
+ * Mutates channelHistory in place; callers must pass the array they want modified.
+ *
+ * @param {Array} channelHistory - The conversation history array (mutated in place)
  * @param {number} maxHistoryLength - Maximum number of messages to keep
  * @param {number} [maxHistoryTokens=0] - Rough token cap (0 disables token trimming)
- * @returns {Array} The trimmed conversation history
+ * @returns {Array} The same channelHistory array (trimmed)
  */
 function trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTokens = 0) {
   if (!Array.isArray(channelHistory) || channelHistory.length === 0) return channelHistory;
