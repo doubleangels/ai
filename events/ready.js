@@ -9,8 +9,6 @@ const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const { modelName } = require('../config');
 
-const GUILD_ID_TO_LEAVE = '1449885091755982908';
-
 module.exports = {
   name: 'clientReady',
   once: true,
@@ -18,23 +16,11 @@ module.exports = {
    * Handles the ready event when the bot starts up.
    * Sets up the bot's activity, logs guild information,
    * and initializes conversation history storage.
-   *
+   * 
    * @param {import('discord.js').Client} client - The Discord client instance
    * @returns {void}
    */
   execute(client) {
-    const guildToLeave = client.guilds.cache.get(GUILD_ID_TO_LEAVE);
-    if (guildToLeave) {
-      guildToLeave.leave().then(() => {
-        logger.info(`Left guild ${GUILD_ID_TO_LEAVE} (${guildToLeave.name}).`);
-      }).catch(err => {
-        logger.error(`Failed to leave guild ${GUILD_ID_TO_LEAVE}.`, {
-          error: err?.stack,
-          message: err?.message
-        });
-      });
-    }
-
     try {
       logger.info(`Bot is online: ${client.user.tag}`);
       logger.info(`Using AI model: ${modelName}`);
