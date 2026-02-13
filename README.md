@@ -78,16 +78,13 @@ The following environment variables can be set in your `docker-compose.yml`:
 | ------------------ | ------------------------------------------ | :------: | :-----: | ------- |
 | `BWS_ACCESS_TOKEN` | Access token for Bitwarden Secrets Manager |    ✅    |    -    | -       |
 
-**Note:** Most secrets and API keys are retrieved from Bitwarden Secrets Manager during container startup (via `docker-entrypoint.sh`). You must provide `BWS_ACCESS_TOKEN` for the bot to access these secrets. By default, this repository’s `docker-entrypoint.sh` retrieves:
+**Note:** Most secrets and API keys are retrieved from Bitwarden Secrets Manager during container startup (via `docker-entrypoint.sh`). You must provide `BWS_ACCESS_TOKEN` for the bot to access these secrets. The entrypoint exports the following (replace the secret IDs in `docker-entrypoint.sh` with your Bitwarden secret IDs):
 
-- `DISCORD_BOT_TOKEN`
-- `DISCORD_CLIENT_ID`
-- `LOG_LEVEL`
-- `MAX_HISTORY_LENGTH`
-- `MODEL_NAME` (OpenAI), `GEMINI_MODEL_NAME` (Gemini), or `CLAUDE_MODEL_NAME` (Claude)
-- `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` (depending on `AI_PROVIDER`)
-- `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS` (optional)
-- Context caching: `ENABLE_CONTEXT_CACHE`, `GEMINI_CACHE_TTL_SECONDS` (optional)
+- `AI_PROVIDER`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_NAME`, `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`
+- `ENABLE_CONTEXT_CACHE`, `ENABLE_GOOGLE_MAPS`, `ENABLE_WEB_SEARCH`
+- `GEMINI_API_KEY`, `GEMINI_CACHE_TTL_SECONDS`, `GEMINI_MODEL_NAME`
+- `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_OUTPUT_TOKENS`, `MODEL_NAME`
+- `OPENAI_API_KEY`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`
 
 You can either:
 - Add additional `bws secret get ...` lines to `docker-entrypoint.sh` to retrieve more optional settings from Bitwarden, **or**
