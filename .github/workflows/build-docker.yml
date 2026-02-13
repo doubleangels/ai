@@ -101,8 +101,8 @@ jobs:
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
-          retain_days: 30
-          keep_minimum_runs: 5
+          retain_days: 14
+          keep_minimum_runs: 10
           delete_workflow_pattern: build-docker
           check_pullrequest_exist: true
 
