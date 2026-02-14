@@ -18,7 +18,10 @@ const {
 } = require('../config');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
-const { hasImages, SYSTEM_MESSAGES } = require('./aiUtils');
+const { hasImages, SYSTEM_MESSAGES, estimateTokensFromText } = require('./aiUtils');
+
+/** Gemini context cache minimum token count (API requirement; Flash 1024, Pro 4096 — use 2048 to be safe). */
+const GEMINI_MIN_CACHE_TOKENS = 2048;
 
 /**
  * Determines if the model supports custom temperature values.
@@ -188,7 +191,10 @@ async function generateGeminiResponse(conversation) {
   };
 
   let useCachedContent = false;
-  if (enableContextCache && systemWithImageHint && genAI.caches) {
+  const systemTokenEstimate = systemWithImageHint ? estimateTokensFromText(systemWithImageHint) : 0;
+  const meetsMinForCache = systemTokenEstimate >= GEMINI_MIN_CACHE_TOKENS;
+
+  if (enableContextCache && systemWithImageHint && genAI.caches && meetsMinForCache) {
     const now = Date.now();
     if (geminiCacheEntry && geminiCacheEntry.systemInstruction === systemWithImageHint && geminiCacheEntry.expiresAt > now) {
       config.cachedContent = geminiCacheEntry.name;

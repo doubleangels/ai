@@ -416,12 +416,13 @@ function createSystemMessage(modelName, includeModelInPrompt = true) {
   };
 }
 
-module.exports = { 
+module.exports = {
   splitMessage,
   downloadImageAsBase64,
   createMessageContent,
   processImageAttachments,
   hasImages,
+  estimateTokensFromText,
   trimConversationHistory,
   createSystemMessage,
   SYSTEM_MESSAGES

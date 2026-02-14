@@ -172,8 +172,34 @@ module.exports = {
       });
       logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
 
-      const userText = message.content.replace(botMention, '@AI').trim();
-      
+      let userText = message.content.replace(botMention, '@AI').trim();
+
+      // Collect referenced messages (replied-to message, and if replying to bot, the message the bot was replying to)
+      const messagesToCheckForRef = [];
+      if (referencedMessage) {
+        messagesToCheckForRef.push(referencedMessage);
+        if (isReplyToBot && referencedMessage.reference?.messageId) {
+          try {
+            const parentOfReply = await message.channel.messages.fetch(referencedMessage.reference.messageId);
+            messagesToCheckForRef.push(parentOfReply);
+          } catch (err) {
+            logger.debug('Could not fetch parent of replied-to message.', { messageId: referencedMessage.reference.messageId });
+          }
+        }
+      }
+
+      // Include text from replied-to message(s) so the model has that context (skip bot's own message; we add it as assistant turn)
+      const quotedTextParts = [];
+      for (const msg of messagesToCheckForRef) {
+        if (msg.author.id === client.user.id) continue;
+        const text = (msg.content || '').trim();
+        if (text) quotedTextParts.push(text);
+      }
+      if (quotedTextParts.length > 0) {
+        const quotedBlock = quotedTextParts.join('\n\n');
+        userText = userText ? `[Replying to:\n${quotedBlock}]\n\n${userText}` : `[Replying to:\n${quotedBlock}]`;
+      }
+
       let imageContents = [];
       if (message.attachments && message.attachments.size > 0) {
         logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}`);
@@ -181,18 +207,17 @@ module.exports = {
         logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
       }
 
-      // Check if replying to another user's message with images
-      if (referencedMessage && !isReplyToBot && referencedMessage.author.id !== client.user.id) {
-        if (referencedMessage.attachments && referencedMessage.attachments.size > 0) {
-          const referencedImageAttachments = Array.from(referencedMessage.attachments.values()).filter(
+      // Include images from the message we're replying to (so "reply to image message" sends the image to the model)
+      for (const msg of messagesToCheckForRef) {
+        if (msg.attachments && msg.attachments.size > 0) {
+          const imageAttachments = Array.from(msg.attachments.values()).filter(
             attachment => attachment.contentType && attachment.contentType.startsWith('image/')
           );
-          
-          if (referencedImageAttachments.length > 0) {
-            logger.debug(`Processing ${referencedImageAttachments.length} image(s) from referenced message ${referencedMessage.id}`);
-            const referencedImages = await processImageAttachments(referencedImageAttachments);
-            imageContents.push(...referencedImages);
-            logger.info(`Processed ${referencedImages.length} image(s) from referenced message ${referencedMessage.id}`);
+          if (imageAttachments.length > 0) {
+            logger.debug(`Processing ${imageAttachments.length} image(s) from referenced message ${msg.id}`);
+            const processed = await processImageAttachments(imageAttachments);
+            imageContents.push(...processed);
+            logger.info(`Processed ${processed.length} image(s) from referenced message ${msg.id}`);
           }
         }
       }
