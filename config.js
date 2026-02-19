@@ -82,8 +82,21 @@ const config = {
   // Context / prompt caching (reduces cost and latency for repeated static content). Single switch for all providers.
   enableContextCache: process.env.ENABLE_CONTEXT_CACHE === 'true' || process.env.ENABLE_CONTEXT_CACHE === '1',
   geminiCacheTtlSeconds: Math.max(60, Math.min(86400 * 24, parseInt(process.env.GEMINI_CACHE_TTL_SECONDS, 10) || 3600)),
+  // Gemini safety/generation: optional JSON array of { category, threshold } (e.g. [{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]). Unset = API defaults.
+  geminiSafetySettings: (() => {
+    const raw = process.env.GEMINI_SAFETY_SETTINGS;
+    if (!raw || typeof raw !== 'string') return undefined;
+    try {
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) && arr.length > 0 ? arr : undefined;
+    } catch (_) {
+      return undefined;
+    }
+  })(),
   // Max output tokens per response (all providers). Unset, invalid, or 0 => use default 1024; clamped to 256–65536.
   maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
+  // Claude extended thinking: token budget for reasoning (0 = disabled). Only used for models that support it (e.g. 4.5).
+  claudeThinkingBudgetTokens: Math.max(0, Math.min(32000, parseInt(process.env.CLAUDE_THINKING_BUDGET_TOKENS, 10) || 0)),
   // Basic anti-spam/cost controls (in-memory, per process).
   userCooldownMs: parseInt(process.env.USER_COOLDOWN_MS, 10) || 4000,
   channelCooldownMs: parseInt(process.env.CHANNEL_COOLDOWN_MS, 10) || 1500,
@@ -91,6 +104,9 @@ const config = {
   // Image download safety limits
   imageDownloadTimeoutMs: parseInt(process.env.IMAGE_DOWNLOAD_TIMEOUT_MS, 10) || 8000,
   maxImageBytes: parseInt(process.env.MAX_IMAGE_BYTES, 10) || 6_000_000,
+  // OpenAI client: request timeout (ms) and max retries for transient failures.
+  openaiTimeoutMs: Math.max(5000, Math.min(300000, parseInt(process.env.OPENAI_TIMEOUT_MS, 10) || 60000)),
+  openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) ?? 2)),
   token: process.env.DISCORD_BOT_TOKEN,
 };
 

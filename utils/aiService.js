@@ -14,7 +14,11 @@ const {
   enableGoogleMaps,
   maxOutputTokens,
   enableContextCache,
-  geminiCacheTtlSeconds
+  geminiCacheTtlSeconds,
+  claudeThinkingBudgetTokens,
+  geminiSafetySettings,
+  openaiTimeoutMs,
+  openaiMaxRetries
 } = require('../config');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -35,10 +39,16 @@ function supportsCustomTemperature(model) {
 }
 
 /**
- * OpenAI client instance configured with API key (used when aiProvider === 'openai').
+ * OpenAI client instance configured with API key, timeout, and retries (used when aiProvider === 'openai').
  * @type {OpenAI}
  */
-const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
+const openai = openaiApiKey
+  ? new OpenAI({
+      apiKey: openaiApiKey,
+      timeout: openaiTimeoutMs,
+      maxRetries: openaiMaxRetries
+    })
+  : null;
 
 /**
  * Google GenAI client (used when aiProvider === 'gemini').
@@ -54,6 +64,39 @@ const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) :
 
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
+
+/** Claude model IDs that support extended thinking (4.5 family and Sonnet/Opus 4). */
+const CLAUDE_EXTENDED_THINKING_MODELS = [
+  'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5',
+  'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-opus-4-5-20251101',
+  'claude-sonnet-4-20250514'
+];
+
+function claudeSupportsExtendedThinking(model) {
+  return CLAUDE_EXTENDED_THINKING_MODELS.some(m => model && model.startsWith(m));
+}
+
+/** Claude tools: optional tools the model can call. */
+const CLAUDE_TOOLS = [
+  {
+    name: 'get_current_time',
+    description: 'Returns the current date and time in ISO 8601 format (UTC). Use when the user asks for the current time, date, or "now".',
+    input_schema: { type: 'object', properties: {}, additional_properties: false }
+  }
+];
+
+/**
+ * Executes a Claude tool by name and returns the result string.
+ * @param {string} name - Tool name
+ * @param {Object} input - Tool input
+ * @returns {string} Result to send back to Claude
+ */
+function executeClaudeTool(name, input) {
+  if (name === 'get_current_time') {
+    return new Date().toISOString();
+  }
+  return JSON.stringify({ error: `Unknown tool: ${name}` });
+}
 
 /**
  * Parses a data URL (e.g. data:image/png;base64,XXX) into mimeType and base64 data for Gemini.
@@ -228,6 +271,9 @@ async function generateGeminiResponse(conversation) {
     if (enableWebSearch) config.tools.push({ googleSearch: {} });
     if (enableGoogleMaps) config.tools.push({ googleMaps: {} });
   }
+  if (geminiSafetySettings && geminiSafetySettings.length > 0) {
+    config.safetySettings = geminiSafetySettings;
+  }
 
   logger.debug(`Sending conversation to Gemini API using model: ${modelName}.`, {
     messageCount: conversation.length,
@@ -236,7 +282,8 @@ async function generateGeminiResponse(conversation) {
     searchGrounding: enableWebSearch,
     mapsGrounding: enableGoogleMaps,
     hasImages: hasImages(conversation),
-    usingContextCache: useCachedContent
+    usingContextCache: useCachedContent,
+    safetySettings: config.safetySettings ? config.safetySettings.length : 0
   });
 
   try {
@@ -305,31 +352,63 @@ async function generateClaudeResponse(conversation) {
     }
   }
 
+  if (claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(modelName)) {
+    params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
+  }
+
+  params.tools = CLAUDE_TOOLS;
+
   logger.debug(`Sending conversation to Claude API using model: ${modelName}.`, {
     messageCount: conversation.length,
     model: modelName,
     messagesLength: messages.length,
     hasImages: hasImages(conversation),
-    promptCacheEnabled: enableContextCache
+    promptCacheEnabled: enableContextCache,
+    extendedThinking: params.thinking ? params.thinking.budget_tokens : undefined
   });
 
   try {
-    const response = await anthropic.messages.create(params);
-    const textBlock = response.content && response.content[0] && response.content[0].type === 'text'
-      ? response.content[0].text
-      : '';
-    const text = (textBlock && textBlock.trim()) || '';
+    let currentMessages = [...messages];
+    const maxToolRounds = 5;
+    let round = 0;
+    let response;
 
-    if (!text) {
-      logger.warn('Claude response is empty.');
-      return 'I apologize, but I couldn\'t generate a response. Please try again.';
+    while (round < maxToolRounds) {
+      response = await anthropic.messages.create({ ...params, messages: currentMessages });
+
+      const toolUseBlocks = (response.content || []).filter(b => b.type === 'tool_use');
+      if (toolUseBlocks.length === 0) {
+        const textBlock = response.content && response.content.find(b => b.type === 'text');
+        const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
+        if (!text) {
+          logger.warn('Claude response is empty.');
+          return 'I apologize, but I couldn\'t generate a response. Please try again.';
+        }
+        logger.info('Generated AI response successfully (Claude):', {
+          charCount: text.length,
+          model: modelName,
+          toolRounds: round
+        });
+        return text;
+      }
+
+      const toolResults = toolUseBlocks.map(block => ({
+        type: 'tool_result',
+        tool_use_id: block.id,
+        content: executeClaudeTool(block.name, block.input || {})
+      }));
+
+      currentMessages.push({ role: 'assistant', content: response.content });
+      currentMessages.push({ role: 'user', content: toolResults });
+      round++;
+      logger.debug('Claude tool use round.', { round, tools: toolUseBlocks.map(b => b.name) });
     }
 
-    logger.info('Generated AI response successfully (Claude):', {
-      charCount: text.length,
-      model: modelName
-    });
-    return text.trim();
+    const textBlock = response.content && response.content.find(b => b.type === 'text');
+    const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
+    if (text) return text;
+    logger.warn('Claude hit max tool rounds without final text.');
+    return 'I apologize, but I couldn\'t complete that request. Please try again.';
   } catch (apiError) {
     logger.error('Claude API request failed.', {
       error: apiError?.stack,

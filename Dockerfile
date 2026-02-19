@@ -52,36 +52,30 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Final runtime stage
 FROM base AS runtime
 
-# Install runtime dependencies and bws in a single layer with BuildKit cache
-# jq is kept as it's needed by the entrypoint script (bws requires glibc/Debian)
+# Install Doppler CLI for runtime secrets (replaces bws/Bitwarden)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    jq \
-    unzip && \
-    curl -fL -o /tmp/bws.zip https://github.com/bitwarden/sdk/releases/download/bws-v1.0.0/bws-x86_64-unknown-linux-gnu-1.0.0.zip && \
-    unzip -q /tmp/bws.zip -d /usr/local/bin/ && \
-    rm -f /tmp/bws.zip && \
-    chmod +x /usr/local/bin/bws && \
-    apt-get purge -y --auto-remove curl unzip && \
+    gnupg && \
+    curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://packages.doppler.com/public/cli/gpg.DE2A7741A397C129.key' | gpg --dearmor -o /usr/share/keyrings/doppler-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/doppler-archive-keyring.gpg] https://packages.doppler.com/public/cli/deb/debian any-version main" | tee /etc/apt/sources.list.d/doppler-cli.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends doppler && \
+    apt-get purge -y --auto-remove curl gnupg && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy node_modules from builder stage (before app files for better caching)
 COPY --from=builder --chown=discordbot:nodejs /app/node_modules ./node_modules
-
-# Copy entrypoint script first (changes less frequently than app code)
-COPY --chown=discordbot:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
 
 # Copy application files (this layer changes most frequently)
 # Use .dockerignore to exclude unnecessary files from build context
 COPY --chown=discordbot:nodejs . .
 
 # Set permissions and create data directory in a single layer
-RUN chmod +x /app/docker-entrypoint.sh && \
-    mkdir -p /app/data && \
+RUN mkdir -p /app/data && \
     chown -R discordbot:nodejs /app && \
     chmod 750 /app/data
 
@@ -92,7 +86,7 @@ VOLUME ["/app/data"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD pgrep -f "node.*index.js" > /dev/null || exit 1
 
-# Entrypoint runs as root to fix permissions, then switches to discordbot user
-ENTRYPOINT ["dumb-init", "--", "/app/docker-entrypoint.sh"]
+# Doppler injects secrets as env vars at runtime. Pass DOPPLER_TOKEN when running the container.
+ENTRYPOINT ["dumb-init", "--", "doppler", "run", "--"]
 
 CMD ["gosu", "discordbot", "node", "index.js"]
