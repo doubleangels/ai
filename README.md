@@ -13,20 +13,18 @@ A feature-rich Discord bot powered by OpenAI (ChatGPT), Google (Gemini), or Anth
 
 - [Discord Bot Token](https://discord.com/developers/applications) - Create a new application and bot
 - [OpenAI](https://platform.openai.com/overview), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com) API key - Depending on which provider you use
-- [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) - For secure secret management
+- [Doppler](https://www.doppler.com/) - For secure secret management at runtime
 - Docker and Docker Compose
 
 ### Docker Deployment
 
-1. **Set up Bitwarden Secrets Manager:**
+1. **Set up Doppler:**
 
-   - Create secrets in your Bitwarden Secrets Manager project for:
-     - `DISCORD_BOT_TOKEN`
-     - `DISCORD_CLIENT_ID`
-     - `OPENAI_API_KEY` (when using OpenAI) or `GEMINI_API_KEY` (when using Gemini)
-     - Optionally: `AI_PROVIDER`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `MODEL_NAME`, `GEMINI_MODEL_NAME`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`
-   - Note the secret IDs for each secret
-   - Update `docker-entrypoint.sh` with your actual Bitwarden secret IDs
+   - Create a [Doppler](https://www.doppler.com/) project and config (e.g. `dev`, `prd`)
+   - Add the following secrets to your Doppler config:
+     - **Required:** `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, and one of: `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`
+     - **Optional:** `AI_PROVIDER`, `OPENAI_MODEL_NAME`, `GEMINI_MODEL_NAME`, `CLAUDE_MODEL_NAME`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS`, `ENABLE_CONTEXT_CACHE`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`, and others listed in Configuration below
+   - Create a **service token** for the config and copy it (you will pass it as `DOPPLER_TOKEN`)
 
 2. **Create a `docker-compose.yml` file:**
 
@@ -46,58 +44,46 @@ services:
       - no-new-privileges:true
     read_only: true
     environment:
-      - BWS_ACCESS_TOKEN=${BWS_ACCESS_TOKEN}
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN}
     tmpfs:
       - /tmp
 ```
 
-3. **Set the BWS access token and deploy:**
+3. **Set the Doppler token and deploy:**
 
 ```bash
-export BWS_ACCESS_TOKEN=your_bws_access_token_here
-docker-compose up -d
+export DOPPLER_TOKEN=your_doppler_service_token_here
+docker compose up -d
 ```
 
 ## ⚙️ Configuration
 
-### Bitwarden Secrets Manager Setup
+### Doppler Setup
 
-This bot uses [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) (BWS) to securely manage secrets. Secrets are retrieved at container startup via the `docker-entrypoint.sh` script.
+This bot uses [Doppler](https://www.doppler.com/) to inject secrets as environment variables at runtime. The container runs `doppler run -- ...` so all keys in your Doppler config are available to the app.
 
-**Required Steps:**
+**Required:**
 
-1. Create secrets in your Bitwarden Secrets Manager project
-2. Update `docker-entrypoint.sh` with your actual Bitwarden secret IDs
-3. Set the `BWS_ACCESS_TOKEN` environment variable when running the container
+1. Create a Doppler project and config (e.g. `prd`).
+2. Add your secrets in the Doppler dashboard (or CLI). At minimum: `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, and one of `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`.
+3. Generate a **service token** for that config and pass it when running the container as `DOPPLER_TOKEN` (e.g. in `docker-compose.yml` or your orchestration).
 
 ### Environment Variables
 
-The following environment variables can be set in your `docker-compose.yml`:
+| Variable           | Description                                      | Required | Default | Example |
+| ------------------ | ------------------------------------------------- | :------: | :-----: | ------- |
+| `DOPPLER_TOKEN`   | Doppler service token for the project/config      |    ✅    |    -    | -       |
 
-| Variable           | Description                                | Required | Default | Example |
-| ------------------ | ------------------------------------------ | :------: | :-----: | ------- |
-| `BWS_ACCESS_TOKEN` | Access token for Bitwarden Secrets Manager |    ✅    |    -    | -       |
-
-**Note:** Most secrets and API keys are retrieved from Bitwarden Secrets Manager during container startup (via `docker-entrypoint.sh`). You must provide `BWS_ACCESS_TOKEN` for the bot to access these secrets. The entrypoint exports the following (replace the secret IDs in `docker-entrypoint.sh` with your Bitwarden secret IDs):
-
-- `AI_PROVIDER`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_NAME`, `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`
-- `ENABLE_CONTEXT_CACHE`, `ENABLE_GOOGLE_MAPS`, `ENABLE_WEB_SEARCH`
-- `GEMINI_API_KEY`, `GEMINI_CACHE_TTL_SECONDS`, `GEMINI_MODEL_NAME`
-- `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_OUTPUT_TOKENS`, `MODEL_NAME`
-- `OPENAI_API_KEY`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`
-
-You can either:
-- Add additional `bws secret get ...` lines to `docker-entrypoint.sh` to retrieve more optional settings from Bitwarden, **or**
-- Provide optional settings as normal environment variables in your `docker-compose.yml` (recommended for non-sensitive tuning knobs).
+All other variables below can be stored in Doppler (recommended) or set in `environment` in your `docker-compose.yml`. The app reads them after Doppler injects them at startup.
 
 #### AI provider and models
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `AI_PROVIDER` | Backend to use: `openai`, `gemini`, or `claude`. | `openai` |
-| `MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
-| `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `MODEL_NAME` if unset. | `gemini-2.5-flash` |
-| `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `MODEL_NAME` if unset. | `claude-haiku-4-5-20251001` |
+| `OPENAI_MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
+| `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `OPENAI_MODEL_NAME` if unset. | `gemini-2.5-flash` |
+| `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `OPENAI_MODEL_NAME` if unset. | `claude-haiku-4-5-20251001` |
 
 **OpenAI (Responses API, text + image, reasoning, verbosity, optional web search):**  
 `gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.2-pro`, `gpt-5-pro`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3`, `o4-mini`, `o3-pro`, `o3-mini`
@@ -130,15 +116,29 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 | `MAX_PENDING_PER_CHANNEL` | Max queued requests per channel before the bot responds “busy”. | `3` |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | Timeout for downloading image attachments. | `8000` |
 | `MAX_IMAGE_BYTES` | Max bytes downloaded per image attachment. | `6000000` |
+| `OPENAI_TIMEOUT_MS` | **OpenAI only.** Request timeout in milliseconds (5000–300000). | `60000` |
+| `OPENAI_MAX_RETRIES` | **OpenAI only.** Max retries for transient failures (0–5). | `2` |
 
 #### Context caching
 
-Reduces cost and latency by caching static prompt content. Single switch for all providers. Can be stored in Bitwarden Secrets Manager or set in your environment.
+Reduces cost and latency by caching static prompt content. Single switch for all providers. Can be stored in Doppler or set in your environment.
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `ENABLE_CONTEXT_CACHE` | Set to `true` or `1` to enable context/prompt caching for all providers. | `false` |
 | `GEMINI_CACHE_TTL_SECONDS` | TTL for Gemini context cache (60–2073600). | `3600` |
+
+#### Claude extended thinking
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | **Claude only.** Token budget for extended thinking on supported 4.5 models (0 = disabled, max 32000). | `0` |
+
+#### Gemini safety
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `GEMINI_SAFETY_SETTINGS` | **Gemini only.** JSON array of `{"category":"...","threshold":"..."}` to tune safety filters. Example: `[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]`. Unset = API defaults. | - |
 
 ## 🖼️ Image Analysis
 

@@ -31,7 +31,7 @@ const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
 const resolvedProvider = ['gemini', 'claude'].includes(aiProvider) ? aiProvider : 'openai';
 
-const envModel = (process.env.MODEL_NAME || '').trim();
+const envOpenaiModel = (process.env.OPENAI_MODEL_NAME || '').trim();
 const envGeminiModel = (process.env.GEMINI_MODEL_NAME || '').trim();
 const envClaudeModel = (process.env.CLAUDE_MODEL_NAME || '').trim();
 
@@ -41,12 +41,12 @@ let defaultForProvider;
 // Use whatever model is set for the selected provider (env or default).
 if (resolvedProvider === 'gemini') {
   defaultForProvider = DEFAULT_GEMINI_MODEL;
-  resolvedModel = (envGeminiModel || envModel || defaultForProvider).trim() || defaultForProvider;
+  resolvedModel = (envGeminiModel || envOpenaiModel || defaultForProvider).trim() || defaultForProvider;
 } else if (resolvedProvider === 'claude') {
   defaultForProvider = DEFAULT_CLAUDE_MODEL;
-  resolvedModel = (envClaudeModel || envModel || defaultForProvider).trim() || defaultForProvider;
+  resolvedModel = (envClaudeModel || envOpenaiModel || defaultForProvider).trim() || defaultForProvider;
 } else {
-  resolvedModel = (envModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  resolvedModel = (envOpenaiModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
 }
 
 const supportedList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : resolvedProvider === 'claude' ? SUPPORTED_CLAUDE_MODELS : SUPPORTED_MODELS;
