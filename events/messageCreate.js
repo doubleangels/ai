@@ -1,4 +1,4 @@
-const { Events, MessageType, EmbedBuilder } = require('discord.js');
+const { Events, MessageType } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
 const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES } = require('../utils/aiUtils');
 const path = require('path');
@@ -315,19 +315,14 @@ module.exports = {
               });
             }
           } else {
-            const firstChunk = messageChunks[0];
-            const embed = new EmbedBuilder()
-              .setDescription(firstChunk)
-              .setColor(0x5865F2);
             if (thinkingMessage) {
               await thinkingMessage.edit({
-                content: null,
-                embeds: [embed],
+                content: messageChunks[0],
                 allowedMentions: SAFE_ALLOWED_MENTIONS
               });
             } else {
               await message.reply({
-                embeds: [embed],
+                content: messageChunks[0],
                 allowedMentions: SAFE_ALLOWED_MENTIONS
               });
             }
