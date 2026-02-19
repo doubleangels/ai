@@ -82,6 +82,9 @@ RUN mkdir -p /app/data && \
 # Create volume mount point for database persistence
 VOLUME ["/app/data"]
 
+# Doppler config/cache dir; use /tmp so it works when root FS is read-only (compose tmpfs: /tmp)
+ENV DOPPLER_CONFIG_DIR=/tmp
+
 # Add health check - verify the bot process is running
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD pgrep -f "node.*index.js" > /dev/null || exit 1

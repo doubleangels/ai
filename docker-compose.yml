@@ -11,6 +11,7 @@ services:
       - SETUID
     security_opt:
       - no-new-privileges:true
+    read_only: true
     environment:
       - BWS_ACCESS_TOKEN=${BWS_ACCESS_TOKEN}
     tmpfs:
