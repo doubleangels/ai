@@ -286,8 +286,9 @@ async function generateGeminiResponse(conversation) {
     safetySettings: config.safetySettings ? config.safetySettings.length : 0
   });
 
+  let response;
   try {
-    const response = await genAI.models.generateContent({
+    response = await genAI.models.generateContent({
       model: modelName,
       contents: contents,
       config
@@ -305,6 +306,48 @@ async function generateGeminiResponse(conversation) {
     });
     return text.trim();
   } catch (apiError) {
+    const isLikelyStaleCache = useCachedContent && (
+      apiError?.status === 404 ||
+      apiError?.code === 404 ||
+      (typeof apiError?.message === 'string' && (
+        apiError.message.includes('cached') ||
+        apiError.message.includes('not found') ||
+        apiError.message.includes('NOT_FOUND') ||
+        apiError.message.includes('invalid') ||
+        apiError.message.includes('INVALID_ARGUMENT')
+      ))
+    );
+    if (isLikelyStaleCache) {
+      geminiCacheEntry = null;
+      logger.warn('Gemini cached content likely expired or invalid, retrying without cache.', {
+        message: apiError?.message
+      });
+      const retryConfig = { ...config };
+      delete retryConfig.cachedContent;
+      if (systemWithImageHint) retryConfig.systemInstruction = systemWithImageHint;
+      try {
+        response = await genAI.models.generateContent({
+          model: modelName,
+          contents: contents,
+          config: retryConfig
+        });
+        const retryText = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
+        if (retryText && retryText.trim()) {
+          logger.info('Generated AI response successfully (Gemini, retry without cache).', {
+            charCount: retryText.length,
+            model: modelName
+          });
+          return retryText.trim();
+        }
+      } catch (retryErr) {
+        logger.error('Gemini API retry without cache failed.', {
+          error: retryErr?.stack,
+          message: retryErr?.message,
+          model: modelName
+        });
+        return '';
+      }
+    }
     logger.error('Gemini API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
