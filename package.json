@@ -4,7 +4,7 @@
   "description": "A Discord bot that uses AI to respond to messages.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "doppler run -- node index.js",
     "dev": "nodemon index.js",
     "deploy": "node deploy-commands.js"
   },
