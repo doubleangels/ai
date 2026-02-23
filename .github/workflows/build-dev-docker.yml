@@ -44,14 +44,14 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner on repository
         uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: 'fs'
           ignore-unfixed: true
           format: 'sarif'
           output: 'trivy-results.sarif'
-          severity: 'CRITICAL'
+          severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v4
@@ -85,17 +85,33 @@ jobs:
             type=raw,value=dev,enable={{is_default_branch}}
 
       - name: Build and push Docker Image
+        id: build
         uses: docker/build-push-action@v6.19.2
         with:
           context: .
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ai-dev
           cache-to: type=gha,mode=max,scope=ai-dev
           provenance: ${{ github.event_name != 'pull_request' }}
           sbom: ${{ github.event_name != 'pull_request' }}
+
+      - name: Run Trivy vulnerability scanner on container image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: 'ghcr.io/${{ github.repository_owner }}/ai:${{ github.event_name == "pull_request" && format("pr-{0}", github.event.pull_request.number) || "dev" }}'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy image scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-image-results.sarif'
 
       - name: Output image info
         if: github.event_name != 'pull_request'
