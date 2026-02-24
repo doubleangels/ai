@@ -19,6 +19,8 @@ jobs:
   build:
     name: build-and-push-image
     runs-on: ubuntu-latest
+    env:
+      TRIVY_CACHE_DIR: .trivy-cache
     concurrency:
       group: build-main
       cancel-in-progress: true
@@ -35,7 +37,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -43,6 +45,12 @@ jobs:
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
+
+      - name: Cache Trivy vulnerability database
+        uses: actions/cache@v4
+        with:
+          path: .trivy-cache
+          key: ${{ runner.os }}-trivy-db-v1
 
       - name: Run Trivy vulnerability scanner on repository
         uses: aquasecurity/trivy-action@0.34.1
@@ -91,7 +99,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -103,7 +111,7 @@ jobs:
       - name: Run Trivy vulnerability scanner on container image
         uses: aquasecurity/trivy-action@0.34.1
         with:
-          image-ref: 'ghcr.io/${{ github.repository_owner }}/ai:${{ github.event_name == ''pull_request'' && format(''pr-{0}'', github.event.pull_request.number) || ''latest'' }}'
+          image-ref: ${{ steps.build.outputs.imageid }}
           ignore-unfixed: true
           format: 'sarif'
           output: 'trivy-image-results.sarif'

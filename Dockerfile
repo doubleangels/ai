@@ -13,6 +13,9 @@ RUN apk add --no-cache dumb-init su-exec procps && \
     addgroup -g 1001 nodejs && \
     adduser -u 1001 -G nodejs -s /bin/sh -D discordbot
 
+# Keep npm (and its bundled deps) patched.
+RUN npm install -g npm@latest && npm cache clean --force
+
 # Copy package files for dependency installation (better caching)
 COPY package*.json ./
 
