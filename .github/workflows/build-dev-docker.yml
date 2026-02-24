@@ -57,6 +57,7 @@ jobs:
         with:
           scan-type: 'fs'
           ignore-unfixed: true
+          exit-code: '1'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
@@ -93,40 +94,37 @@ jobs:
             type=sha,prefix=dev-
             type=raw,value=dev,enable={{is_default_branch}}
 
-      - name: Build and push Docker Image
+      - name: Build Docker Image
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           platforms: linux/amd64
-          push: true
-          load: ${{ github.event_name == 'pull_request' }}
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ai-dev
           cache-to: type=gha,mode=max,scope=ai-dev
-          provenance: ${{ github.event_name != 'pull_request' }}
-          sbom: ${{ github.event_name != 'pull_request' }}
 
-      - name: Run Trivy vulnerability scanner on container image (PR image)
-        if: github.event_name == 'pull_request'
+      - name: Run Trivy vulnerability scanner on container image
         uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518
         with:
           image-ref: ${{ steps.build.outputs.imageid }}
           ignore-unfixed: true
+          exit-code: '1'
           format: 'sarif'
           output: 'trivy-image-results.sarif'
           severity: 'CRITICAL,HIGH'
 
-      - name: Run Trivy vulnerability scanner on container image (registry image)
+      - name: Push Docker image to GitHub Container Registry
         if: github.event_name != 'pull_request'
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518
-        with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/ai:${{ steps.meta.outputs.version }}
-          ignore-unfixed: true
-          format: 'sarif'
-          output: 'trivy-image-results.sarif'
-          severity: 'CRITICAL,HIGH'
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" | while read tag; do
+            if [ -n "$tag" ]; then
+              docker push "$tag"
+            fi
+          done
 
       - name: Upload Trivy image scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@89a39a4e59826350b863aa6b6252a07ad50cf83e
