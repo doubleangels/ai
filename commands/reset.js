@@ -54,8 +54,7 @@ module.exports = {
             .setColor(0xFF0000)
             .setTitle('⚠️ No History Found')
             .setDescription(`No conversation history found for channel #${channelName}.`);
-          await interaction.deleteReply();
-          await interaction.followUp({ embeds: [embed], ephemeral: true });
+          await interaction.editReply({ embeds: [embed] });
           return;
         }
 
@@ -84,8 +83,7 @@ module.exports = {
             .setColor(0xFF0000)
             .setTitle('⚠️ No History Found')
             .setDescription('No conversation history found in any channel.');
-          await interaction.deleteReply();
-          await interaction.followUp({ embeds: [embed], ephemeral: true });
+          await interaction.editReply({ embeds: [embed] });
           return;
         }
 

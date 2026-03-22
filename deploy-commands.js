@@ -48,7 +48,10 @@ async function deployCommands() {
     
     logger.info(`Successfully registered ${commands.length} application (/) commands.`);
   } catch (error) {
-    logger.error('Failed to deploy commands:', { error });
+    logger.error('Failed to deploy commands.', {
+      error: error?.stack,
+      message: error?.message
+    });
     throw error;
   }
 }
@@ -59,7 +62,10 @@ if (require.main === module) {
   deployCommands()
     .then(() => logger.info('Command deployment completed successfully.'))
     .catch(err => {
-      logger.error('Failed to deploy commands:', err);
+      logger.error('Failed to deploy commands.', {
+        error: err?.stack,
+        message: err?.message
+      });
       process.exit(1);
     });
 }

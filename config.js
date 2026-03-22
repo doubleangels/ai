@@ -106,13 +106,13 @@ const config = {
   maxImageBytes: parseInt(process.env.MAX_IMAGE_BYTES, 10) || 6_000_000,
   // OpenAI client: request timeout (ms) and max retries for transient failures.
   openaiTimeoutMs: Math.max(5000, Math.min(300000, parseInt(process.env.OPENAI_TIMEOUT_MS, 10) || 60000)),
-  openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) ?? 2)),
+  openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) || 2)),
   token: process.env.DISCORD_BOT_TOKEN,
 };
 
 /**
  * Gets the temperature setting for the current model.
- * @returns {number} Temperature value (0.7 for most models, 1.0 for GPT-5 models)
+ * @returns {number} Temperature value (1.0 for all models)
  */
 function getTemperature() {
   return 1.0;
