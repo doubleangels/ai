@@ -4,13 +4,13 @@
  * @module events/ready
  */
 
-const { ActivityType } = require('discord.js');
+const { ActivityType, Events } = require('discord.js');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const { modelName } = require('../config');
 
 module.exports = {
-  name: 'clientReady',
+  name: Events.ClientReady,
   once: true,
   /**
    * Handles the ready event when the bot starts up.

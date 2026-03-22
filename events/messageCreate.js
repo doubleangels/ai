@@ -80,11 +80,6 @@ module.exports = {
 
     // Wait for previous message processing to complete, then process this message
     const processMessage = async () => {
-      const client = message.client;
-      const botMention = `<@${client.user.id}>`;
-      const channelId = message.channelId;
-      const userId = message.author.id;
-      const channelName = message.channel?.name || 'unknown';
 
       let isReplyToBot = false;
       let referencedMessage = null;
