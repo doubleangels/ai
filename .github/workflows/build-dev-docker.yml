@@ -10,10 +10,7 @@ on:
       - dev
 
 permissions:
-  pull-requests: write
-  contents: write
-  actions: write
-  packages: write
+  contents: read
 
 jobs:
   build:
@@ -33,6 +30,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
@@ -83,7 +81,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Extract metadata
         id: meta
@@ -147,7 +145,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write
-      contents: read
     steps:
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@bd2822c9d98065c9766fb1f4bbc32325c47de4fb
@@ -220,7 +217,7 @@ jobs:
         continue-on-error: true
         id: automerge
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
           pull-request-number: ${{ github.event.pull_request.number }}
           merge-method: merge
 
