@@ -23,7 +23,7 @@
     "minimatch": ">=10.2.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "^0.81.0",
     "@google/genai": "^1.47.0",
     "discord.js": "^14.26.0",
     "dotenv": "^17.3.1",
