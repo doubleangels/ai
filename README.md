@@ -87,13 +87,13 @@ All other variables below can be stored in Doppler (recommended) or set in `envi
 | `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `OPENAI_MODEL_NAME` if unset. | `claude-haiku-4-5-20251001` |
 
 **OpenAI (Responses API, text + image, reasoning, verbosity, optional web search):**  
-`gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.2-pro`, `gpt-5-pro`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3`, `o4-mini`, `o3-pro`, `o3-mini`
+`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.3-chat-latest`, `gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.2-pro`, `gpt-5-pro`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3`, `o4-mini`, `o3-pro`, `o3-mini`
 
 **Gemini (text + image, search grounding, thinking):**  
-`gemini-3.1-pro-preview`, `gemini-3.1-pro-preview-customtools`, `gemini-3-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-image-preview`, `gemini-3.1-flash-image-preview`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.0-flash-lite`
+`gemini-3.1-pro-preview`, `gemini-3.1-pro-preview-customtools`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-image-preview`, `gemini-3.1-flash-image-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-flash-image`
 
-**Claude (vision, extended thinking on 4.5):**  
-`claude-sonnet-4-5-20250929`, `claude-sonnet-4-5`, `claude-haiku-4-5-20251001`, `claude-haiku-4-5`, `claude-opus-4-5-20251101`, `claude-opus-4-5`, `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`, `claude-3-haiku-20240307`, `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20240620`
+**Claude (vision, extended thinking):**  
+`claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`, `claude-haiku-4-5`, `claude-opus-4-6`, `claude-sonnet-4-5-20250929`, `claude-sonnet-4-5`, `claude-opus-4-5-20251101`, `claude-opus-4-5`, `claude-opus-4-1-20250805`
 
 Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio](https://aistudio.google.com/apikey)); `ANTHROPIC_API_KEY` for Claude ([Anthropic Console](https://console.anthropic.com)).
 
