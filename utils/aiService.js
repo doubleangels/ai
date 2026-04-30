@@ -485,10 +485,18 @@ async function generateOpenAIResponse(conversation) {
     // Keep system and static content first for OpenAI automatic prompt caching (≥1024 tokens; cache-friendly order).
     let messages = [...conversation];
     if (hasImages(conversation)) {
-      messages.push({
-        role: 'system',
-        content: SYSTEM_MESSAGES.IMAGE_ANALYSIS
-      });
+      const sysIdx = messages.findIndex(m => m.role === 'system');
+      if (sysIdx >= 0 && typeof messages[sysIdx].content === 'string') {
+        messages[sysIdx] = {
+          role: 'system',
+          content: `${messages[sysIdx].content}\n\n${SYSTEM_MESSAGES.IMAGE_ANALYSIS}`
+        };
+      } else {
+        messages.unshift({
+          role: 'system',
+          content: SYSTEM_MESSAGES.IMAGE_ANALYSIS
+        });
+      }
     }
 
     const requestParams = {

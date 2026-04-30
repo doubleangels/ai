@@ -110,8 +110,8 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `MAX_OUTPUT_TOKENS` | Max tokens per reply (all providers). Clamped 256–65536. Lower values reduce cost. | `1024` |
-| `MAX_HISTORY_TOKENS` | Rough token-estimated cap for stored per-channel conversation history (in addition to `MAX_HISTORY_LENGTH`). `0` disables token trimming. | `0` |
+| `MAX_OUTPUT_TOKENS` | Max tokens per reply (all providers). Clamped 256–65536. Lower values reduce cost. The system prompt’s suggested reply length is derived from this (capped near Discord’s ~2000 character limit) so the model’s guidance matches the output budget. | `1024` |
+| `MAX_HISTORY_TOKENS` | Rough token-estimated cap for stored per-channel conversation history (in addition to `MAX_HISTORY_LENGTH`). **`0` disables token trimming**—with only `MAX_HISTORY_LENGTH`, long user/assistant messages can still use many input tokens per request. For production cost control, set a budget (e.g. **12000–24000** for busy channels; lower for smaller models). | `0` |
 | `USER_COOLDOWN_MS` | Minimum time between requests per user (basic anti-spam/cost control). | `4000` |
 | `CHANNEL_COOLDOWN_MS` | Minimum time between requests per channel (reduces pile-ups). | `1500` |
 | `MAX_PENDING_PER_CHANNEL` | Max queued requests per channel before the bot responds “busy”. | `3` |
@@ -119,6 +119,8 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 | `MAX_IMAGE_BYTES` | Max bytes downloaded per image attachment. | `6000000` |
 | `OPENAI_TIMEOUT_MS` | **OpenAI only.** Request timeout in milliseconds (5000–300000). | `60000` |
 | `OPENAI_MAX_RETRIES` | **OpenAI only.** Max retries for transient failures (0–5). | `2` |
+
+**Context and cost tuning:** Set **`MAX_HISTORY_TOKENS`** to a positive value so older turns are dropped once estimated input tokens exceed the budget (see `trimConversationHistory` in code). Pair with **`MAX_HISTORY_LENGTH`** (message count cap). Replies to other messages are capped in length before being injected into the prompt (`[Replying to: …]`). Image attachments are downloaded in parallel.
 
 #### Context caching
 

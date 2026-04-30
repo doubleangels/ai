@@ -16,6 +16,9 @@ const {
 
 const SAFE_ALLOWED_MENTIONS = { parse: [] };
 
+/** Max characters from replied-to messages injected into the prompt (saves input tokens). */
+const QUOTED_REPLY_CONTEXT_MAX_CHARS = 2000;
+
 /**
  * Message create event handler module
  * @module events/messageCreate
@@ -212,7 +215,10 @@ module.exports = {
         if (text) quotedTextParts.push(text);
       }
       if (quotedTextParts.length > 0) {
-        const quotedBlock = quotedTextParts.join('\n\n');
+        let quotedBlock = quotedTextParts.join('\n\n');
+        if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
+          quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n\n[truncated]`;
+        }
         userText = userText ? `[Replying to:\n${quotedBlock}]\n\n${userText}` : `[Replying to:\n${quotedBlock}]`;
       }
 
