@@ -266,10 +266,19 @@ async function generateGeminiResponse(conversation) {
     }
   }
   if (!useCachedContent && systemWithImageHint) config.systemInstruction = systemWithImageHint;
-  if (enableWebSearch || enableGoogleMaps) {
+  // Gemini API: google_search and google_maps cannot be used in the same request (400 INVALID_ARGUMENT).
+  let geminiUseWebSearch = enableWebSearch;
+  let geminiUseMaps = enableGoogleMaps;
+  if (enableWebSearch && enableGoogleMaps) {
+    geminiUseMaps = false;
+    logger.warn(
+      'ENABLE_WEB_SEARCH and ENABLE_GOOGLE_MAPS are both on; Gemini allows only one per request. Using Google Search grounding only. Disable ENABLE_WEB_SEARCH to use Maps.'
+    );
+  }
+  if (geminiUseWebSearch || geminiUseMaps) {
     config.tools = [];
-    if (enableWebSearch) config.tools.push({ googleSearch: {} });
-    if (enableGoogleMaps) config.tools.push({ googleMaps: {} });
+    if (geminiUseWebSearch) config.tools.push({ googleSearch: {} });
+    if (geminiUseMaps) config.tools.push({ googleMaps: {} });
   }
   if (geminiSafetySettings && geminiSafetySettings.length > 0) {
     config.safetySettings = geminiSafetySettings;
@@ -279,8 +288,8 @@ async function generateGeminiResponse(conversation) {
     messageCount: conversation.length,
     model: modelName,
     contentsLength: contents.length,
-    searchGrounding: enableWebSearch,
-    mapsGrounding: enableGoogleMaps,
+    searchGrounding: geminiUseWebSearch,
+    mapsGrounding: geminiUseMaps,
     hasImages: hasImages(conversation),
     usingContextCache: useCachedContent,
     safetySettings: config.safetySettings ? config.safetySettings.length : 0

@@ -102,8 +102,8 @@ Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio]
 | --- | --- | --- |
 | `REASONING_EFFORT` | **OpenAI only.** Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`. GPT-5.2 also supports `none`; GPT-5.2-pro supports `medium`, `high`, `xhigh`. | `none` |
 | `RESPONSES_VERBOSITY` | **OpenAI GPT-5 only.** Response verbosity: `low`, `medium`, `high`. | `low` |
-| `ENABLE_WEB_SEARCH` | **OpenAI and Gemini.** Set to `true` or `1` to enable web search (OpenAI built-in tool; Gemini Google Search grounding). | off |
-| `ENABLE_GOOGLE_MAPS` | **Gemini only.** Set to `true` or `1` to enable grounding with Google Maps (places, area summaries, location-aware answers). | off |
+| `ENABLE_WEB_SEARCH` | **OpenAI and Gemini.** Set to `true` or `1` to enable web search (OpenAI built-in tool; Gemini Google Search grounding). On Gemini, cannot be combined with `ENABLE_GOOGLE_MAPS` in one request—if both are enabled, search grounding is used and Maps is skipped (see log warning). | off |
+| `ENABLE_GOOGLE_MAPS` | **Gemini only.** Set to `true` or `1` to enable grounding with Google Maps (places, area summaries, location-aware answers). Cannot be combined with `ENABLE_WEB_SEARCH` on Gemini; turn off web search to use Maps. | off |
 
 #### Optional tuning variables
 
