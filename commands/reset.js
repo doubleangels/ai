@@ -31,7 +31,7 @@ module.exports = {
    * @returns {Promise<void>}
    */
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: false });
+    await interaction.deferReply({ ephemeral: true });
     const client = interaction.client;
     const userId = interaction.user.id;
     const guildName = interaction.guild?.name || 'unknown';

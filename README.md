@@ -23,7 +23,7 @@ A feature-rich Discord bot powered by OpenAI (ChatGPT), Google (Gemini), or Anth
    - Create a [Doppler](https://www.doppler.com/) project and config (e.g. `dev`, `prd`)
    - Add the following secrets to your Doppler config:
      - **Required:** `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, and one of: `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`
-     - **Optional:** `AI_PROVIDER`, `OPENAI_MODEL_NAME`, `GEMINI_MODEL_NAME`, `CLAUDE_MODEL_NAME`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS`, `ENABLE_CONTEXT_CACHE`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`, and others listed in Configuration below
+     - **Optional:** `AI_PROVIDER`, `ALLOWED_GUILD_IDS`, `OPENAI_MODEL_NAME`, `GEMINI_MODEL_NAME`, `CLAUDE_MODEL_NAME`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS`, `ENABLE_CONTEXT_CACHE`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`, and others listed in Configuration below
    - Create a **service token** for the config and copy it (you will pass it as `DOPPLER_TOKEN`)
 
 2. **Create a `docker-compose.yml` file:**
@@ -81,6 +81,7 @@ All other variables below can be stored in Doppler (recommended) or set in `envi
 | Variable | Description | Default |
 | --- | --- | --- |
 | `AI_PROVIDER` | Backend to use: `openai`, `gemini`, or `claude`. | `openai` |
+| `ALLOWED_GUILD_IDS` | Optional. Comma-separated Discord server (guild) IDs. When set, the bot only responds to messages and slash commands in those servers (not DMs). Empty = all servers. Example (this deployment): `691991366615564388,1307236666989346837,1466443091249467638,1470484138120319039`. See [`.env.example`](.env.example). | (none) |
 | `OPENAI_MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
 | `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `OPENAI_MODEL_NAME` if unset. | `gemini-2.5-flash` |
 | `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `OPENAI_MODEL_NAME` if unset. | `claude-haiku-4-5-20251001` |

@@ -230,7 +230,8 @@ async function generateGeminiResponse(conversation) {
   }
 
   const config = {
-    temperature: getTemperature()
+    temperature: getTemperature(),
+    maxOutputTokens
   };
 
   let useCachedContent = false;
@@ -315,16 +316,11 @@ async function generateGeminiResponse(conversation) {
     });
     return text.trim();
   } catch (apiError) {
+    const errMsg = typeof apiError?.message === 'string' ? apiError.message : '';
     const isLikelyStaleCache = useCachedContent && (
       apiError?.status === 404 ||
       apiError?.code === 404 ||
-      (typeof apiError?.message === 'string' && (
-        apiError.message.includes('cached') ||
-        apiError.message.includes('not found') ||
-        apiError.message.includes('NOT_FOUND') ||
-        apiError.message.includes('invalid') ||
-        apiError.message.includes('INVALID_ARGUMENT')
-      ))
+      (/cachedcontent|cached.?content/i.test(errMsg) && /not\s*found|NOT_FOUND|expired|was\s+deleted/i.test(errMsg))
     );
     if (isLikelyStaleCache) {
       geminiCacheEntry = null;

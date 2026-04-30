@@ -1,4 +1,4 @@
-const { Events, MessageType } = require('discord.js');
+const { Events } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
 const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES } = require('../utils/aiUtils');
 const path = require('path');
@@ -10,7 +10,8 @@ const {
   aiProvider,
   userCooldownMs,
   channelCooldownMs,
-  maxPendingPerChannel
+  maxPendingPerChannel,
+  allowedGuildIds
 } = require('../config');
 
 const SAFE_ALLOWED_MENTIONS = { parse: [] };
@@ -37,14 +38,30 @@ module.exports = {
     }
 
     const client = message.client;
-    const botMention = `<@${client.user.id}>`;
     const channelId = message.channelId;
     const userId = message.author.id;
     const channelName = message.channel?.name || 'unknown';
 
-    // Fast-path ignore: if there's no mention and no reply reference, we can't be triggered.
-    const maybeTriggered = message.content.includes(botMention) || (message.reference && message.reference.messageId);
-    if (!maybeTriggered) return;
+    if (allowedGuildIds.size > 0) {
+      if (!message.guildId || !allowedGuildIds.has(message.guildId)) {
+        return;
+      }
+    }
+
+    const hasBotPing = message.mentions.has(client.user);
+    const hasReference = Boolean(message.reference?.messageId);
+    if (!hasBotPing && !hasReference) return;
+
+    let prefetchedReferencedMessage = null;
+    if (!hasBotPing && hasReference) {
+      try {
+        const ref = await message.channel.messages.fetch(message.reference.messageId);
+        if (ref.author.id !== client.user.id) return;
+        prefetchedReferencedMessage = ref;
+      } catch {
+        return;
+      }
+    }
 
     // Initialize channel locks if not already present
     if (!client.channelLocks) {
@@ -84,7 +101,11 @@ module.exports = {
       let isReplyToBot = false;
       let referencedMessage = null;
 
-      if (message.reference && message.reference.messageId) {
+      if (prefetchedReferencedMessage) {
+        referencedMessage = prefetchedReferencedMessage;
+        isReplyToBot = true;
+        logger.debug(`Message ${message.id} is a reply to bot's message: ${referencedMessage.id}.`);
+      } else if (message.reference && message.reference.messageId) {
         try {
           referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
           isReplyToBot = referencedMessage.author.id === client.user.id;
@@ -101,7 +122,7 @@ module.exports = {
         }
       }
 
-      const hasBotMention = message.content.includes(botMention);
+      const hasBotMention = hasBotPing;
 
       if (!hasBotMention && !isReplyToBot) {
         return;
@@ -167,7 +188,7 @@ module.exports = {
       });
       logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
 
-      let userText = message.content.replace(botMention, '@AI').trim();
+      let userText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
       // Collect referenced messages (replied-to message, and if replying to bot, the message the bot was replying to)
       const messagesToCheckForRef = [];

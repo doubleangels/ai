@@ -70,8 +70,18 @@ if (!supportedList.includes(resolvedModel)) {
  * @type {Object}
  */
 const parsedHistoryLength = parseInt(process.env.MAX_HISTORY_LENGTH, 10);
+
+/** When non-empty, only these Discord guild (server) IDs may use the bot (messages + slash commands). DMs are ignored. */
+const allowedGuildIds = new Set(
+  (process.env.ALLOWED_GUILD_IDS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+);
+
 const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
+  allowedGuildIds,
   logLevel: process.env.LOG_LEVEL || 'info',
   maxHistoryLength: (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) ? 20 : parsedHistoryLength,
   // Rough, token-estimated cap for stored history (in addition to maxHistoryLength).

@@ -4,6 +4,13 @@ const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
 
+function interactionAllowedInGuild(interaction) {
+  const ids = config.allowedGuildIds;
+  if (!ids || ids.size === 0) return true;
+  if (!interaction.inGuild() || !interaction.guildId) return false;
+  return ids.has(interaction.guildId);
+}
+
 /**
  * Discord client instance with required intents
  * @type {Client}
@@ -82,6 +89,15 @@ client.on('interactionCreate', async interaction => {
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
 
+  if (!interactionAllowedInGuild(interaction)) {
+    try {
+      await interaction.reply({ content: 'This bot is not enabled in this server.', ephemeral: true });
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
+
   try {
     logger.debug(`Executing command: ${interaction.commandName}`, { 
       user: interaction.user.tag,
@@ -117,6 +133,15 @@ client.on('interactionCreate', async interaction => {
   const command = client.commands.get(interaction.commandName);
   if (!command) {
     logger.warn(`Unknown context menu command: ${interaction.commandName}`);
+    return;
+  }
+
+  if (!interactionAllowedInGuild(interaction)) {
+    try {
+      await interaction.reply({ content: 'This bot is not enabled in this server.', ephemeral: true });
+    } catch (_) {
+      /* ignore */
+    }
     return;
   }
 
@@ -172,7 +197,6 @@ process.on('unhandledRejection', (reason, promise) => {
     error: reason?.stack,
     message: reason?.message || String(reason)
   });
-  process.exit(1);
 });
 
 process.on('SIGINT', () => {

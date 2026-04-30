@@ -1,9 +1,38 @@
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const https = require('https');
-const http = require('http');
 const { URL } = require('url');
 const { imageDownloadTimeoutMs, maxImageBytes } = require('../config');
+
+/** Only these hosts may be fetched (including redirects) — mitigates SSRF via malicious redirects from attachment URLs. */
+const DISCORD_IMAGE_CDN_HOSTS = new Set([
+  'cdn.discordapp.com',
+  'media.discordapp.net'
+]);
+
+/**
+ * @param {string} urlString
+ * @returns {URL}
+ */
+function assertDiscordImageDownloadUrl(urlString) {
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error('Invalid image URL.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Image download must use HTTPS.');
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!DISCORD_IMAGE_CDN_HOSTS.has(host)) {
+    throw new Error('Image download is restricted to Discord CDN URLs.');
+  }
+  return parsed;
+}
+
+/** Rough vision-token budget per attached image for history trimming (text-only estimates are insufficient). */
+const ESTIMATED_TOKENS_PER_IMAGE = 768;
 
 /**
  * Shared format rules for all providers: no titles, same general structure.
@@ -186,15 +215,13 @@ async function downloadImageAsBase64(url) {
   const download = (currentUrl, redirectsLeft) => new Promise((resolve, reject) => {
     let parsed;
     try {
-      parsed = new URL(currentUrl);
-    } catch {
-      reject(new Error('Invalid image URL.'));
+      parsed = assertDiscordImageDownloadUrl(currentUrl);
+    } catch (err) {
+      reject(err);
       return;
     }
 
-    const protocol = parsed.protocol === 'https:' ? https : http;
-
-    const req = protocol.get(currentUrl, (response) => {
+    const req = https.get(currentUrl, (response) => {
       const status = response.statusCode || 0;
 
       // Handle redirects.
@@ -204,7 +231,15 @@ async function downloadImageAsBase64(url) {
           reject(new Error('Too many redirects while downloading image.'));
           return;
         }
-        const nextUrl = new URL(response.headers.location, parsed).toString();
+        let nextUrl;
+        try {
+          nextUrl = new URL(response.headers.location, parsed).toString();
+          assertDiscordImageDownloadUrl(nextUrl);
+        } catch (err) {
+          response.resume();
+          reject(err);
+          return;
+        }
         response.resume();
         resolve(download(nextUrl, redirectsLeft - 1));
         return;
@@ -350,6 +385,9 @@ function estimateMessageTokens(message) {
   for (const item of content) {
     if (item && item.type === 'input_text' && typeof item.text === 'string') {
       total += estimateTokensFromText(item.text);
+    }
+    if (item && item.type === 'input_image') {
+      total += ESTIMATED_TOKENS_PER_IMAGE;
     }
   }
   return total;
