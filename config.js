@@ -9,9 +9,16 @@ const SUPPORTED_MODELS = [
 ];
 const DEFAULT_MODEL = 'gpt-5-nano';
 
-// Gemini: text + image, search grounding, thinking. Excludes image-gen-only, TTS, Live.
+// Gemini: text + image, search grounding, thinking. Excludes TTS, Live-only, etc. Image preview IDs are multimodal (text + image); see Gemini 3 docs.
 const SUPPORTED_GEMINI_MODELS = [
-  'gemini-3-pro-preview', 'gemini-3-flash-preview',
+  // Gemini 3.x (ai.google.dev/gemini-api/docs/gemini-3)
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-pro-preview-customtools',
+  'gemini-3-pro-preview',
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview',
   'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
   'gemini-2.0-flash', 'gemini-2.0-flash-lite'
 ];
