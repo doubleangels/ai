@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "doppler run -- node index.js",
-    "dev": "nodemon index.js",
-    "deploy": "node deploy-commands.js"
+    "dev": "doppler run -- nodemon index.js",
+    "deploy": "doppler run -- node deploy-commands.js"
   },
   "repository": {
     "type": "git",

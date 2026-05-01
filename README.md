@@ -167,7 +167,7 @@ The bot supports comprehensive image analysis when using vision-capable models:
 ### Interaction Methods
 
 - **Mentions**: `@AI What's the weather like?`
-- **Replies**: Reply to any bot message to continue the conversation
+- **Replies**: Reply to one of the bot's messages to continue the conversation
 
 ### Safety Defaults
 
