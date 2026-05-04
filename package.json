@@ -20,17 +20,17 @@
   "homepage": "https://github.com/doubleangels/ai#readme",
   "overrides": {
     "tar": ">=7.5.8",
-    "undici": ">=6.23.0",
     "minimatch": ">=10.2.1"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
-    "@google/genai": "^1.51.0",
+    "@discordjs/rest": "^2.6.1",
+    "@google/genai": "^1.52.0",
     "@sentry/node": "^10.32.0",
-    "@sentry/profiling-node": "^10.32.0",
-    "discord.js": "^14.26.3",
+    "@sentry/profiling-node": "^10.51.0",
+    "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
-    "openai": "^6.35.0",
+    "openai": "^6.36.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {
