@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { captureError } = require('./instrument');
 
 // OpenAI: Responses API models with text + image support. Reasoning (gpt-5*, o3, o4-mini), verbosity (gpt-5*), web search (built-in tool).
 const SUPPORTED_MODELS = [
@@ -63,6 +64,11 @@ if (resolvedProvider === 'gemini') {
 
 const supportedList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : resolvedProvider === 'claude' ? SUPPORTED_CLAUDE_MODELS : SUPPORTED_MODELS;
 if (!supportedList.includes(resolvedModel)) {
+  captureError(new Error(`Unsupported ${resolvedProvider} model "${resolvedModel}".`), {
+    source: 'config',
+    handler: 'modelValidation',
+    provider: resolvedProvider
+  });
   console.error(
     `Unsupported ${resolvedProvider} model "${resolvedModel}". Supported: ${supportedList.join(', ')}.`
   );

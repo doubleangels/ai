@@ -5,8 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "doppler run -- node index.js",
-    "dev": "nodemon index.js",
-    "deploy": "node deploy-commands.js"
+    "dev": "doppler run -- nodemon index.js",
+    "deploy": "doppler run -- node deploy-commands.js",
+    "test": "doppler run -- node --test"
   },
   "repository": {
     "type": "git",
@@ -25,6 +26,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
     "@google/genai": "^1.51.0",
+    "@sentry/node": "^10.32.0",
+    "@sentry/profiling-node": "^10.32.0",
     "discord.js": "^14.26.3",
     "dotenv": "^17.4.2",
     "openai": "^6.35.0",

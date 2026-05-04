@@ -1,6 +1,7 @@
 const { Events } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
 const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES } = require('../utils/aiUtils');
+const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const {
@@ -44,6 +45,7 @@ module.exports = {
     const channelId = message.channelId;
     const userId = message.author.id;
     const channelName = message.channel?.name || 'unknown';
+    const messageStartedAt = Date.now();
 
     if (allowedGuildIds.size > 0) {
       if (!message.guildId || !allowedGuildIds.has(message.guildId)) {
@@ -84,6 +86,9 @@ module.exports = {
     // Basic backpressure: avoid unbounded queues per channel.
     const pending = client.channelQueueDepth.get(channelId) || 0;
     if (maxPendingPerChannel > 0 && pending >= maxPendingPerChannel) {
+      recordCount('discord.message.rejected', 1, {
+        reason: 'backpressure'
+      });
       try {
         await message.reply({
           content: "⚠️ I'm busy in this channel—please try again in a few seconds.",
@@ -94,12 +99,101 @@ module.exports = {
           channelId,
           errorMessage: err.message
         });
+        try {
+          const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+          recordCount('discord.api.failure', 1, {
+            location: 'messageCreate.backpressure_reply',
+            channelId,
+            errorMessage: err.message,
+            httpStatus
+          });
+          if (httpStatus === 429) {
+            recordCount('discord.api.rate_limit', 1, {
+              location: 'messageCreate.backpressure_reply',
+              channelId
+            });
+          }
+        } catch (metricErr) {
+          logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+        }
       }
       return;
     }
 
     // Wait for previous message processing to complete, then process this message
     const processMessage = async () => {
+      const sendPrimaryResponse = async (content) => {
+        if (thinkingMessage) {
+          try {
+            await thinkingMessage.edit({
+              content,
+              allowedMentions: SAFE_ALLOWED_MENTIONS
+            });
+            return true;
+          } catch (err) {
+            logger.warn('Failed to edit thinking message; falling back to a normal reply.', {
+              channelId,
+              messageId: message.id,
+              errorMessage: err.message
+            });
+            try {
+              const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+              recordCount('discord.api.failure', 1, {
+                location: 'messageCreate.edit_thinking',
+                channelId,
+                messageId: message.id,
+                errorMessage: err.message,
+                httpStatus
+              });
+              if (httpStatus === 429) {
+                recordCount('discord.api.rate_limit', 1, {
+                  location: 'messageCreate.edit_thinking',
+                  channelId,
+                  messageId: message.id
+                });
+              }
+            } catch (metricErr) {
+              logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+            }
+            thinkingMessage = null;
+          }
+        }
+
+        try {
+          await message.reply({
+            content,
+            allowedMentions: SAFE_ALLOWED_MENTIONS
+          });
+          return true;
+        } catch (err) {
+          logger.error('Failed to send fallback reply.', {
+            channelId,
+            messageId: message.id,
+            error: err.stack,
+            errorMessage: err.message
+          });
+          try {
+            const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+            recordCount('discord.api.failure', 1, {
+              location: 'messageCreate.reply_fallback',
+              channelId,
+              messageId: message.id,
+              errorMessage: err.message,
+              httpStatus
+            });
+            if (httpStatus === 429) {
+              recordCount('discord.api.rate_limit', 1, {
+                location: 'messageCreate.reply_fallback',
+                channelId,
+                messageId: message.id
+              });
+            }
+          } catch (metricErr) {
+            logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+          }
+          return false;
+        }
+      };
 
       let isReplyToBot = false;
       let referencedMessage = null;
@@ -190,6 +284,13 @@ module.exports = {
         isReplyToBot
       });
       logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
+      recordCount('discord.message.received', 1, {
+        provider: aiProvider,
+        trigger: hasBotPing ? 'mention' : 'reply'
+      });
+      recordGauge('discord.channel.queue_depth', pending + 1, {
+        provider: aiProvider
+      });
 
       let userText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
@@ -293,22 +394,30 @@ module.exports = {
 
       try {
         logger.info(`Generating AI response for message ${message.id} from ${message.author.tag}.`);
-        
-        const reply = await generateAIResponse(channelHistory);
+        const reply = await startSpan({
+          op: 'discord.message',
+          name: 'Generate Discord reply'
+        }, async () => {
+          if (typeof Sentry.setConversationId === 'function') {
+            Sentry.setConversationId(channelId);
+          }
+
+          try {
+            return await generateAIResponse(channelHistory);
+          } finally {
+            if (typeof Sentry.setConversationId === 'function') {
+              Sentry.setConversationId(null);
+            }
+          }
+        });
 
         if (!reply) {
           logger.warn('No reply generated from AI service.');
-          if (thinkingMessage) {
-            await thinkingMessage.edit({
-              content: "⚠️ I couldn't generate a response.",
-              allowedMentions: SAFE_ALLOWED_MENTIONS
-            });
-          } else {
-            await message.reply({
-              content: "⚠️ I couldn't generate a response.",
-              allowedMentions: SAFE_ALLOWED_MENTIONS
-            });
-          }
+          recordCount('discord.message.responded', 1, {
+            provider: aiProvider,
+            outcome: 'empty'
+          });
+          await sendPrimaryResponse("⚠️ I couldn't generate a response.");
           return;
         }
 
@@ -319,41 +428,52 @@ module.exports = {
         try {
           if (messageChunks.length === 0) {
             const fallback = "⚠️ No response to send.";
-            if (thinkingMessage) {
-              await thinkingMessage.edit({ content: fallback, allowedMentions: SAFE_ALLOWED_MENTIONS });
-            } else {
-              await message.reply({ content: fallback, allowedMentions: SAFE_ALLOWED_MENTIONS });
-            }
+            await sendPrimaryResponse(fallback);
           } else if (messageChunks.length === 1) {
-            if (thinkingMessage) {
-              await thinkingMessage.edit({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
-            } else {
-              await message.reply({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
-            }
+            await sendPrimaryResponse(messageChunks[0]);
           } else {
-            if (thinkingMessage) {
-              await thinkingMessage.edit({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
-            } else {
-              await message.reply({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
+            const firstChunkSent = await sendPrimaryResponse(messageChunks[0]);
+            if (!firstChunkSent) {
+              return;
             }
 
             for (let i = 1; i < messageChunks.length; i++) {
-              await message.reply({
-                content: messageChunks[i],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
+              try {
+                await message.reply({
+                  content: messageChunks[i],
+                  allowedMentions: SAFE_ALLOWED_MENTIONS
+                });
+              } catch (err) {
+                logger.error('Failed to send additional response chunk.', {
+                  channelId,
+                  messageId: message.id,
+                  chunkIndex: i,
+                  error: err.stack,
+                  errorMessage: err.message
+                });
+                  try {
+                    const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+                    recordCount('discord.api.failure', 1, {
+                      location: 'messageCreate.additional_chunk',
+                      channelId,
+                      messageId: message.id,
+                      chunkIndex: i,
+                      errorMessage: err.message,
+                      httpStatus
+                    });
+                    if (httpStatus === 429) {
+                      recordCount('discord.api.rate_limit', 1, {
+                        location: 'messageCreate.additional_chunk',
+                        channelId,
+                        messageId: message.id,
+                        chunkIndex: i
+                      });
+                    }
+                  } catch (metricErr) {
+                    logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+                  }
+                break;
+              }
             }
           }
         } catch (sendError) {
@@ -370,11 +490,27 @@ module.exports = {
         });
 
         logger.info(`Reply sent successfully to ${message.author.tag} in channel: ${channelName}`);
+        recordCount('discord.message.responded', 1, {
+          provider: aiProvider,
+          outcome: 'success'
+        });
+        recordDistribution('discord.message.response_chars', reply.length, {
+          unit: 'byte',
+          attributes: {
+            provider: aiProvider,
+            trigger: hasBotPing ? 'mention' : 'reply'
+          }
+        });
 
         // Update cooldown stamps only after successful completion.
         client.userCooldowns.set(userId, Date.now());
         client.channelCooldowns.set(channelId, Date.now());
       } catch (error) {
+        captureError(error, { event: 'messageCreate', handler: 'processMessage' });
+        recordCount('discord.message.responded', 1, {
+          provider: aiProvider,
+          outcome: 'error'
+        });
         logger.error('Error processing message:', {
           error: error.stack,
           message: error.message,
@@ -382,17 +518,15 @@ module.exports = {
           channelId
         });
         
-        if (thinkingMessage) {
-          await thinkingMessage.edit({
-            content: "⚠️ An error occurred while processing your request.",
-            allowedMentions: SAFE_ALLOWED_MENTIONS
-          });
-        } else {
-          await message.reply({
-            content: "⚠️ An error occurred while processing your request.",
-            allowedMentions: SAFE_ALLOWED_MENTIONS
-          });
-        }
+        await sendPrimaryResponse("⚠️ An error occurred while processing your request.");
+      } finally {
+        recordDistribution('discord.message.processing_ms', Date.now() - messageStartedAt, {
+          unit: 'millisecond',
+          attributes: {
+            provider: aiProvider,
+            trigger: hasBotPing ? 'mention' : 'reply'
+          }
+        });
       }
     };
 

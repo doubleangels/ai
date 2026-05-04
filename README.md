@@ -13,6 +13,7 @@ A feature-rich Discord bot powered by OpenAI (ChatGPT), Google (Gemini), or Anth
 
 - [Discord Bot Token](https://discord.com/developers/applications) - Create a new application and bot
 - [OpenAI](https://platform.openai.com/overview), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com) API key - Depending on which provider you use
+- [Sentry](https://sentry.io/) DSN - Optional observability for errors, logs, traces, metrics, and profiling
 - [Doppler](https://www.doppler.com/) - For secure secret management at runtime
 - Docker and Docker Compose
 
@@ -23,7 +24,7 @@ A feature-rich Discord bot powered by OpenAI (ChatGPT), Google (Gemini), or Anth
    - Create a [Doppler](https://www.doppler.com/) project and config (e.g. `dev`, `prd`)
    - Add the following secrets to your Doppler config:
      - **Required:** `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, and one of: `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`
-     - **Optional:** `AI_PROVIDER`, `ALLOWED_GUILD_IDS`, `OPENAI_MODEL_NAME`, `GEMINI_MODEL_NAME`, `CLAUDE_MODEL_NAME`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS`, `ENABLE_CONTEXT_CACHE`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`, and others listed in Configuration below
+    - **Optional:** `AI_PROVIDER`, `ALLOWED_GUILD_IDS`, `OPENAI_MODEL_NAME`, `GEMINI_MODEL_NAME`, `CLAUDE_MODEL_NAME`, `SENTRY_DSN`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS`, `ENABLE_CONTEXT_CACHE`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`, and others listed in Configuration below
    - Create a **service token** for the config and copy it (you will pass it as `DOPPLER_TOKEN`)
 
 2. **Create a `docker-compose.yml` file:**
@@ -73,6 +74,12 @@ This bot uses [Doppler](https://www.doppler.com/) to inject secrets as environme
 | Variable           | Description                                      | Required | Default | Example |
 | ------------------ | ------------------------------------------------- | :------: | :-----: | ------- |
 | `DOPPLER_TOKEN`   | Doppler service token for the project/config      |    ✅    |    -    | -       |
+| `SENTRY_DSN` | Optional Sentry DSN for observability. | (none) |
+| `SENTRY_TRACES_SAMPLE_RATE` | Tracing sample rate between `0` and `1`. | `1.0` |
+| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | Profiling sample rate between `0` and `1`. | `1.0` |
+| `SENTRY_PROFILE_LIFECYCLE` | Profiling lifecycle mode: `trace` or `manual`. | `trace` |
+| `SENTRY_ENABLE_LOGS` | Set to `false` to disable Sentry logs. | `true` |
+| `SENTRY_ENABLE_METRICS` | Set to `false` to disable Sentry metrics. | `true` |
 
 All other variables below can be stored in Doppler (recommended) or set in `environment` in your `docker-compose.yml`. The app reads them after Doppler injects them at startup.
 

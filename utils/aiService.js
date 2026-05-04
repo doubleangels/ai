@@ -20,6 +20,7 @@ const {
   openaiTimeoutMs,
   openaiMaxRetries
 } = require('../config');
+const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const { hasImages, SYSTEM_MESSAGES, estimateTokensFromText } = require('./aiUtils');
@@ -345,6 +346,7 @@ async function generateGeminiResponse(conversation) {
           return retryText.trim();
         }
       } catch (retryErr) {
+        captureError(retryErr, { provider: 'gemini', handler: 'retryWithoutCache' });
         logger.error('Gemini API retry without cache failed.', {
           error: retryErr?.stack,
           message: retryErr?.message,
@@ -353,6 +355,7 @@ async function generateGeminiResponse(conversation) {
         return '';
       }
     }
+    captureError(apiError, { provider: 'gemini' });
     logger.error('Gemini API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
@@ -458,6 +461,7 @@ async function generateClaudeResponse(conversation) {
     logger.warn('Claude hit max tool rounds without final text.');
     return 'I apologize, but I couldn\'t complete that request. Please try again.';
   } catch (apiError) {
+    captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
@@ -549,6 +553,7 @@ async function generateOpenAIResponse(conversation) {
     try {
       response = await openai.responses.create(requestParams);
     } catch (apiError) {
+      captureError(apiError, { provider: 'openai' });
       logger.error('API request failed.', {
         error: apiError?.stack,
         message: apiError?.message,
@@ -592,6 +597,7 @@ async function generateOpenAIResponse(conversation) {
 
     return reply;
   } catch (error) {
+    captureError(error, { provider: aiProvider || 'unknown' });
     logger.error('Error generating AI response:', {
       error: error?.stack,
       message: error?.message,
@@ -613,16 +619,58 @@ async function generateOpenAIResponse(conversation) {
 async function generateAIResponse(conversation) {
   if (!conversation || conversation.length === 0) {
     logger.error('Cannot generate AI response; empty conversation provided.');
+    recordCount('ai.generate.requests', 1, {
+      provider: aiProvider,
+      outcome: 'empty_conversation'
+    });
     return '';
   }
 
-  if (aiProvider === 'gemini') {
-    return generateGeminiResponse(conversation);
-  }
-  if (aiProvider === 'claude') {
-    return generateClaudeResponse(conversation);
-  }
-  return generateOpenAIResponse(conversation);
+  const startedAt = Date.now();
+
+  return startSpan({
+    op: 'ai.generate',
+    name: `Generate AI response (${aiProvider})`
+  }, async () => {
+    try {
+      let reply;
+      if (aiProvider === 'gemini') {
+        reply = await generateGeminiResponse(conversation);
+      } else if (aiProvider === 'claude') {
+        reply = await generateClaudeResponse(conversation);
+      } else {
+        reply = await generateOpenAIResponse(conversation);
+      }
+
+      recordCount('ai.generate.requests', 1, {
+        provider: aiProvider,
+        outcome: reply ? 'success' : 'empty'
+      });
+      recordDistribution('ai.generate.duration_ms', Date.now() - startedAt, {
+        unit: 'millisecond',
+        attributes: {
+          provider: aiProvider,
+          outcome: reply ? 'success' : 'empty'
+        }
+      });
+
+      return reply;
+    } catch (error) {
+      captureError(error, { provider: aiProvider || 'unknown', handler: 'generateAIResponse' });
+      recordCount('ai.generate.requests', 1, {
+        provider: aiProvider,
+        outcome: 'error'
+      });
+      recordDistribution('ai.generate.duration_ms', Date.now() - startedAt, {
+        unit: 'millisecond',
+        attributes: {
+          provider: aiProvider,
+          outcome: 'error'
+        }
+      });
+      throw error;
+    }
+  });
 }
 
 
