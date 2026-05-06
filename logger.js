@@ -47,6 +47,17 @@ function getLogger(label) {
     }
 
     function write(level, message, meta) {
+      // Ensure message is a full sentence with ending punctuation when it's a string.
+      if (typeof message === 'string' && message.trim().length > 0) {
+        const trimmed = message.trim();
+        const last = trimmed[trimmed.length - 1];
+        if (!['.', '!', '?'].includes(last)) {
+          message = `${trimmed}.`;
+        } else {
+          message = trimmed;
+        }
+      }
+
       if (meta && typeof meta === 'object') {
         childLogger[level](meta, message);
       } else {
