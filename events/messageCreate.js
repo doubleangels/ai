@@ -67,12 +67,14 @@ module.exports = {
     const hasReference = Boolean(message.reference?.messageId);
     const hasEveryoneOrHereMention = hasEveryoneMention(message);
 
-    // Reject messages with @here or @everyone that don't have a direct bot ping
-    if (hasEveryoneOrHereMention && !hasBotPing) {
-      logger.debug('Ignoring message with @here/@everyone mention (no direct bot ping)', { channelId });
+    // Reject messages with @here or @everyone unless they are replies to a bot message.
+    // This prevents the bot from responding to mass-mentions even if the bot was included.
+    if (hasEveryoneOrHereMention && !hasReference) {
+      logger.debug('Ignoring @here/@everyone message (not a reply to bot)', { channelId });
       return;
     }
 
+    // Only proceed if this is a direct bot mention or a reply to a message (which may be the bot's message).
     if (!hasBotPing && !hasReference) return;
 
     let prefetchedReferencedMessage = null;
