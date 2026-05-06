@@ -7,7 +7,8 @@
     "start": "doppler run -- node index.js",
     "dev": "doppler run -- nodemon index.js",
     "deploy": "doppler run -- node deploy-commands.js",
-    "test": "doppler run -- node --test"
+    "test": "node --require ./test/preload.cjs --test",
+    "coverage": "c8 npm test"
   },
   "repository": {
     "type": "git",
@@ -34,6 +35,7 @@
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "c8": "^8.0.0"
   }
 }
