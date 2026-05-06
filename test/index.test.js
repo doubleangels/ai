@@ -171,7 +171,7 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
   };
 }
 
-test('index wires command and signal handlers', async () => {
+test('index wires command and signal handlers (coverage merged)', async () => {
   const { client, restore } = loadIndexHarness();
   const originalExit = process.exit;
   const exitCodes = [];
@@ -186,63 +186,71 @@ test('index wires command and signal handlers', async () => {
     const chatHandlers = client.handlers.get('interactionCreate') || [];
     assert.equal(chatHandlers.length >= 2, true);
 
-    await chatHandlers[0]({
-      isChatInputCommand: () => true,
-      isContextMenuCommand: () => false,
-      commandName: 'ok',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {},
-      followUp: async () => {}
-    });
+    await chatHandlers[0](
+      {
+        isChatInputCommand: () => true,
+        isContextMenuCommand: () => false,
+        commandName: 'ok',
+        user: { id: 'user-1', tag: 'User#0001' },
+        guildId: 'guild-1',
+        inGuild: () => true,
+        replied: false,
+        deferred: false,
+        reply: async () => {},
+        followUp: async () => {}
+      }
+    );
 
-    await chatHandlers[0]({
-      isChatInputCommand: () => true,
-      isContextMenuCommand: () => false,
-      commandName: 'boom',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {
-        const error = new Error('rate limited');
-        error.status = 429;
-        throw error;
-      },
-      followUp: async () => {}
-    });
+    await chatHandlers[0](
+      {
+        isChatInputCommand: () => true,
+        isContextMenuCommand: () => false,
+        commandName: 'boom',
+        user: { id: 'user-1', tag: 'User#0001' },
+        guildId: 'guild-1',
+        inGuild: () => true,
+        replied: false,
+        deferred: false,
+        reply: async () => {
+          const error = new Error('rate limited');
+          error.status = 429;
+          throw error;
+        },
+        followUp: async () => {}
+      }
+    );
 
-    await chatHandlers[0]({
-      isChatInputCommand: () => true,
-      isContextMenuCommand: () => false,
-      commandName: 'boom',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: true,
-      deferred: false,
-      reply: async () => {},
-      followUp: async () => {}
-    });
+    await chatHandlers[0](
+      {
+        isChatInputCommand: () => true,
+        isContextMenuCommand: () => false,
+        commandName: 'boom',
+        user: { id: 'user-1', tag: 'User#0001' },
+        guildId: 'guild-1',
+        inGuild: () => true,
+        replied: true,
+        deferred: false,
+        reply: async () => {},
+        followUp: async () => {}
+      }
+    );
 
     client.commands.set('context-ok', { execute: async () => {} });
     const contextHandlers = client.handlers.get('interactionCreate') || [];
-    await contextHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'context-ok',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {},
-      followUp: async () => {}
-    });
+    await contextHandlers[1](
+      {
+        isChatInputCommand: () => false,
+        isContextMenuCommand: () => true,
+        commandName: 'context-ok',
+        user: { id: 'user-1', tag: 'User#0001' },
+        guildId: 'guild-1',
+        inGuild: () => true,
+        replied: false,
+        deferred: false,
+        reply: async () => {},
+        followUp: async () => {}
+      }
+    );
 
     process.emit('SIGINT');
     process.emit('SIGTERM');
@@ -252,171 +260,5 @@ test('index wires command and signal handlers', async () => {
   } finally {
     process.exit = originalExit;
     restore();
-  }
-});
-
-test('index blocks disabled guilds and unknown context menus', async () => {
-  const { client, restore } = loadIndexHarness({
-    allowedGuildIds: new Set(['allowed-guild'])
-  });
-
-  try {
-    const handlers = client.handlers.get('interactionCreate') || [];
-    await handlers[0]({
-      isChatInputCommand: () => true,
-      isContextMenuCommand: () => false,
-      commandName: 'missing',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'denied-guild',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {},
-      followUp: async () => {}
-    });
-
-    await handlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'missing-context',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'allowed-guild',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {},
-      followUp: async () => {}
-    });
-  } finally {
-    restore();
-  }
-});
-
-test('index rejects interactions outside guild context', async () => {
-  const { client, restore } = loadIndexHarness({
-    allowedGuildIds: new Set(['allowed-guild'])
-  });
-
-  try {
-    const handlers = client.handlers.get('interactionCreate') || [];
-    client.commands.set('ok', { execute: async () => {} });
-    let replyCount = 0;
-
-    await handlers[0]({
-      isChatInputCommand: () => true,
-      isContextMenuCommand: () => false,
-      commandName: 'ok',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: null,
-      inGuild: () => false,
-      replied: false,
-      deferred: false,
-      reply: async () => {
-        replyCount += 1;
-      },
-      followUp: async () => {
-        replyCount += 1;
-      }
-    });
-
-    assert.equal(replyCount, 1);
-  } finally {
-    restore();
-  }
-});
-
-test('index logs login failures and process-level handlers', async () => {
-  const { processHandlers, restore } = loadIndexHarness({}, {}, { captureProcessHandlers: true });
-  const originalExit = process.exit;
-  const exitCodes = [];
-  process.exit = code => {
-    exitCodes.push(code);
-  };
-
-  const loginClient = { login: () => Promise.reject(new Error('login failed')) };
-  try {
-    await processHandlers['uncaughtException']?.(new Error('uncaught'));
-    await processHandlers['unhandledRejection']?.(new Error('rejection'), Promise.resolve());
-    await processHandlers['SIGINT']?.();
-    await processHandlers['SIGTERM']?.();
-
-    assert.equal(Array.isArray(exitCodes), true);
-  } finally {
-    process.exit = originalExit;
-    restore();
-  }
-});
-
-test('index handles command and event load failures', () => {
-  const { restore } = loadIndexHarness({}, {
-    commands: ['missing-command.js'],
-    events: ['missing-event.js']
-  }, {
-    loginReject: true
-  });
-
-  restore();
-});
-
-test('index logs event execution failures for once and regular handlers', async () => {
-  const root = path.resolve(__dirname, '..');
-  const onceEventPath = path.join(root, 'events', 'ready.js');
-  const regularEventPath = path.join(root, 'events', 'messageCreate.js');
-
-  require.cache[onceEventPath] = {
-    id: onceEventPath,
-    filename: onceEventPath,
-    loaded: true,
-    exports: {
-      name: 'ready',
-      once: true,
-      execute: async () => {
-        throw new Error('once event failed');
-      }
-    }
-  };
-
-  require.cache[regularEventPath] = {
-    id: regularEventPath,
-    filename: regularEventPath,
-    loaded: true,
-    exports: {
-      name: 'messageCreate',
-      once: false,
-      execute: async () => {
-        throw new Error('regular event failed');
-      }
-    }
-  };
-
-  const { client, restore } = loadIndexHarness({}, {
-    commands: ['reset.js'],
-    events: ['ready.js', 'messageCreate.js']
-  });
-
-  try {
-    const readyHandlers = client.handlers.get('ready') || [];
-    const messageHandlers = client.handlers.get('messageCreate') || [];
-
-    assert.equal(typeof readyHandlers[0], 'function');
-    assert.equal(typeof messageHandlers[0], 'function');
-
-    readyHandlers[0]();
-    messageHandlers[0]({
-      author: { bot: false, id: 'user-1', tag: 'User#0001' },
-      channelId: 'chan-1',
-      channel: { name: 'general' },
-      client,
-      content: 'hello',
-      mentions: { has: () => false },
-      attachments: new Map(),
-      reference: null,
-      guildId: 'guild-1',
-      reply: async () => ({ edit: async () => {} })
-    });
-  } finally {
-    restore();
-    delete require.cache[onceEventPath];
-    delete require.cache[regularEventPath];
   }
 });

@@ -44,7 +44,12 @@ function createMessage({ replyImpl, editImpl, content = '<@123> hello', channelI
     },
     author: { bot: false, id: 'user-1', tag: 'User#0001' },
     guildId: 'guild-1',
-    mentions: { has: () => true },
+    mentions: { 
+      has: () => true,
+      everyone: false,
+      size: 1,
+      values: () => [{ id: '123' }]
+    },
     reference: null,
     attachments: new Map(),
     reply
@@ -138,4 +143,129 @@ test('replies with a clear error message when the AI service returns no content'
       text: '<@123> hello'
     }
   ]);
+});
+
+test('does not reply to messages with only @here mention', async () => {
+  let replyCalled = false;
+  const module = loadMessageCreateWithResponse(async () => 'response');
+
+  const message = createMessage({
+    content: '@here check this out',
+    replyImpl: async () => {
+      replyCalled = true;
+      return { edit: async () => {} };
+    }
+  });
+
+  // Override mentions to simulate @here without bot mention
+  message.mentions.has = () => false;
+  message.mentions.everyone = true;
+  message.mentions.size = 0;
+  message.mentions.values = () => [];
+  // --- appended from test/messageCreate.coverage.test.js ---
+  function loadMessageCreate(generateAIResponse) {
+    const messageCreatePath = path.resolve(__dirname, '..', 'events', 'messageCreate.js');
+    const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
+    delete require.cache[messageCreatePath];
+    delete require.cache[aiServicePath];
+    delete require.cache[require.resolve('../config')];
+    require.cache[aiServicePath] = {
+      id: aiServicePath,
+      filename: aiServicePath,
+      loaded: true,
+      exports: { generateAIResponse }
+    };
+
+    return require(messageCreatePath);
+  }
+
+
+  await module.execute(message);
+
+  assert.equal(replyCalled, false, 'Bot should not reply to @here-only messages');
+  assert.equal(message.client.conversationHistory.get('chan-1'), undefined, 'No conversation history should be created');
+});
+
+test('does not reply to messages with only @everyone mention', async () => {
+  let replyCalled = false;
+  const module = loadMessageCreateWithResponse(async () => 'response');
+
+  const message = createMessage({
+    content: '@everyone this is important',
+    replyImpl: async () => {
+      replyCalled = true;
+      return { edit: async () => {} };
+    }
+  });
+
+  // Override mentions to simulate @everyone without bot mention
+  message.mentions.has = () => false;
+  message.mentions.everyone = true;
+  message.mentions.size = 0;
+  message.mentions.values = () => [];
+
+  await module.execute(message);
+
+  assert.equal(replyCalled, false, 'Bot should not reply to @everyone-only messages');
+  assert.equal(message.client.conversationHistory.get('chan-1'), undefined, 'No conversation history should be created');
+});
+
+test('processes image attachments from messages', async () => {
+  const https = require('https');
+  const { EventEmitter } = require('node:events');
+  function withHttpsStub(handler, run) {
+    const originalGet = https.get;
+    https.get = handler;
+    return Promise.resolve()
+      .then(run)
+      .finally(() => { https.get = originalGet; });
+  }
+
+  const module = loadMessageCreateWithResponse(async () => 'analyzed');
+
+  await withHttpsStub((url, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = error => request.emit('error', error);
+    process.nextTick(() => {
+      const response = new EventEmitter();
+      response.statusCode = 200;
+      response.headers = { 'content-type': 'image/png', 'content-length': '4' };
+      response.resume = () => {};
+      process.nextTick(() => {
+        response.emit('data', Buffer.from('test'));
+        response.emit('end');
+      });
+      callback(response);
+    });
+    return request;
+  }, async () => {
+    const attachment = { url: 'https://cdn.discordapp.com/test.png', contentType: 'image/png', name: 'test.png' };
+
+    const message = createMessage({ replyImpl: async (payload) => {
+      if (payload.content === '*Thinking...*') return { edit: async ({ content }) => {} };
+      return { edit: async () => {} };
+    } });
+
+    message.attachments = new Map([['att-1', attachment]]);
+
+    await module.execute(message);
+    assert.ok(message.client.conversationHistory.has('chan-1'));
+  });
+});
+
+test('handles multiple attachments in a single message', async () => {
+  const module = loadMessageCreateWithResponse(async () => 'processed');
+
+  const message = createMessage({ replyImpl: async () => ({ edit: async () => {} }) });
+
+  const attachment1 = { url: 'https://cdn.discordapp.com/image1.png', contentType: 'image/png', name: 'image1.png' };
+  const attachment2 = { url: 'https://cdn.discordapp.com/image2.png', contentType: 'image/jpeg', name: 'image2.jpg' };
+
+  message.attachments = new Map([['att-1', attachment1], ['att-2', attachment2]]);
+
+  await module.execute(message);
+  assert.ok(message.client.conversationHistory.has('chan-1'));
+  const history = message.client.conversationHistory.get('chan-1');
+  assert.ok(history.length > 0);
 });

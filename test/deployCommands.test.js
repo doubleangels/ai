@@ -57,3 +57,30 @@ test('deployCommands throws when REST.put rejects', async () => {
   const deploy = require('../deploy-commands');
   await assert.rejects(async () => deploy());
 });
+
+// --- appended from test/deployCommands.coverage.test.js ---
+const fs = require('fs');
+
+const deployPath = path.resolve(__dirname, '..', 'deploy-commands.js');
+
+function loadDeployWithFs(files) {
+  delete require.cache[deployPath];
+  const originalReaddirSync = fs.readdirSync;
+  fs.readdirSync = () => files;
+  return {
+    deploy: require(deployPath),
+    restore: () => {
+      fs.readdirSync = originalReaddirSync;
+    }
+  };
+}
+
+test('deploy-commands throws when no command files can be loaded (coverage merged)', async () => {
+  process.env.DISCORD_CLIENT_ID = 'client-1';
+  const { deploy, restore } = loadDeployWithFs(['missing.js']);
+  try {
+    await assert.rejects(async () => deploy(), /No commands could be loaded/);
+  } finally {
+    restore();
+  }
+});

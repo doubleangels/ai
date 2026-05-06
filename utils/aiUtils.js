@@ -378,6 +378,8 @@ async function processImageAttachments(attachments) {
     .map(entry => entry.item);
 }
 
+
+
 /**
  * Checks if a conversation contains images.
  * 

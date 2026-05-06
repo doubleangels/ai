@@ -1,6 +1,7 @@
 const { Events } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
 const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES } = require('../utils/aiUtils');
+const { traceReplyChain, formatChainAsContext } = require('../utils/replyChainTracer');
 const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -19,6 +20,15 @@ const SAFE_ALLOWED_MENTIONS = { parse: [] };
 
 /** Max characters from replied-to messages injected into the prompt (saves input tokens). */
 const QUOTED_REPLY_CONTEXT_MAX_CHARS = 2000;
+
+/**
+ * Detects if a message contains @here or @everyone mentions.
+ * @param {import('discord.js').Message} message - The message to check
+ * @returns {boolean} True if the message contains @here or @everyone
+ */
+function hasEveryoneMention(message) {
+  return message.mentions.everyone || /@here|@everyone/.test(message.content);
+}
 
 /**
  * Message create event handler module
@@ -55,6 +65,14 @@ module.exports = {
 
     const hasBotPing = message.mentions.has(client.user);
     const hasReference = Boolean(message.reference?.messageId);
+    const hasEveryoneOrHereMention = hasEveryoneMention(message);
+
+    // Reject messages with @here or @everyone that don't have a direct bot ping
+    if (hasEveryoneOrHereMention && !hasBotPing) {
+      logger.debug('Ignoring message with @here/@everyone mention (no direct bot ping)', { channelId });
+      return;
+    }
+
     if (!hasBotPing && !hasReference) return;
 
     let prefetchedReferencedMessage = null;
@@ -294,35 +312,38 @@ module.exports = {
 
       let userText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
-      // Collect referenced messages (replied-to message, and if replying to bot, the message the bot was replying to)
-      const messagesToCheckForRef = [];
-      if (referencedMessage) {
-        messagesToCheckForRef.push(referencedMessage);
-        if (isReplyToBot && referencedMessage.reference?.messageId) {
-          try {
-            const parentOfReply = await message.channel.messages.fetch(referencedMessage.reference.messageId);
-            messagesToCheckForRef.push(parentOfReply);
-          } catch (err) {
-            logger.debug('Could not fetch parent of replied-to message.', { messageId: referencedMessage.reference.messageId });
-          }
+      // Trace full reply chain for complete context
+      let replyChain = [message];
+      if (hasReference) {
+        try {
+          logger.debug('Tracing reply chain for context', { channelId, messageId: message.id });
+          replyChain = await traceReplyChain(message, message.channel);
+          logger.debug(`Reply chain traced: ${replyChain.length} messages`, { channelId });
+        } catch (error) {
+          logger.warn('Error tracing reply chain', { channelId, error: error.message });
+          replyChain = [message];
         }
       }
 
-      // Include text from replied-to message(s) so the model has that context (skip bot's own message; we add it as assistant turn)
+      // Extract text from all messages in the reply chain (except the current message and bot messages)
       const quotedTextParts = [];
-      for (const msg of messagesToCheckForRef) {
+      for (let i = 0; i < replyChain.length - 1; i++) {
+        const msg = replyChain[i];
         if (msg.author.id === client.user.id) continue;
         const text = (msg.content || '').trim();
-        if (text) quotedTextParts.push(text);
-      }
-      if (quotedTextParts.length > 0) {
-        let quotedBlock = quotedTextParts.join('\n\n');
-        if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
-          quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n\n[truncated]`;
-        }
-        userText = userText ? `[Replying to:\n${quotedBlock}]\n\n${userText}` : `[Replying to:\n${quotedBlock}]`;
+        if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
       }
 
+      // Add chain context if there are previous messages
+      if (quotedTextParts.length > 0) {
+        let quotedBlock = quotedTextParts.join('\n');
+        if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
+          quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
+        }
+        userText = userText ? `[Previous conversation:\n${quotedBlock}]\n\n${userText}` : `[Previous conversation:\n${quotedBlock}]`;
+      }
+
+      // Process image attachments from current message
       let imageContents = [];
       if (message.attachments && message.attachments.size > 0) {
         logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}`);
@@ -330,19 +351,21 @@ module.exports = {
         logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
       }
 
-      // Include images from the message we're replying to (so "reply to image message" sends the image to the model)
-      for (const msg of messagesToCheckForRef) {
+      // Include image attachments from the reply chain (images from all messages)
+      for (let i = 0; i < replyChain.length - 1; i++) {
+        const msg = replyChain[i];
         if (msg.attachments && msg.attachments.size > 0) {
-          const imageAttachments = Array.from(msg.attachments.values()).filter(
-            attachment => attachment.contentType && attachment.contentType.startsWith('image/')
-          );
-          if (imageAttachments.length > 0) {
-            logger.debug(`Processing ${imageAttachments.length} image(s) from referenced message ${msg.id}`);
-            const processed = await processImageAttachments(imageAttachments);
-            imageContents.push(...processed);
-            logger.info(`Processed ${processed.length} image(s) from referenced message ${msg.id}`);
-          }
+          logger.debug(`Processing ${msg.attachments.size} attachment(s) from chain message ${msg.id}`);
+          const processedImages = await processImageAttachments(Array.from(msg.attachments.values()));
+          imageContents.push(...processedImages);
+          logger.info(`Processed ${processedImages.length} image(s) from chain message ${msg.id}`);
         }
+      }
+
+      // Add bot's previous response if replying to bot
+      referencedMessage = null;
+      if (isReplyToBot && replyChain.length > 0) {
+        referencedMessage = replyChain[replyChain.length - 1];
       }
 
       if (!client.conversationHistory.has(channelId)) {
