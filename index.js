@@ -1,8 +1,16 @@
+const { captureError, closeSentry, recordCount, recordDistribution, startSpan } = require('./instrument');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
+
+function interactionAllowedInGuild(interaction) {
+  const ids = config.allowedGuildIds;
+  if (!ids || ids.size === 0) return true;
+  if (!interaction.inGuild() || !interaction.guildId) return false;
+  return ids.has(interaction.guildId);
+}
 
 /**
  * Discord client instance with required intents
@@ -44,27 +52,29 @@ for (const file of eventFiles) {
     const event = require(path.join(eventsPath, file));
     if (event.once) {
       client.once(event.name, (...args) => {
-        try {
-          logger.debug(`Executing event: ${event.name}`);
-          event.execute(...args, client);
-        } catch (error) {
-          logger.error(`Error executing once event: ${event.name}.`, {
-            error: error.stack,
-            message: error.message
+        logger.debug(`Executing event: ${event.name}`);
+        Promise.resolve()
+          .then(() => event.execute(...args, client))
+          .catch(error => {
+            captureError(error, { event: event.name, source: 'eventExecute' });
+            logger.error(`Error executing once event: ${event.name}.`, {
+              error: error.stack,
+              message: error.message
+            });
           });
-        }
       });
     } else {
       client.on(event.name, (...args) => {
-        try {
-          logger.debug(`Executing event: ${event.name}`);
-          event.execute(...args, client);
-        } catch (error) {
-          logger.error(`Error executing event: ${event.name}.`, {
-            error: error.stack,
-            message: error.message
+        logger.debug(`Executing event: ${event.name}`);
+        Promise.resolve()
+          .then(() => event.execute(...args, client))
+          .catch(error => {
+            captureError(error, { event: event.name, source: 'eventExecute' });
+            logger.error(`Error executing event: ${event.name}.`, {
+              error: error.stack,
+              message: error.message
+            });
           });
-        }
       });
     }
     logger.info(`Loaded event: ${event.name}`);
@@ -82,14 +92,53 @@ client.on('interactionCreate', async interaction => {
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
 
+  if (!interactionAllowedInGuild(interaction)) {
+    try {
+      await interaction.reply({ content: 'This bot is not enabled in this server.', ephemeral: true });
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
+
+  const startedAt = Date.now();
+
   try {
     logger.debug(`Executing command: ${interaction.commandName}`, { 
       user: interaction.user.tag,
       userId: interaction.user.id,
       guildId: interaction.guildId
     });
-    await command.execute(interaction);
+    await startSpan({
+      op: 'discord.command',
+      name: `/${interaction.commandName}`
+    }, async () => {
+      await command.execute(interaction);
+    });
+    recordCount('discord.command.executed', 1, {
+      command: interaction.commandName,
+      outcome: 'success'
+    });
+    recordDistribution('discord.command.duration_ms', Date.now() - startedAt, {
+      unit: 'millisecond',
+      attributes: {
+        command: interaction.commandName,
+        outcome: 'success'
+      }
+    });
   } catch (error) {
+    captureError(error, { source: 'commandExecute', command: interaction.commandName });
+    recordCount('discord.command.executed', 1, {
+      command: interaction.commandName,
+      outcome: 'error'
+    });
+    recordDistribution('discord.command.duration_ms', Date.now() - startedAt, {
+      unit: 'millisecond',
+      attributes: {
+        command: interaction.commandName,
+        outcome: 'error'
+      }
+    });
     logger.error(`Error executing command: ${interaction.commandName}.`, {
       error: error.stack,
       message: error.message,
@@ -107,6 +156,26 @@ client.on('interactionCreate', async interaction => {
         message: replyError.message,
         originalError: error.message
       });
+      try {
+        const httpStatus = replyError?.status || replyError?.statusCode || replyError?.httpStatus;
+        recordCount('discord.api.failure', 1, {
+          location: 'index.command_reply',
+          command: interaction.commandName,
+          userId: interaction.user.id,
+          guildId: interaction.guildId,
+          errorMessage: replyError.message,
+          httpStatus
+        });
+        if (httpStatus === 429) {
+          recordCount('discord.api.rate_limit', 1, {
+            location: 'index.command_reply',
+            command: interaction.commandName,
+            guildId: interaction.guildId
+          });
+        }
+      } catch (metricErr) {
+        logger.debug('Failed to record discord.api.failure metric for command reply.', { errorMessage: metricErr.message });
+      }
     }
   }
 });
@@ -120,16 +189,54 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
+  if (!interactionAllowedInGuild(interaction)) {
+    try {
+      await interaction.reply({ content: 'This bot is not enabled in this server.', ephemeral: true });
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
+
   logger.debug(`Executing context menu command: ${interaction.commandName}`, { 
     user: interaction.user.tag,
     userId: interaction.user.id,
     guildId: interaction.guildId
   });
 
+  const startedAt = Date.now();
   try {
-    await command.execute(interaction);
+    await startSpan({
+      op: 'discord.context_menu',
+      name: interaction.commandName
+    }, async () => {
+      await command.execute(interaction);
+    });
+    recordCount('discord.context_menu.executed', 1, {
+      command: interaction.commandName,
+      outcome: 'success'
+    });
+    recordDistribution('discord.context_menu.duration_ms', Date.now() - startedAt, {
+      unit: 'millisecond',
+      attributes: {
+        command: interaction.commandName,
+        outcome: 'success'
+      }
+    });
     logger.debug(`Context menu command executed successfully: ${interaction.commandName}`);
   } catch (error) {
+    captureError(error, { source: 'contextMenuExecute', command: interaction.commandName });
+    recordCount('discord.context_menu.executed', 1, {
+      command: interaction.commandName,
+      outcome: 'error'
+    });
+    recordDistribution('discord.context_menu.duration_ms', Date.now() - startedAt, {
+      unit: 'millisecond',
+      attributes: {
+        command: interaction.commandName,
+        outcome: 'error'
+      }
+    });
     logger.error(`Error executing context menu command: ${interaction.commandName}.`, { 
       error: error.stack,
       message: error.message,
@@ -148,11 +255,38 @@ client.on('interactionCreate', async interaction => {
         message: replyError.message,
         originalError: error.message
       });
+      try {
+        const httpStatus = replyError?.status || replyError?.statusCode || replyError?.httpStatus;
+        recordCount('discord.api.failure', 1, {
+          location: 'index.contextmenu_reply',
+          command: interaction.commandName,
+          userId: interaction.user.id,
+          guildId: interaction.guildId,
+          errorMessage: replyError.message,
+          httpStatus
+        });
+        if (httpStatus === 429) {
+          recordCount('discord.api.rate_limit', 1, {
+            location: 'index.contextmenu_reply',
+            command: interaction.commandName,
+            guildId: interaction.guildId
+          });
+        }
+      } catch (metricErr) {
+        logger.debug('Failed to record discord.api.failure metric for context menu reply.', { errorMessage: metricErr.message });
+      }
     }
   }
 });
 
-client.login(config.token).catch(error => {
+startSpan({
+  op: 'discord.login',
+  name: 'Discord client login'
+}, async () => client.login(config.token)).catch(error => {
+  captureError(error, { source: 'clientLogin' });
+  recordCount('discord.login', 1, {
+    outcome: 'error'
+  });
   logger.error('Error logging in.', {
     error: error.stack,
     message: error.message
@@ -160,27 +294,45 @@ client.login(config.token).catch(error => {
 });
 
 process.on('uncaughtException', (error) => {
+  captureError(error, { handler: 'uncaughtException' });
   logger.error('Uncaught Exception.', {
     error: error.stack,
     message: error.message
   });
-  setTimeout(() => process.exit(1), 1000);
+  closeSentry().finally(() => process.exit(1));
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  captureError(error, { handler: 'unhandledRejection' });
   logger.error('Unhandled Promise Rejection.', {
-    error: reason?.stack,
-    message: reason?.message || String(reason)
+    error: error.stack,
+    message: error.message
   });
-  process.exit(1);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('Shutdown signal (SIGINT) received. Exiting...');
+  try {
+    await closeSentry();
+  } catch (err) {
+    logger.error('Error flushing Sentry on shutdown.', {
+      error: err.stack,
+      message: err.message
+    });
+  }
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('Shutdown signal (SIGTERM) received. Exiting...');
+  try {
+    await closeSentry();
+  } catch (err) {
+    logger.error('Error flushing Sentry on shutdown.', {
+      error: err.stack,
+      message: err.message
+    });
+  }
   process.exit(0);
 });

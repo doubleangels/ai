@@ -1,6 +1,7 @@
 const { REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const { captureError, recordCount, recordDistribution, startSpan } = require('./instrument');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
 
@@ -13,23 +14,30 @@ const config = require('./config');
  */
 async function deployCommands() {
   const commands = [];
+  const startedAt = Date.now();
   
   const commandsPath = path.join(__dirname, 'commands');
   
   const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-  
-  for (const file of commandFiles) {
-    try {
-      const command = require(`./commands/${file}`);
-      commands.push(command.data.toJSON());
-      logger.debug(`Loaded command: ${file}`);
-    } catch (err) {
-      logger.error(`Failed to load command file: ${file}, skipping.`, {
-        error: err?.stack,
-        message: err?.message
-      });
+
+  await startSpan({
+    op: 'discord.deploy_commands',
+    name: 'Deploy slash commands'
+  }, async () => {
+    for (const file of commandFiles) {
+      try {
+        const command = require(`./commands/${file}`);
+        commands.push(command.data.toJSON());
+        logger.debug(`Loaded command: ${file}`);
+      } catch (err) {
+        captureError(err, { source: 'deployCommands', handler: 'commandLoad', file });
+        logger.error(`Failed to load command file: ${file}, skipping.`, {
+          error: err?.stack,
+          message: err?.message
+        });
+      }
     }
-  }
+  });
 
   if (commands.length === 0) {
     throw new Error('No commands could be loaded. Check the errors above.');
@@ -47,8 +55,45 @@ async function deployCommands() {
     );
     
     logger.info(`Successfully registered ${commands.length} application (/) commands.`);
+    recordCount('discord.deploy_commands', 1, {
+      outcome: 'success'
+    });
+    recordDistribution('discord.deploy_commands.duration_ms', Date.now() - startedAt, {
+      unit: 'millisecond',
+      attributes: {
+        outcome: 'success'
+      }
+    });
   } catch (error) {
-    logger.error('Failed to deploy commands:', { error });
+    captureError(error, { source: 'deployCommands', handler: 'registerCommands' });
+    recordCount('discord.deploy_commands', 1, {
+      outcome: 'error'
+    });
+    recordDistribution('discord.deploy_commands.duration_ms', Date.now() - startedAt, {
+      unit: 'millisecond',
+      attributes: {
+        outcome: 'error'
+      }
+    });
+    logger.error('Failed to deploy commands.', {
+      error: error?.stack,
+      message: error?.message
+    });
+    try {
+      const httpStatus = error?.status || error?.statusCode || error?.httpStatus;
+      recordCount('discord.api.failure', 1, {
+        location: 'deploy.register',
+        errorMessage: error?.message,
+        httpStatus
+      });
+      if (httpStatus === 429) {
+        recordCount('discord.api.rate_limit', 1, {
+          location: 'deploy.register'
+        });
+      }
+    } catch (metricErr) {
+      logger.debug('Failed to record discord.api.failure metric during deploy.', { errorMessage: metricErr.message });
+    }
     throw error;
   }
 }
@@ -59,7 +104,11 @@ if (require.main === module) {
   deployCommands()
     .then(() => logger.info('Command deployment completed successfully.'))
     .catch(err => {
-      logger.error('Failed to deploy commands:', err);
+      captureError(err, { source: 'deployCommands', handler: 'main' });
+      logger.error('Failed to deploy commands.', {
+        error: err?.stack,
+        message: err?.message
+      });
       process.exit(1);
     });
 }

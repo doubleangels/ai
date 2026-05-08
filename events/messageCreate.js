@@ -1,6 +1,8 @@
 const { Events } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
 const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES } = require('../utils/aiUtils');
+const { traceReplyChain, formatChainAsContext } = require('../utils/replyChainTracer');
+const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const {
@@ -10,10 +12,23 @@ const {
   aiProvider,
   userCooldownMs,
   channelCooldownMs,
-  maxPendingPerChannel
+  maxPendingPerChannel,
+  allowedGuildIds
 } = require('../config');
 
 const SAFE_ALLOWED_MENTIONS = { parse: [] };
+
+/** Max characters from replied-to messages injected into the prompt (saves input tokens). */
+const QUOTED_REPLY_CONTEXT_MAX_CHARS = 2000;
+
+/**
+ * Detects if a message contains @here or @everyone mentions.
+ * @param {import('discord.js').Message} message - The message to check
+ * @returns {boolean} True if the message contains @here or @everyone
+ */
+function hasEveryoneMention(message) {
+  return message.mentions.everyone || /@here|@everyone/.test(message.content);
+}
 
 /**
  * Message create event handler module
@@ -37,32 +52,41 @@ module.exports = {
     }
 
     const client = message.client;
-    const botMentionPattern = new RegExp(`<@!?${client.user.id}>`);
     const channelId = message.channelId;
     const userId = message.author.id;
     const channelName = message.channel?.name || 'unknown';
+    const messageStartedAt = Date.now();
 
-    let referencedMessage = null;
-    let isReplyToBot = false;
-    if (message.reference?.messageId) {
-      try {
-        referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-        isReplyToBot = referencedMessage.author.id === client.user.id;
-        if (isReplyToBot) {
-          logger.debug(`Message ${message.id} is a reply to bot's message: ${referencedMessage.id}.`);
-        }
-      } catch (error) {
-        logger.error(`Failed to fetch referenced message ${message.reference.messageId}.`, {
-          error: error.stack,
-          messageId: message.id,
-          errorMessage: error.message
-        });
+    if (allowedGuildIds.size > 0) {
+      if (!message.guildId || !allowedGuildIds.has(message.guildId)) {
+        return;
       }
     }
 
-    const hasBotMention = message.mentions.users.has(client.user.id) || botMentionPattern.test(message.content);
-    if (!hasBotMention && !isReplyToBot) return;
+    const hasBotPing = message.mentions.has(client.user);
+    const hasReference = Boolean(message.reference?.messageId);
+    const hasEveryoneOrHereMention = hasEveryoneMention(message);
 
+    // Reject messages with @here or @everyone that don't have a direct bot ping.
+    if (hasEveryoneOrHereMention && !hasBotPing) {
+      logger.debug('Ignoring message containing @here or @everyone because it does not directly mention the bot.', { channelId });
+      return;
+    }
+
+    if (!hasBotPing && !hasReference) return;
+
+    let prefetchedReferencedMessage = null;
+    if (!hasBotPing && hasReference) {
+      try {
+        const ref = await message.channel.messages.fetch(message.reference.messageId);
+        if (ref.author.id !== client.user.id) return;
+        prefetchedReferencedMessage = ref;
+      } catch {
+        return;
+      }
+    }
+
+    // Initialize channel locks if not already present
     if (!client.channelLocks) {
       client.channelLocks = new Map();
     }
@@ -78,6 +102,9 @@ module.exports = {
 
     const pending = client.channelQueueDepth.get(channelId) || 0;
     if (maxPendingPerChannel > 0 && pending >= maxPendingPerChannel) {
+      recordCount('discord.message.rejected', 1, {
+        reason: 'backpressure'
+      });
       try {
         await message.reply({
           content: "I'm busy in this channel, please try again in a few seconds.",
@@ -88,20 +115,134 @@ module.exports = {
           channelId,
           errorMessage: err.message
         });
+        try {
+          const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+          recordCount('discord.api.failure', 1, {
+            location: 'messageCreate.backpressure_reply',
+            channelId,
+            errorMessage: err.message,
+            httpStatus
+          });
+          if (httpStatus === 429) {
+            recordCount('discord.api.rate_limit', 1, {
+              location: 'messageCreate.backpressure_reply',
+              channelId
+            });
+          }
+        } catch (metricErr) {
+          logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+        }
       }
       return;
     }
 
     const processMessage = async () => {
-      const client = message.client;
-      const botMentionPattern = new RegExp(`<@!?${client.user.id}>`);
-      const channelId = message.channelId;
-      const userId = message.author.id;
-      const channelName = message.channel?.name || 'unknown';
+      const sendPrimaryResponse = async (content) => {
+        if (thinkingMessage) {
+          try {
+            await thinkingMessage.edit({
+              content,
+              allowedMentions: SAFE_ALLOWED_MENTIONS
+            });
+            return true;
+          } catch (err) {
+            logger.warn('Failed to edit thinking message; falling back to a normal reply.', {
+              channelId,
+              messageId: message.id,
+              errorMessage: err.message
+            });
+            try {
+              const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+              recordCount('discord.api.failure', 1, {
+                location: 'messageCreate.edit_thinking',
+                channelId,
+                messageId: message.id,
+                errorMessage: err.message,
+                httpStatus
+              });
+              if (httpStatus === 429) {
+                recordCount('discord.api.rate_limit', 1, {
+                  location: 'messageCreate.edit_thinking',
+                  channelId,
+                  messageId: message.id
+                });
+              }
+            } catch (metricErr) {
+              logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+            }
+            thinkingMessage = null;
+          }
+        }
 
-      let localReferencedMessage = referencedMessage;
-      let localIsReplyToBot = isReplyToBot;
+        try {
+          await message.reply({
+            content,
+            allowedMentions: SAFE_ALLOWED_MENTIONS
+          });
+          return true;
+        } catch (err) {
+          logger.error('Failed to send fallback reply.', {
+            channelId,
+            messageId: message.id,
+            error: err.stack,
+            errorMessage: err.message
+          });
+          try {
+            const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+            recordCount('discord.api.failure', 1, {
+              location: 'messageCreate.reply_fallback',
+              channelId,
+              messageId: message.id,
+              errorMessage: err.message,
+              httpStatus
+            });
+            if (httpStatus === 429) {
+              recordCount('discord.api.rate_limit', 1, {
+                location: 'messageCreate.reply_fallback',
+                channelId,
+                messageId: message.id
+              });
+            }
+          } catch (metricErr) {
+            logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+          }
+          return false;
+        }
+      };
 
+      let isReplyToBot = false;
+      let referencedMessage = null;
+
+      if (prefetchedReferencedMessage) {
+        referencedMessage = prefetchedReferencedMessage;
+        isReplyToBot = true;
+        logger.debug(`Message ${message.id} is a reply to bot's message: ${referencedMessage.id}.`);
+      } else if (message.reference && message.reference.messageId) {
+        try {
+          referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+          isReplyToBot = referencedMessage.author.id === client.user.id;
+
+          if (isReplyToBot) {
+            logger.debug(`Message ${message.id} is a reply to bot's message: ${referencedMessage.id}.`);
+          }
+        } catch (error) {
+          logger.error(`Failed to fetch referenced message ${message.reference.messageId}.`, {
+            error: error.stack,
+            messageId: message.id,
+            errorMessage: error.message
+          });
+        }
+      }
+
+      const hasBotMention = hasBotPing;
+
+      if (!hasBotMention && !isReplyToBot) {
+        return;
+      }
+
+      const isTriggered = hasBotMention || isReplyToBot;
+
+      // Basic cooldowns to reduce spam/cost.
       const now = Date.now();
       const lastUser = client.userCooldowns.get(userId) || 0;
       if (userCooldownMs > 0 && now - lastUser < userCooldownMs) {
@@ -154,35 +295,48 @@ module.exports = {
         isReplyToBot: localIsReplyToBot
       });
       logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
+      recordCount('discord.message.received', 1, {
+        provider: aiProvider,
+        trigger: hasBotPing ? 'mention' : 'reply'
+      });
+      recordGauge('discord.channel.queue_depth', pending + 1, {
+        provider: aiProvider
+      });
 
-      let userText = message.content.replace(botMentionPattern, '@AI').trim();
+      let userText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
-      const messagesToCheckForRef = [];
-      if (localReferencedMessage) {
-        messagesToCheckForRef.push(localReferencedMessage);
-        if (localIsReplyToBot && localReferencedMessage.reference?.messageId) {
-          try {
-            const parentOfReply = await message.channel.messages.fetch(localReferencedMessage.reference.messageId);
-            messagesToCheckForRef.push(parentOfReply);
-          } catch (err) {
-            logger.debug('Could not fetch parent of replied-to message.', {
-              messageId: localReferencedMessage.reference.messageId
-            });
-          }
+      // Trace full reply chain for complete context
+      let replyChain = [message];
+      if (hasReference) {
+        try {
+          logger.debug('Tracing reply chain for context', { channelId, messageId: message.id });
+          replyChain = await traceReplyChain(message, message.channel);
+          logger.debug(`Reply chain traced: ${replyChain.length} messages`, { channelId });
+        } catch (error) {
+          logger.warn('Error tracing reply chain', { channelId, error: error.message });
+          replyChain = [message];
         }
       }
 
+      // Extract text from all messages in the reply chain (except the current message and bot messages)
       const quotedTextParts = [];
-      for (const msg of messagesToCheckForRef) {
+      for (let i = 0; i < replyChain.length - 1; i++) {
+        const msg = replyChain[i];
         if (msg.author.id === client.user.id) continue;
         const text = (msg.content || '').trim();
-        if (text) quotedTextParts.push(text);
-      }
-      if (quotedTextParts.length > 0) {
-        const quotedBlock = quotedTextParts.join('\n\n');
-        userText = userText ? `[Replying to:\n${quotedBlock}]\n\n${userText}` : `[Replying to:\n${quotedBlock}]`;
+        if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
       }
 
+      // Add chain context if there are previous messages
+      if (quotedTextParts.length > 0) {
+        let quotedBlock = quotedTextParts.join('\n');
+        if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
+          quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
+        }
+        userText = userText ? `[Previous conversation:\n${quotedBlock}]\n\n${userText}` : `[Previous conversation:\n${quotedBlock}]`;
+      }
+
+      // Process image attachments from current message
       let imageContents = [];
       if (message.attachments && message.attachments.size > 0) {
         logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}`);
@@ -190,18 +344,21 @@ module.exports = {
         logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
       }
 
-      for (const msg of messagesToCheckForRef) {
+      // Include image attachments from the reply chain (images from all messages)
+      for (let i = 0; i < replyChain.length - 1; i++) {
+        const msg = replyChain[i];
         if (msg.attachments && msg.attachments.size > 0) {
-          const imageAttachments = Array.from(msg.attachments.values()).filter(
-            attachment => attachment.contentType && attachment.contentType.startsWith('image/')
-          );
-          if (imageAttachments.length > 0) {
-            logger.debug(`Processing ${imageAttachments.length} image(s) from referenced message ${msg.id}`);
-            const processed = await processImageAttachments(imageAttachments);
-            imageContents.push(...processed);
-            logger.info(`Processed ${processed.length} image(s) from referenced message ${msg.id}`);
-          }
+          logger.debug(`Processing ${msg.attachments.size} attachment(s) from chain message ${msg.id}`);
+          const processedImages = await processImageAttachments(Array.from(msg.attachments.values()));
+          imageContents.push(...processedImages);
+          logger.info(`Processed ${processedImages.length} image(s) from chain message ${msg.id}`);
         }
+      }
+
+      // Add bot's previous response if replying to bot
+      referencedMessage = null;
+      if (isReplyToBot && replyChain.length > 0) {
+        referencedMessage = replyChain[replyChain.length - 1];
       }
 
       if (!client.conversationHistory.has(channelId)) {
@@ -248,22 +405,30 @@ module.exports = {
 
       try {
         logger.info(`Generating AI response for message ${message.id} from ${message.author.tag}.`);
+        const reply = await startSpan({
+          op: 'discord.message',
+          name: 'Generate Discord reply'
+        }, async () => {
+          if (typeof Sentry.setConversationId === 'function') {
+            Sentry.setConversationId(channelId);
+          }
 
-        const reply = await generateAIResponse(channelHistory);
+          try {
+            return await generateAIResponse(channelHistory);
+          } finally {
+            if (typeof Sentry.setConversationId === 'function') {
+              Sentry.setConversationId(null);
+            }
+          }
+        });
 
         if (!reply) {
           logger.warn('No reply generated from AI service.');
-          if (thinkingMessage) {
-            await thinkingMessage.edit({
-              content: "⚠️ I couldn't generate a response.",
-              allowedMentions: SAFE_ALLOWED_MENTIONS
-            });
-          } else {
-            await message.reply({
-              content: "⚠️ I couldn't generate a response.",
-              allowedMentions: SAFE_ALLOWED_MENTIONS
-            });
-          }
+          recordCount('discord.message.responded', 1, {
+            provider: aiProvider,
+            outcome: 'empty'
+          });
+          await sendPrimaryResponse("⚠️ I couldn't generate a response.");
           return;
         }
 
@@ -272,42 +437,53 @@ module.exports = {
         const messageChunks = splitMessage(reply);
         try {
           if (messageChunks.length === 0) {
-            const fallback = '⚠️ No response to send.';
-            if (thinkingMessage) {
-              await thinkingMessage.edit({ content: fallback, allowedMentions: SAFE_ALLOWED_MENTIONS });
-            } else {
-              await message.reply({ content: fallback, allowedMentions: SAFE_ALLOWED_MENTIONS });
-            }
+            const fallback = "⚠️ No response to send.";
+            await sendPrimaryResponse(fallback);
           } else if (messageChunks.length === 1) {
-            if (thinkingMessage) {
-              await thinkingMessage.edit({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
-            } else {
-              await message.reply({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
-            }
+            await sendPrimaryResponse(messageChunks[0]);
           } else {
-            if (thinkingMessage) {
-              await thinkingMessage.edit({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
-            } else {
-              await message.reply({
-                content: messageChunks[0],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
+            const firstChunkSent = await sendPrimaryResponse(messageChunks[0]);
+            if (!firstChunkSent) {
+              return;
             }
 
             for (let i = 1; i < messageChunks.length; i++) {
-              await message.reply({
-                content: messageChunks[i],
-                allowedMentions: SAFE_ALLOWED_MENTIONS
-              });
+              try {
+                await message.reply({
+                  content: messageChunks[i],
+                  allowedMentions: SAFE_ALLOWED_MENTIONS
+                });
+              } catch (err) {
+                logger.error('Failed to send additional response chunk.', {
+                  channelId,
+                  messageId: message.id,
+                  chunkIndex: i,
+                  error: err.stack,
+                  errorMessage: err.message
+                });
+                try {
+                  const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+                  recordCount('discord.api.failure', 1, {
+                    location: 'messageCreate.additional_chunk',
+                    channelId,
+                    messageId: message.id,
+                    chunkIndex: i,
+                    errorMessage: err.message,
+                    httpStatus
+                  });
+                  if (httpStatus === 429) {
+                    recordCount('discord.api.rate_limit', 1, {
+                      location: 'messageCreate.additional_chunk',
+                      channelId,
+                      messageId: message.id,
+                      chunkIndex: i
+                    });
+                  }
+                } catch (metricErr) {
+                  logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+                }
+                break;
+              }
             }
           }
         } catch (sendError) {
@@ -324,9 +500,27 @@ module.exports = {
         });
 
         logger.info(`Reply sent successfully to ${message.author.tag} in channel: ${channelName}`);
+        recordCount('discord.message.responded', 1, {
+          provider: aiProvider,
+          outcome: 'success'
+        });
+        recordDistribution('discord.message.response_chars', reply.length, {
+          unit: 'byte',
+          attributes: {
+            provider: aiProvider,
+            trigger: hasBotPing ? 'mention' : 'reply'
+          }
+        });
+
+        // Update cooldown stamps only after successful completion.
         client.userCooldowns.set(userId, Date.now());
         client.channelCooldowns.set(channelId, Date.now());
       } catch (error) {
+        captureError(error, { event: 'messageCreate', handler: 'processMessage' });
+        recordCount('discord.message.responded', 1, {
+          provider: aiProvider,
+          outcome: 'error'
+        });
         logger.error('Error processing message:', {
           error: error.stack,
           message: error.message,
@@ -334,17 +528,15 @@ module.exports = {
           channelId
         });
 
-        if (thinkingMessage) {
-          await thinkingMessage.edit({
-            content: "⚠️ An error occurred while processing your request.",
-            allowedMentions: SAFE_ALLOWED_MENTIONS
-          });
-        } else {
-          await message.reply({
-            content: "⚠️ An error occurred while processing your request.",
-            allowedMentions: SAFE_ALLOWED_MENTIONS
-          });
-        }
+        await sendPrimaryResponse("⚠️ An error occurred while processing your request.");
+      } finally {
+        recordDistribution('discord.message.processing_ms', Date.now() - messageStartedAt, {
+          unit: 'millisecond',
+          attributes: {
+            provider: aiProvider,
+            trigger: hasBotPing ? 'mention' : 'reply'
+          }
+        });
       }
     };
 

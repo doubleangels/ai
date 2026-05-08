@@ -1,32 +1,45 @@
 require('dotenv').config();
+const { captureError } = require('./instrument');
 
 // OpenAI: Responses API models with text + image support. Reasoning (gpt-5*, o3, o4-mini), verbosity (gpt-5*), web search (built-in tool).
 const SUPPORTED_MODELS = [
+  'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
+  'gpt-5.3-chat-latest',
   'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
   'gpt-5.2-pro', 'gpt-5-pro',
   'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
   'o3', 'o4-mini', 'o3-pro', 'o3-mini'
 ];
-const DEFAULT_MODEL = 'gpt-5-nano';
+const DEFAULT_MODEL = 'gpt-5.4-nano';
 
-// Gemini: text + image, search grounding, thinking. Excludes image-gen-only, TTS, Live.
+// Gemini: text + image, search grounding, thinking. Excludes TTS/Live-only IDs by default.
 const SUPPORTED_GEMINI_MODELS = [
-  'gemini-3-pro-preview', 'gemini-3-flash-preview',
-  'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
-  'gemini-2.0-flash', 'gemini-2.0-flash-lite'
+  // Gemini 3.x (ai.google.dev/gemini-api/docs/models)
+  'gemini-3.1-pro-preview',
+  'gemini-3.1-pro-preview-customtools',
+  'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview',
+  'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview',
+  // Gemini 2.5 (still widely used; some have published shutdown windows in 2026)
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash-image'
 ];
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
 
-// Claude: vision, extended thinking (4.5). Aliases and versioned IDs.
+// Claude: vision, extended thinking. Include current primary IDs plus maintained aliases/snapshots.
 const SUPPORTED_CLAUDE_MODELS = [
-  'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5',
+  'claude-opus-4-7',
+  'claude-sonnet-4-6',
   'claude-haiku-4-5-20251001', 'claude-haiku-4-5',
+  'claude-opus-4-6',
+  'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5',
   'claude-opus-4-5-20251101', 'claude-opus-4-5',
-  'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
-  'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307',
-  'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20240620'
+  'claude-opus-4-1-20250805'
 ];
-const DEFAULT_CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
 const resolvedProvider = ['gemini', 'claude'].includes(aiProvider) ? aiProvider : 'openai';
@@ -51,6 +64,11 @@ if (resolvedProvider === 'gemini') {
 
 const supportedList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : resolvedProvider === 'claude' ? SUPPORTED_CLAUDE_MODELS : SUPPORTED_MODELS;
 if (!supportedList.includes(resolvedModel)) {
+  captureError(new Error(`Unsupported ${resolvedProvider} model "${resolvedModel}".`), {
+    source: 'config',
+    handler: 'modelValidation',
+    provider: resolvedProvider
+  });
   console.error(
     `Unsupported ${resolvedProvider} model "${resolvedModel}". Supported: ${supportedList.join(', ')}.`
   );
@@ -63,8 +81,18 @@ if (!supportedList.includes(resolvedModel)) {
  * @type {Object}
  */
 const parsedHistoryLength = parseInt(process.env.MAX_HISTORY_LENGTH, 10);
+
+/** When non-empty, only these Discord guild (server) IDs may use the bot (messages + slash commands). DMs are ignored. */
+const allowedGuildIds = new Set(
+  (process.env.ALLOWED_GUILD_IDS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+);
+
 const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
+  allowedGuildIds,
   logLevel: process.env.LOG_LEVEL || 'info',
   maxHistoryLength: (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) ? 20 : parsedHistoryLength,
   // Rough, token-estimated cap for stored history (in addition to maxHistoryLength).
@@ -106,13 +134,13 @@ const config = {
   maxImageBytes: parseInt(process.env.MAX_IMAGE_BYTES, 10) || 6_000_000,
   // OpenAI client: request timeout (ms) and max retries for transient failures.
   openaiTimeoutMs: Math.max(5000, Math.min(300000, parseInt(process.env.OPENAI_TIMEOUT_MS, 10) || 60000)),
-  openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) ?? 2)),
+  openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) || 2)),
   token: process.env.DISCORD_BOT_TOKEN,
 };
 
 /**
  * Gets the temperature setting for the current model.
- * @returns {number} Temperature value (0.7 for most models, 1.0 for GPT-5 models)
+ * @returns {number} Temperature value (1.0 for all models)
  */
 function getTemperature() {
   return 1.0;

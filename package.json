@@ -6,7 +6,9 @@
   "scripts": {
     "start": "doppler run -- node index.js",
     "dev": "doppler run -- nodemon index.js",
-    "deploy": "doppler run -- node deploy-commands.js"
+    "deploy": "doppler run -- node deploy-commands.js",
+    "test": "node --require ./test/preload.cjs --test",
+    "coverage": "c8 npm test"
   },
   "repository": {
     "type": "git",
@@ -19,18 +21,21 @@
   "homepage": "https://github.com/doubleangels/ai#readme",
   "overrides": {
     "tar": ">=7.5.8",
-    "undici": ">=6.23.0",
     "minimatch": ">=10.2.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
-    "@google/genai": "^1.51.0",
-    "discord.js": "^14.26.3",
+    "@anthropic-ai/sdk": "^0.95.0",
+    "@discordjs/rest": "^2.6.1",
+    "@google/genai": "^1.52.0",
+    "@sentry/node": "^10.32.0",
+    "@sentry/profiling-node": "^10.52.0",
+    "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
-    "openai": "^6.35.0",
+    "openai": "^6.37.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "c8": "^11.0.0"
   }
 }
