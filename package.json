@@ -24,7 +24,7 @@
     "minimatch": ">=10.2.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.0",
+    "@anthropic-ai/sdk": "^0.95.1",
     "@discordjs/rest": "^2.6.1",
     "@google/genai": "^1.52.0",
     "@sentry/node": "^10.32.0",
@@ -35,7 +35,7 @@
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14",
-    "c8": "^11.0.0"
+    "c8": "^11.0.0",
+    "nodemon": "^3.1.14"
   }
 }
