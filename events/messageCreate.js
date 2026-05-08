@@ -63,7 +63,7 @@ module.exports = {
       }
     }
 
-    const hasBotPing = message.mentions.has(client.user);
+    const hasBotPing = message.mentions.users.has(client.user.id);
     const hasReference = Boolean(message.reference?.messageId);
     const hasEveryoneOrHereMention = hasEveryoneMention(message);
 
@@ -292,7 +292,7 @@ module.exports = {
         channelName,
         contentLength: message.content?.length || 0,
         attachmentCount: message.attachments?.size || 0,
-        isReplyToBot: localIsReplyToBot
+        isReplyToBot: isReplyToBot
       });
       logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
       recordCount('discord.message.received', 1, {
@@ -370,13 +370,13 @@ module.exports = {
 
       const channelHistory = client.conversationHistory.get(channelId);
 
-      if (localIsReplyToBot && localReferencedMessage) {
+      if (isReplyToBot && referencedMessage) {
         const lastAssistant = [...channelHistory].reverse().find(m => m.role === 'assistant');
-        if (!lastAssistant || lastAssistant.content !== localReferencedMessage.content) {
+        if (!lastAssistant || lastAssistant.content !== referencedMessage.content) {
           logger.debug(`Adding bot's previous response to conversation history for channel ${channelId}.`);
           channelHistory.push({
             role: 'assistant',
-            content: localReferencedMessage.content
+            content: referencedMessage.content
           });
         }
       }

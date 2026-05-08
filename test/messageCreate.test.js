@@ -46,6 +46,7 @@ function createMessage({ replyImpl, editImpl, content = '<@123> hello', channelI
     guildId: 'guild-1',
     mentions: { 
       has: () => true,
+      users: { has: () => true },
       everyone: false,
       size: 1,
       values: () => [{ id: '123' }]
@@ -159,6 +160,7 @@ test('does not reply to messages with only @here mention', async () => {
 
   // Override mentions to simulate @here without bot mention
   message.mentions.has = () => false;
+  message.mentions.users = { has: () => false };
   message.mentions.everyone = true;
   message.mentions.size = 0;
   message.mentions.values = () => [];
@@ -200,6 +202,7 @@ test('does not reply to messages with only @everyone mention', async () => {
 
   // Override mentions to simulate @everyone without bot mention
   message.mentions.has = () => false;
+  message.mentions.users = { has: () => false };
   message.mentions.everyone = true;
   message.mentions.size = 0;
   message.mentions.values = () => [];

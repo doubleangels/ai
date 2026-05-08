@@ -55,7 +55,7 @@ test('messageCreate records rate limit metric when edit fails with 429', async (
       conversationHistory: new Map()
     },
     author: { bot: false, id: 'user-1', tag: 'User#1' },
-    mentions: { has: () => true },
+    mentions: { has: () => true, users: { has: () => true } },
     reference: null,
     attachments: new Map(),
     reply: async (payload) => {
