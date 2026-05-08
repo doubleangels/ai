@@ -112,6 +112,10 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
     Client: FakeClient,
     Collection: FakeCollection,
     GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+    Options: {
+      cacheWithLimits: () => ({}),
+      DefaultMakeCacheSettings: {}
+    },
     SlashCommandBuilder: class {
       constructor() {
         this.name = '';

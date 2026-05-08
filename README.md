@@ -22,6 +22,7 @@
 - **🔎 Real-Time Web Search & Maps:** Ground your prompts in reality with live web search (OpenAI & Gemini) and Google Maps API integration (Gemini).
 - **⚡ Prompt Caching:** Drastically reduces costs and API latency for long conversations via built-in context caching.
 - **🛡️ Safety & Anti-Spam:** Features robust per-user and per-channel cooldowns, queue limits (backpressure), and safe mention defaults (never accidentally pings `@everyone`!).
+- **🪶 Memory Optimized for Docker:** Aggressively drops unneeded Discord caches, enforces V8 heap limits (`--max-old-space-size=256`), and automatically strips massive base64 image strings from history after AI processing to prevent OOM errors.
 - **📊 Production-Ready Observability:** Deep integration with **Sentry** (traces, profiling, metrics) and structured **Pino** logging.
 - **🔐 Secure Secrets Management:** Powered by **Doppler** for effortless, secure environment variable injection at runtime.
 
@@ -66,6 +67,7 @@ services:
     read_only: true
     environment:
       - DOPPLER_TOKEN=${DOPPLER_TOKEN}
+      - NODE_OPTIONS=--max-old-space-size=256
     tmpfs:
       - /tmp
 ```

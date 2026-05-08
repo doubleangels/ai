@@ -515,6 +515,19 @@ module.exports = {
         // Update cooldown stamps only after successful completion.
         client.userCooldowns.set(userId, Date.now());
         client.channelCooldowns.set(channelId, Date.now());
+
+        // Memory Optimization: Strip large base64 image strings from older history turns to free V8 heap space
+        for (let idx = 0; idx < channelHistory.length - 1; idx++) {
+          const historyMessage = channelHistory[idx];
+          if (historyMessage.role === 'user' && Array.isArray(historyMessage.content)) {
+            for (let j = 0; j < historyMessage.content.length; j++) {
+              const part = historyMessage.content[j];
+              if (part && part.type === 'input_image' && part.image_url) {
+                historyMessage.content[j] = { type: 'input_text', text: '[Previous Image Processed]' };
+              }
+            }
+          }
+        }
       } catch (error) {
         captureError(error, { event: 'messageCreate', handler: 'processMessage' });
         recordCount('discord.message.responded', 1, {

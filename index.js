@@ -1,5 +1,5 @@
 const { captureError, closeSentry, recordCount, recordDistribution, startSpan } = require('./instrument');
-const { Client, Collection, GatewayIntentBits } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, Options } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
@@ -13,7 +13,7 @@ function interactionAllowedInGuild(interaction) {
 }
 
 /**
- * Discord client instance with required intents
+ * Discord client instance with required intents and memory-optimized caches
  * @type {Client}
  */
 const client = new Client({
@@ -21,7 +21,23 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-  ]
+  ],
+  makeCache: Options.cacheWithLimits({
+    ...Options.DefaultMakeCacheSettings,
+    MessageManager: 50,
+    ThreadManager: 20,
+    PresenceManager: 0,
+    VoiceStateManager: 0,
+    ReactionManager: 0,
+    GuildMemberManager: {
+      maxSize: 50,
+      keepOverLimit: member => member.id === client.user?.id,
+    },
+    UserManager: {
+      maxSize: 50,
+      keepOverLimit: user => user.id === client.user?.id,
+    }
+  }),
 });
 
 client.commands = new Collection();
