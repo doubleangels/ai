@@ -1,5 +1,5 @@
 const { captureError, closeSentry, recordCount, recordDistribution, startSpan } = require('./instrument');
-const { Client, Collection, GatewayIntentBits, Options } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, Options, ActivityType } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
@@ -22,11 +22,14 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  presence: {
+    activities: [{ name: 'for mentions! 📢', type: ActivityType.Watching }],
+    status: 'online',
+  },
   makeCache: Options.cacheWithLimits({
     ...Options.DefaultMakeCacheSettings,
     MessageManager: 50,
     ThreadManager: 20,
-    PresenceManager: 0,
     VoiceStateManager: 0,
     ReactionManager: 0,
     GuildMemberManager: {
