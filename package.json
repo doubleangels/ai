@@ -4,11 +4,14 @@
   "description": "A Discord bot that uses AI to respond to messages.",
   "main": "index.js",
   "scripts": {
-    "start": "doppler run -- node index.js",
     "dev": "doppler run -- nodemon index.js",
-    "deploy": "doppler run -- node deploy-commands.js",
+    "start": "doppler run -- node index.js",
+    "commands:deploy": "doppler run -- node deploy-commands.js",
     "test": "node --require ./test/preload.cjs --test",
-    "coverage": "c8 npm test"
+    "test:coverage": "c8 npm test",
+    "test:coverage:check": "c8 --check-coverage --lines 90 npm test",
+    "rebuild": "npm rebuild",
+    "predeploy": "npm run test && npm run commands:deploy"
   },
   "repository": {
     "type": "git",
