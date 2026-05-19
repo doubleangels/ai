@@ -29,7 +29,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",
     "@discordjs/rest": "^2.6.1",
-    "@google/genai": "^2.2.0",
+    "@google/genai": "^2.4.0",
     "@sentry/node": "^10.32.0",
     "@sentry/profiling-node": "^10.53.1",
     "discord.js": "^14.26.4",
