@@ -3,11 +3,14 @@ const { captureError } = require('./instrument');
 
 // OpenAI: Responses API models with text + image support. Reasoning (gpt-5*, o3, o4-mini), verbosity (gpt-5*), web search (built-in tool).
 const SUPPORTED_MODELS = [
-  'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
-  'gpt-5.3-chat-latest',
-  'gpt-5.2', 'gpt-5.1', 'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
-  'gpt-5.2-pro', 'gpt-5-pro',
+  'gpt-5.5', 'gpt-5.5-pro',
+  'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
+  'gpt-5.3-chat-latest', 'gpt-5.3-codex',
+  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex', 'gpt-5.2-chat-latest',
+  'gpt-5.1', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max', 'gpt-5.1-chat-latest',
+  'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-pro',
   'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  'gpt-4o', 'gpt-4o-mini',
   'o3', 'o4-mini', 'o3-pro', 'o3-mini'
 ];
 const DEFAULT_MODEL = 'gpt-5.4-nano';
@@ -15,9 +18,11 @@ const DEFAULT_MODEL = 'gpt-5.4-nano';
 // Gemini: text + image, search grounding, thinking. Excludes TTS/Live-only IDs by default.
 const SUPPORTED_GEMINI_MODELS = [
   // Gemini 3.x (ai.google.dev/gemini-api/docs/models)
+  'gemini-3.5-flash',
   'gemini-3.1-pro-preview',
   'gemini-3.1-pro-preview-customtools',
   'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite',
   'gemini-3.1-flash-lite-preview',
   'gemini-3-pro-image-preview',
   'gemini-3.1-flash-image-preview',
@@ -37,7 +42,9 @@ const SUPPORTED_CLAUDE_MODELS = [
   'claude-opus-4-6',
   'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5',
   'claude-opus-4-5-20251101', 'claude-opus-4-5',
-  'claude-opus-4-1-20250805'
+  'claude-opus-4-1-20250805', 'claude-opus-4-1',
+  'claude-sonnet-4-20250514', 'claude-sonnet-4-0',
+  'claude-opus-4-20250514', 'claude-opus-4-0'
 ];
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 

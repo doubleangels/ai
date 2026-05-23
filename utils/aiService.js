@@ -72,11 +72,12 @@ const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) :
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
 
-/** Claude model IDs that support extended thinking (4.5 family and Sonnet/Opus 4). */
+/** Claude model IDs that support extended thinking (4.x family). */
 const CLAUDE_EXTENDED_THINKING_MODELS = [
+  'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6',
   'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5',
   'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-opus-4-5-20251101',
-  'claude-sonnet-4-20250514'
+  'claude-sonnet-4-20250514', 'claude-sonnet-4-0', 'claude-opus-4-20250514', 'claude-opus-4-0'
 ];
 
 function claudeSupportsExtendedThinking(model) {

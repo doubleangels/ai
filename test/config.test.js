@@ -164,6 +164,17 @@ test('should resolves model names from each provider-specific env field', () => 
   expect(openaiTrimmed.modelName).toBe('gpt-5.4-nano');
 });
 
+test('should accepts current Gemini GA models', () => {
+  for (const model of ['gemini-3.1-flash-lite', 'gemini-3.5-flash']) {
+    const config = loadConfig({
+      AI_PROVIDER: 'gemini',
+      GEMINI_MODEL_NAME: model,
+      OPENAI_MODEL_NAME: undefined
+    });
+    expect(config.modelName).toBe(model);
+  }
+});
+
 test('should exits for unsupported models', () => {
   const result = spawnSync(process.execPath, ['-e', "process.env.AI_PROVIDER='openai'; process.env.OPENAI_MODEL_NAME='bogus-model'; require('./config');"], {
     cwd: path.resolve(__dirname, '..'),
