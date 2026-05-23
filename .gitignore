@@ -8,7 +8,10 @@ node_modules/
 
 # Coverage and temp files
 coverage/
+coverage/**
 .nyc_output/
+lib-cov/
+*.lcov
 *.tmp
 
 # Logs

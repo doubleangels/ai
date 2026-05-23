@@ -1,3 +1,7 @@
+# Dev-only (tests and coverage tooling)
+test/
+.c8rc.json
+
 # Dependencies
 node_modules
 npm-debug.log*

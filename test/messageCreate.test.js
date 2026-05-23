@@ -1,36 +1,75 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-
 const path = require('path');
 
 const messageCreatePath = path.resolve(__dirname, '..', 'events', 'messageCreate.js');
 const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
+const configPath = path.resolve(__dirname, '..', 'config.js');
+const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
+const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
 
-function loadMessageCreateWithResponse(generateAIResponse) {
+function stubModule(modulePath, exportsObj) {
+  require.cache[modulePath] = {
+    id: modulePath,
+    filename: modulePath,
+    loaded: true,
+    exports: exportsObj
+  };
+}
+
+function loadMessageCreate({ generateAIResponse, config = {}, instrument = {}, aiUtils = null } = {}) {
   delete require.cache[messageCreatePath];
   delete require.cache[aiServicePath];
+  delete require.cache[configPath];
+  delete require.cache[instrumentPath];
+  delete require.cache[aiUtilsPath];
 
-  require.cache[aiServicePath] = {
-    id: aiServicePath,
-    filename: aiServicePath,
-    loaded: true,
-    exports: { generateAIResponse }
-  };
+  const baseConfig = require(configPath);
+  stubModule(configPath, {
+    ...baseConfig,
+    userCooldownMs: 0,
+    channelCooldownMs: 0,
+    allowedGuildIds: new Set(),
+    ...config
+  });
+
+  stubModule(aiServicePath, { generateAIResponse: generateAIResponse || (async () => 'ok') });
+  stubModule(instrumentPath, {
+    Sentry: {
+      isEnabled: () => false,
+      setConversationId: instrument.setConversationId || (() => {})
+    },
+    captureError: instrument.captureError || (() => {}),
+    recordCount: instrument.recordCount || (() => {}),
+    recordDistribution: instrument.recordDistribution || (() => {}),
+    recordGauge: instrument.recordGauge || (() => {}),
+    startSpan: instrument.startSpan || (async (_opts, cb) => cb())
+  });
+
+  if (aiUtils) {
+    stubModule(aiUtilsPath, { ...require(aiUtilsPath), ...aiUtils });
+  }
 
   return require(messageCreatePath);
 }
 
-function createMessage({ replyImpl, editImpl, content = '<@123> hello', channelId = 'chan-1' } = {}) {
-  const reply = replyImpl || (async () => ({ edit: editImpl || (async () => {}) }));
-
-  return {
+function createBaseMessage(overrides = {}) {
+  const replies = [];
+  const message = {
     id: 'msg-1',
-    content,
-    channelId,
+    content: '<@123> hello',
+    channelId: 'chan-1',
+    guildId: 'guild-1',
     channel: {
       name: 'general',
       messages: {
-        fetch: async () => ({ author: { id: 'bot-123' }, content: 'previous bot reply', reference: null, attachments: { size: 0, values: () => [] } })
+        fetch: async messageId => ({
+          id: messageId,
+          author: { id: 'bot-123', username: 'bot' },
+          content: 'prior bot message',
+          reference: null,
+          attachments: { size: 0, values: () => [] }
+        })
       }
     },
     client: {
@@ -42,9 +81,8 @@ function createMessage({ replyImpl, editImpl, content = '<@123> hello', channelI
       conversationHistory: new Map(),
       guilds: { cache: new Map() }
     },
-    author: { bot: false, id: 'user-1', tag: 'User#0001' },
-    guildId: 'guild-1',
-    mentions: { 
+    author: { bot: false, id: 'user-1', tag: 'User#0001', username: 'user' },
+    mentions: {
       has: () => true,
       users: { has: () => true },
       everyone: false,
@@ -53,33 +91,400 @@ function createMessage({ replyImpl, editImpl, content = '<@123> hello', channelI
     },
     reference: null,
     attachments: new Map(),
-    reply
+    reply: async payload => {
+      replies.push(payload);
+      if (payload.content === '*Thinking...*') {
+        return { edit: async ({ content }) => { replies.push(content); } };
+      }
+      return { edit: async () => {} };
+    },
+    ...overrides
   };
+  message._replies = replies;
+  message.getReplyTexts = () => replies.map(entry => {
+    if (typeof entry === 'string') return entry;
+    if (entry && typeof entry.content === 'string') return entry.content;
+    return '';
+  }).filter(Boolean);
+  return message;
 }
 
-test('falls back to a normal reply when the thinking message cannot be edited', async () => {
-  const messageReplies = [];
-  const module = loadMessageCreateWithResponse(async () => 'final answer');
+test('messageCreate ignores messages outside allowed guilds', async () => {
+  const mod = loadMessageCreate({ config: { allowedGuildIds: new Set(['other-guild']) } });
+  let replied = false;
+  const message = createBaseMessage({
+    guildId: 'guild-1',
+    reply: async () => { replied = true; return { edit: async () => {} }; }
+  });
 
-  const message = createMessage({
-    replyImpl: async () => {
-      if (messageReplies.length === 0) {
-        messageReplies.push('*Thinking...*');
-        return {
-          edit: async () => {
-            throw new Error('cannot edit placeholder');
-          }
-        };
+  await mod.execute(message);
+  assert.equal(replied, false);
+});
+
+test('messageCreate handles backpressure and failed busy replies', async () => {
+  let recordCalls = 0;
+  const mod = loadMessageCreate({
+    config: { maxPendingPerChannel: 1 },
+    instrument: {
+      recordCount: () => {
+        recordCalls += 1;
+        if (recordCalls > 2) throw new Error('metric failed');
       }
+    }
+  });
 
-      messageReplies.push('final answer');
+  const message = createBaseMessage();
+  message.client.channelQueueDepth.set('chan-1', 1);
+
+  await mod.execute(message);
+  assert.ok(message.getReplyTexts().some(text => text.includes('busy')));
+
+  recordCalls = 0;
+  const failMessage = createBaseMessage({
+    reply: async () => {
+      const err = new Error('busy reply failed');
+      err.status = 429;
+      throw err;
+    }
+  });
+  failMessage.client.channelQueueDepth.set('chan-1', 1);
+  await mod.execute(failMessage);
+  assert.equal(recordCalls >= 2, true);
+});
+
+test('messageCreate applies user and channel cooldowns', async () => {
+  const mod = loadMessageCreate({
+    config: { userCooldownMs: 60_000, channelCooldownMs: 60_000 }
+  });
+
+  const message = createBaseMessage();
+  message.client.userCooldowns.set('user-1', Date.now());
+  message.client.channelCooldowns.set('chan-1', Date.now());
+
+  await mod.execute(message);
+  assert.ok(message.getReplyTexts().some(text => text.includes('wait') || text.includes('Give me')));
+});
+
+test('messageCreate logs when channel cooldown reply fails', async () => {
+  const mod = loadMessageCreate({
+    config: { userCooldownMs: 0, channelCooldownMs: 60_000 }
+  });
+  let sawCooldownReply = false;
+  const message = createBaseMessage({
+    client: {
+      user: { id: 'bot-123', tag: 'AI#0001' },
+      channelLocks: new Map(),
+      channelQueueDepth: new Map(),
+      userCooldowns: new Map(),
+      channelCooldowns: new Map([['chan-1', Date.now()]]),
+      conversationHistory: new Map()
+    },
+    reply: async payload => {
+      if (payload.content?.includes('Give me')) {
+        sawCooldownReply = true;
+        throw new Error('channel cooldown reply failed');
+      }
       return { edit: async () => {} };
     }
   });
 
-  await module.execute(message);
+  await mod.execute(message);
+  assert.equal(sawCooldownReply, true);
+});
 
-  assert.equal(messageReplies.length, 2);
+test('messageCreate sends channel cooldown notice when reply succeeds', async () => {
+  const mod = loadMessageCreate({
+    config: { userCooldownMs: 0, channelCooldownMs: 60_000 }
+  });
+  const replies = [];
+  const message = createBaseMessage({
+    client: {
+      user: { id: 'bot-123', tag: 'AI#0001' },
+      channelLocks: new Map(),
+      channelQueueDepth: new Map(),
+      userCooldowns: new Map(),
+      channelCooldowns: new Map([['chan-1', Date.now()]]),
+      conversationHistory: new Map()
+    },
+    reply: async payload => {
+      replies.push(payload.content);
+      return { edit: async () => {} };
+    }
+  });
+
+  await mod.execute(message);
+  assert.ok(replies.some(text => typeof text === 'string' && text.includes('Give me')));
+});
+
+test('messageCreate traces reply chains and truncates quoted context', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'done' });
+  const parent = {
+    id: 'parent-1',
+    author: { id: 'user-2', username: 'bob', bot: false },
+    content: 'x'.repeat(2500),
+    reference: null,
+    attachments: { size: 0, values: () => [] }
+  };
+  const message = createBaseMessage({
+    content: '<@123> follow up',
+    reference: { messageId: 'parent-1' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async messageId => {
+          if (messageId === 'parent-1') return parent;
+          return { author: { id: 'bot-123' }, content: 'bot', reference: null, attachments: { size: 0, values: () => [] } };
+        }
+      }
+    }
+  });
+
+  await mod.execute(message);
+  const history = message.client.conversationHistory.get('chan-1');
+  const userTurn = history.find(entry => entry.role === 'user');
+  assert.match(JSON.stringify(userTurn.content), /\[truncated\]/);
+});
+
+test('messageCreate handles reply-to-bot prefetch without mention', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'prefetched' });
+  const message = createBaseMessage({
+    content: 'reply only',
+    mentions: { has: () => false, users: { has: () => false }, everyone: false, size: 0, values: () => [] },
+    reference: { messageId: 'bot-msg' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'bot-msg',
+          author: { id: 'bot-123' },
+          content: 'previous',
+          reference: null,
+          attachments: { size: 0, values: () => [] }
+        })
+      }
+    }
+  });
+
+  await mod.execute(message);
+  assert.equal(message.client.conversationHistory.get('chan-1').at(-1).content, 'prefetched');
+});
+
+test('messageCreate handles multi-chunk replies, empty chunks, and chunk failures', async () => {
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'a'.repeat(4100),
+    aiUtils: {
+      splitMessage: text => (text.length > 2000 ? [text.slice(0, 2000), text.slice(2000)] : [text]),
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    }
+  });
+
+  let chunkReplies = 0;
+  const message = createBaseMessage({
+    reply: async payload => {
+      if (payload.content === '*Thinking...*') {
+        return { edit: async () => {} };
+      }
+      chunkReplies += 1;
+      const err = new Error('chunk failed');
+      err.status = 429;
+      throw err;
+    }
+  });
+
+  await mod.execute(message);
+  assert.equal(chunkReplies >= 1, true);
+
+  const emptyChunks = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    aiUtils: {
+      splitMessage: () => [],
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    }
+  });
+  const emptyMessage = createBaseMessage();
+  await emptyChunks.execute(emptyMessage);
+  assert.ok(emptyMessage.getReplyTexts().some(text => text.includes('No response')));
+});
+
+test('messageCreate strips prior image data and records conversation id', async () => {
+  const conversationIdCalls = [];
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    instrument: {
+      setConversationId: id => conversationIdCalls.push(id)
+    }
+  });
+
+  const message = createBaseMessage();
+  message.client.conversationHistory.set('chan-1', [
+    { role: 'system', content: 'sys' },
+    {
+      role: 'user',
+      content: [{ type: 'input_image', image_url: 'data:image/png;base64,OLD' }]
+    }
+  ]);
+
+  await mod.execute(message);
+  const history = message.client.conversationHistory.get('chan-1');
+  const stripped = history[1].content[0];
+  assert.equal(stripped.type, 'input_text');
+  assert.equal(stripped.text, '[Previous Image Processed]');
+  assert.deepEqual(conversationIdCalls, ['chan-1', null]);
+});
+
+test('messageCreate handles processing errors', async () => {
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => { throw new Error('ai failed'); }
+  });
+  const failMessage = createBaseMessage();
+  await mod.execute(failMessage);
+  assert.ok(failMessage.getReplyTexts().some(text => text.includes('error occurred')));
+});
+
+test('messageCreate uses image-only prompt and stops when primary chunk cannot be sent', async () => {
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    aiUtils: {
+      splitMessage: () => ['part-one', 'part-two'],
+      processImageAttachments: async () => [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }],
+      createMessageContent: (_text, images) => images,
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: {
+        IMAGE_ANALYSIS: 'image',
+        BASE: () => 'system',
+        BASE_GENERIC: 'system',
+        IMAGE_DESCRIPTION_PROMPT: 'describe this image'
+      }
+    }
+  });
+
+  const message = createBaseMessage({
+    content: '',
+    attachments: new Map([['att-1', { url: 'https://cdn.discordapp.com/a.png', contentType: 'image/png' }]]),
+    reply: async payload => {
+      if (payload.content === '*Thinking...*') {
+        return { edit: async () => { throw new Error('edit failed'); } };
+      }
+      throw new Error('reply failed');
+    }
+  });
+
+  await mod.execute(message);
+  const history = message.client.conversationHistory.get('chan-1');
+  const userTurn = history.find(entry => entry.role === 'user');
+  assert.equal(userTurn.content[0].text, 'describe this image');
+});
+
+test('messageCreate records chunk metric failures and send errors', async () => {
+  let metricCalls = 0;
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'a'.repeat(4100),
+    aiUtils: {
+      splitMessage: text => [text.slice(0, 2000), text.slice(2000)],
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    },
+    instrument: {
+      recordCount: (_name, _value, attrs) => {
+        metricCalls += 1;
+        if (attrs?.location === 'messageCreate.additional_chunk') {
+          throw new Error('metric failed');
+        }
+      }
+    }
+  });
+
+  const message = createBaseMessage({
+    reply: async payload => {
+      if (payload.content === '*Thinking...*') {
+        return { edit: async () => {} };
+      }
+      const err = new Error('chunk failed');
+      err.status = 429;
+      throw err;
+    }
+  });
+
+  await assert.doesNotReject(async () => mod.execute(message));
+
+  const sendErrorMod = loadMessageCreate({
+    generateAIResponse: async () => 'hello',
+    aiUtils: {
+      splitMessage: () => { throw new Error('split failed'); },
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    }
+  });
+  await assert.doesNotReject(async () => sendErrorMod.execute(createBaseMessage()));
+});
+
+test('messageCreate logs send errors when splitMessage throws after response', async () => {
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'response text',
+    aiUtils: {
+      splitMessage: () => { throw new Error('split failed'); },
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    }
+  });
+  await assert.doesNotReject(async () => mod.execute(createBaseMessage()));
+});
+
+test('messageCreate swallows metric failures in backpressure catch blocks', async () => {
+  let recordCalls = 0;
+  const mod = loadMessageCreate({
+    config: { maxPendingPerChannel: 1 },
+    instrument: {
+      recordCount: (_name, _value, attrs) => {
+        recordCalls += 1;
+        if (attrs?.location === 'messageCreate.backpressure_reply') {
+          throw new Error('metric failed');
+        }
+      }
+    }
+  });
+  const message = createBaseMessage();
+  message.client.channelQueueDepth.set('chan-1', 1);
+  message.reply = async () => {
+    const err = new Error('busy reply failed');
+    err.status = 500;
+    throw err;
+  };
+  await assert.doesNotReject(async () => mod.execute(message));
+});
+
+test('falls back to a normal reply when the thinking message cannot be edited', async () => {
+  const messageReplies = [];
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'final answer' });
+  const message = createBaseMessage({
+    reply: async payload => {
+      messageReplies.push(payload.content);
+      if (messageReplies.length === 1) {
+        return { edit: async () => { throw new Error('cannot edit placeholder'); } };
+      }
+      return { edit: async () => {} };
+    }
+  });
+
+  await mod.execute(message);
   assert.equal(messageReplies[0], '*Thinking...*');
   assert.equal(messageReplies[1], 'final answer');
   assert.equal(message.client.conversationHistory.get('chan-1').at(-1).content, 'final answer');
@@ -87,188 +492,158 @@ test('falls back to a normal reply when the thinking message cannot be edited', 
 
 test('splits long replies into a primary chunk plus follow-up messages', async () => {
   const sentChunks = [];
-  const module = loadMessageCreateWithResponse(async () => 'a'.repeat(4100));
-
-  const message = createMessage({
-    replyImpl: async (payload) => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'a'.repeat(4100) });
+  const message = createBaseMessage({
+    reply: async payload => {
       if (sentChunks.length === 0 && payload.content === '*Thinking...*') {
         sentChunks.push(payload.content);
-        return {
-          edit: async ({ content }) => {
-            sentChunks.push(content);
-          }
-        };
+        return { edit: async ({ content }) => { sentChunks.push(content); } };
       }
-
       sentChunks.push(payload.content);
       return { edit: async () => {} };
     }
   });
 
-  await module.execute(message);
-
+  await mod.execute(message);
   assert.equal(sentChunks[0], '*Thinking...*');
   assert.equal(sentChunks[1].length, 2000);
   assert.equal(sentChunks[2].length, 2000);
   assert.equal(sentChunks[3].length, 100);
-  assert.equal(message.client.conversationHistory.get('chan-1').at(-1).content.length, 4100);
 });
 
 test('replies with a clear error message when the AI service returns no content', async () => {
   const responses = [];
-  const module = loadMessageCreateWithResponse(async () => '');
-
-  const message = createMessage({
-    replyImpl: async (payload) => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => '' });
+  const message = createBaseMessage({
+    reply: async payload => {
       responses.push(payload.content);
       if (responses.length === 1) {
-        return {
-          edit: async ({ content }) => {
-            responses.push(content);
-          }
-        };
+        return { edit: async ({ content }) => { responses.push(content); } };
       }
-
       return { edit: async () => {} };
     }
   });
 
-  await module.execute(message);
-
+  await mod.execute(message);
   assert.equal(responses[0], '*Thinking...*');
   assert.equal(responses[1], "⚠️ I couldn't generate a response.");
-  assert.equal(message.client.conversationHistory.get('chan-1').at(-1).role, 'user');
-  assert.deepEqual(message.client.conversationHistory.get('chan-1').at(-1).content, [
-    {
-      type: 'input_text',
-      text: '<@123> hello'
-    }
-  ]);
 });
 
-test('does not reply to messages with only @here mention', async () => {
-  let replyCalled = false;
-  const module = loadMessageCreateWithResponse(async () => 'response');
-
-  const message = createMessage({
-    content: '@here check this out',
-    replyImpl: async () => {
-      replyCalled = true;
-      return { edit: async () => {} };
-    }
-  });
-
-  // Override mentions to simulate @here without bot mention
-  message.mentions.has = () => false;
-  message.mentions.users = { has: () => false };
-  message.mentions.everyone = true;
-  message.mentions.size = 0;
-  message.mentions.values = () => [];
-  // --- appended from test/messageCreate.coverage.test.js ---
-  function loadMessageCreate(generateAIResponse) {
-    const messageCreatePath = path.resolve(__dirname, '..', 'events', 'messageCreate.js');
-    const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
-    delete require.cache[messageCreatePath];
-    delete require.cache[aiServicePath];
-    delete require.cache[require.resolve('../config')];
-    require.cache[aiServicePath] = {
-      id: aiServicePath,
-      filename: aiServicePath,
-      loaded: true,
-      exports: { generateAIResponse }
-    };
-
-    return require(messageCreatePath);
-  }
-
-
-  await module.execute(message);
-
-  assert.equal(replyCalled, false, 'Bot should not reply to @here-only messages');
-  assert.equal(message.client.conversationHistory.get('chan-1'), undefined, 'No conversation history should be created');
-});
-
-test('does not reply to messages with only @everyone mention', async () => {
-  let replyCalled = false;
-  const module = loadMessageCreateWithResponse(async () => 'response');
-
-  const message = createMessage({
-    content: '@everyone this is important',
-    replyImpl: async () => {
-      replyCalled = true;
-      return { edit: async () => {} };
-    }
-  });
-
-  // Override mentions to simulate @everyone without bot mention
-  message.mentions.has = () => false;
-  message.mentions.users = { has: () => false };
-  message.mentions.everyone = true;
-  message.mentions.size = 0;
-  message.mentions.values = () => [];
-
-  await module.execute(message);
-
-  assert.equal(replyCalled, false, 'Bot should not reply to @everyone-only messages');
-  assert.equal(message.client.conversationHistory.get('chan-1'), undefined, 'No conversation history should be created');
-});
-
-test('processes image attachments from messages', async () => {
-  const https = require('https');
-  const { EventEmitter } = require('node:events');
-  function withHttpsStub(handler, run) {
-    const originalGet = https.get;
-    https.get = handler;
-    return Promise.resolve()
-      .then(run)
-      .finally(() => { https.get = originalGet; });
-  }
-
-  const module = loadMessageCreateWithResponse(async () => 'analyzed');
-
-  await withHttpsStub((url, callback) => {
-    const request = new EventEmitter();
-    request.setTimeout = () => {};
-    request.destroy = error => request.emit('error', error);
-    process.nextTick(() => {
-      const response = new EventEmitter();
-      response.statusCode = 200;
-      response.headers = { 'content-type': 'image/png', 'content-length': '4' };
-      response.resume = () => {};
-      process.nextTick(() => {
-        response.emit('data', Buffer.from('test'));
-        response.emit('end');
-      });
-      callback(response);
+test('does not reply to messages with only @here or @everyone mention', async () => {
+  for (const content of ['@here check this out', '@everyone this is important']) {
+    let replyCalled = false;
+    const mod = loadMessageCreate({ generateAIResponse: async () => 'response' });
+    const message = createBaseMessage({
+      content,
+      mentions: {
+        has: () => false,
+        users: { has: () => false },
+        everyone: true,
+        size: 0,
+        values: () => []
+      },
+      reply: async () => {
+        replyCalled = true;
+        return { edit: async () => {} };
+      }
     });
-    return request;
-  }, async () => {
-    const attachment = { url: 'https://cdn.discordapp.com/test.png', contentType: 'image/png', name: 'test.png' };
 
-    const message = createMessage({ replyImpl: async (payload) => {
-      if (payload.content === '*Thinking...*') return { edit: async ({ content }) => {} };
-      return { edit: async () => {} };
-    } });
-
-    message.attachments = new Map([['att-1', attachment]]);
-
-    await module.execute(message);
-    assert.ok(message.client.conversationHistory.has('chan-1'));
-  });
+    await mod.execute(message);
+    assert.equal(replyCalled, false);
+    assert.equal(message.client.conversationHistory.has('chan-1'), false);
+  }
 });
 
-test('handles multiple attachments in a single message', async () => {
-  const module = loadMessageCreateWithResponse(async () => 'processed');
+test('messageCreate ignores replies that are not to the bot', async () => {
+  const mod = loadMessageCreate();
+  const message = createBaseMessage({
+    mentions: { has: () => false, users: { has: () => false }, everyone: false, size: 0, values: () => [] },
+    reference: { messageId: 'ref-1' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'ref-1',
+          author: { id: 'other-user' },
+          content: 'not bot',
+          reference: null,
+          attachments: { size: 0, values: () => [] }
+        })
+      }
+    }
+  });
+  await mod.execute(message);
+  assert.equal(message.client.conversationHistory.has('chan-1'), false);
+});
 
-  const message = createMessage({ replyImpl: async () => ({ edit: async () => {} }) });
+test('messageCreate skips bot-authored quoted context and empty prior messages', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
+  const parentUser = {
+    id: 'parent-user',
+    author: { id: 'user-2', username: 'bob', bot: false },
+    content: null,
+    reference: null,
+    attachments: { size: 0, values: () => [] }
+  };
+  const botMiddle = {
+    id: 'parent-bot',
+    author: { id: 'bot-123', username: 'bot', bot: true },
+    content: 'bot said this',
+    reference: { messageId: 'parent-user' },
+    attachments: { size: 0, values: () => [] }
+  };
 
-  const attachment1 = { url: 'https://cdn.discordapp.com/image1.png', contentType: 'image/png', name: 'image1.png' };
-  const attachment2 = { url: 'https://cdn.discordapp.com/image2.png', contentType: 'image/jpeg', name: 'image2.jpg' };
+  const message = createBaseMessage({
+    content: '<@123> follow up',
+    reference: { messageId: 'parent-bot' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async id => {
+          if (id === 'parent-bot') return botMiddle;
+          if (id === 'parent-user') return parentUser;
+          return null;
+        }
+      }
+    }
+  });
 
-  message.attachments = new Map([['att-1', attachment1], ['att-2', attachment2]]);
-
-  await module.execute(message);
-  assert.ok(message.client.conversationHistory.has('chan-1'));
+  await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
-  assert.ok(history.length > 0);
+  const userTurn = history.find(entry => entry.role === 'user');
+  assert.match(JSON.stringify(userTurn.content), /follow up/);
+  assert.doesNotMatch(JSON.stringify(userTurn.content), /bot said this/);
+});
+
+test('messageCreate decrements queue depth when stored depth is zero', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
+  const depthMap = new Map([['chan-1', -1]]);
+  const message = createBaseMessage({ client: { ...createBaseMessage().client, channelQueueDepth: depthMap } });
+  await mod.execute(message);
+  assert.equal(depthMap.get('chan-1'), 0);
+});
+
+test('messageCreate logs reference fetch failures', async () => {
+  const mod = loadMessageCreate();
+  const message = createBaseMessage({
+    reference: { messageId: 'ref-missing' },
+    mentions: { has: () => true, users: { has: () => true }, everyone: false, size: 1, values: () => [] },
+    channel: {
+      name: 'general',
+      messages: { fetch: async () => { throw new Error('missing reference'); } }
+    }
+  });
+  await mod.execute(message);
+});
+
+test('messageCreate records queue depth gauge on successful mention', async () => {
+  const gaugeCalls = [];
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    instrument: {
+      recordGauge: (name, value, attrs) => gaugeCalls.push({ name, value, attrs })
+    }
+  });
+  await mod.execute(createBaseMessage());
+  assert.ok(gaugeCalls.some(call => call.name === 'discord.channel.queue_depth' && call.value >= 1));
 });

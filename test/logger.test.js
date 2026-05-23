@@ -80,6 +80,15 @@ test('logger swallows Sentry forwarding failures (coverage merged)', () => {
   instrument.Sentry.logger = original;
 });
 
+test('logger pino level formatter uppercases labels', () => {
+  let capturedFormatter;
+  loadLoggerWithPino(opts => {
+    capturedFormatter = opts.formatters.level;
+    return { child: () => ({ info() {}, warn() {}, error() {}, debug() {}, trace() {}, fatal() {} }) };
+  });
+  assert.deepEqual(capturedFormatter('debug'), { level: 'DEBUG' });
+});
+
 test('logger surfaces creation failures (coverage merged)', () => {
   const getLogger = loadLoggerWithPino(() => ({ child: () => { throw new Error('child failed'); } }));
   assert.throws(() => getLogger('broken'), /Failed to create logger instance/);

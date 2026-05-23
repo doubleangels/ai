@@ -103,3 +103,48 @@ test('deploy-commands records failure metric when registration fails', async () 
   const failureCalls = calls.filter(c => c.fn === 'recordCount' && c.name === 'discord.api.failure');
   assert(failureCalls.length >= 1, 'expected discord.api.failure metric to be recorded');
 });
+
+test('deploy-commands swallows metric recording failures on deploy error', async () => {
+  let recordCountCalls = 0;
+  const instPath = path.resolve(__dirname, '..', 'instrument.js');
+  require.cache[instPath] = {
+    id: instPath,
+    filename: instPath,
+    loaded: true,
+    exports: {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {
+        recordCountCalls += 1;
+        if (recordCountCalls > 1) {
+          throw new Error('metric failed');
+        }
+      },
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb(),
+      closeSentry: async () => {}
+    }
+  };
+
+  const discordPath = require.resolve('discord.js');
+  require.cache[discordPath] = {
+    id: discordPath,
+    filename: discordPath,
+    loaded: true,
+    exports: {
+      SlashCommandBuilder: class { constructor() {} setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
+      ChannelType: { GuildText: 0 },
+      PermissionFlagsBits: { Administrator: 0 },
+      REST: class { setToken() { return this; } async put() { const e = new Error('rate limited'); e.status = 429; throw e; } },
+      Routes: { applicationCommands: id => `/apps/${id}/cmds` }
+    }
+  };
+
+  process.env.DISCORD_CLIENT_ID = 'client-1';
+  delete require.cache[path.resolve(__dirname, '..', 'deploy-commands.js')];
+  const deploy = require(path.resolve(__dirname, '..', 'deploy-commands.js'));
+
+  await assert.rejects(async () => deploy());
+  assert.equal(recordCountCalls >= 2, true);
+});

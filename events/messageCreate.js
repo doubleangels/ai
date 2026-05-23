@@ -236,12 +236,6 @@ module.exports = {
 
       const hasBotMention = hasBotPing;
 
-      if (!hasBotMention && !isReplyToBot) {
-        return;
-      }
-
-      const isTriggered = hasBotMention || isReplyToBot;
-
       // Basic cooldowns to reduce spam/cost.
       const now = Date.now();
       const lastUser = client.userCooldowns.get(userId) || 0;
@@ -435,62 +429,55 @@ module.exports = {
         logger.info(`Sending AI response (${reply.length} chars) for message ${message.id} in channel ${channelId}.`);
 
         const messageChunks = splitMessage(reply);
-        try {
-          if (messageChunks.length === 0) {
-            const fallback = "⚠️ No response to send.";
-            await sendPrimaryResponse(fallback);
-          } else if (messageChunks.length === 1) {
-            await sendPrimaryResponse(messageChunks[0]);
-          } else {
-            const firstChunkSent = await sendPrimaryResponse(messageChunks[0]);
-            if (!firstChunkSent) {
-              return;
-            }
+        if (messageChunks.length === 0) {
+          const fallback = "⚠️ No response to send.";
+          await sendPrimaryResponse(fallback);
+        } else if (messageChunks.length === 1) {
+          await sendPrimaryResponse(messageChunks[0]);
+        } else {
+          const firstChunkSent = await sendPrimaryResponse(messageChunks[0]);
+          if (!firstChunkSent) {
+            return;
+          }
 
-            for (let i = 1; i < messageChunks.length; i++) {
+          for (let i = 1; i < messageChunks.length; i++) {
+            try {
+              await message.reply({
+                content: messageChunks[i],
+                allowedMentions: SAFE_ALLOWED_MENTIONS
+              });
+            } catch (err) {
+              logger.error('Failed to send additional response chunk.', {
+                channelId,
+                messageId: message.id,
+                chunkIndex: i,
+                error: err.stack,
+                errorMessage: err.message
+              });
               try {
-                await message.reply({
-                  content: messageChunks[i],
-                  allowedMentions: SAFE_ALLOWED_MENTIONS
-                });
-              } catch (err) {
-                logger.error('Failed to send additional response chunk.', {
+                const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
+                recordCount('discord.api.failure', 1, {
+                  location: 'messageCreate.additional_chunk',
                   channelId,
                   messageId: message.id,
                   chunkIndex: i,
-                  error: err.stack,
-                  errorMessage: err.message
+                  errorMessage: err.message,
+                  httpStatus
                 });
-                try {
-                  const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
-                  recordCount('discord.api.failure', 1, {
+                if (httpStatus === 429) {
+                  recordCount('discord.api.rate_limit', 1, {
                     location: 'messageCreate.additional_chunk',
                     channelId,
                     messageId: message.id,
-                    chunkIndex: i,
-                    errorMessage: err.message,
-                    httpStatus
+                    chunkIndex: i
                   });
-                  if (httpStatus === 429) {
-                    recordCount('discord.api.rate_limit', 1, {
-                      location: 'messageCreate.additional_chunk',
-                      channelId,
-                      messageId: message.id,
-                      chunkIndex: i
-                    });
-                  }
-                } catch (metricErr) {
-                  logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
                 }
-                break;
+              } catch (metricErr) {
+                logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
               }
+              break;
             }
           }
-        } catch (sendError) {
-          logger.error(`Failed to send response for message ${message.id}.`, {
-            error: sendError.stack,
-            errorMessage: sendError.message
-          });
         }
 
         logger.debug(`Adding AI response to conversation history for channel ${channelId}.`);

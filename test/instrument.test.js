@@ -28,26 +28,30 @@ const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const sentryPath = require.resolve('@sentry/node');
 const profilingPath = require.resolve('@sentry/profiling-node');
 
-function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {} } = {}) {
+function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {}, omitGlobalScope = false } = {}) {
   delete require.cache[instrumentPath];
   delete require.cache[sentryPath];
   delete require.cache[profilingPath];
 
-  const sentryCalls = { init: null };
+  const sentryCalls = { init: null, closeArgs: null };
+  const sentryExports = {
+    init: options => { sentryCalls.init = options; },
+    withScope: undefined,
+    captureException: () => {},
+    isEnabled: () => false,
+    metrics: null,
+    startSpan: undefined,
+    close: async (...args) => { sentryCalls.closeArgs = args; }
+  };
+  if (!omitGlobalScope) {
+    sentryExports.getGlobalScope = () => ({ setAttributes() {} });
+  }
+
   require.cache[sentryPath] = {
     id: sentryPath,
     filename: sentryPath,
     loaded: true,
-    exports: {
-      init: options => { sentryCalls.init = options; },
-      getGlobalScope: () => ({ setAttributes() {} }),
-      withScope: undefined,
-      captureException: () => {},
-      isEnabled: () => false,
-      metrics: null,
-      startSpan: undefined,
-      close: async () => {}
-    }
+    exports: sentryExports
   };
 
   const originalLoad = Module._load;
@@ -58,14 +62,20 @@ function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {} } =
     return originalLoad.apply(this, arguments);
   };
 
-  const originalEnv = {
-    SENTRY_TRACES_SAMPLE_RATE: process.env.SENTRY_TRACES_SAMPLE_RATE,
-    SENTRY_PROFILE_SESSION_SAMPLE_RATE: process.env.SENTRY_PROFILE_SESSION_SAMPLE_RATE,
-    SENTRY_DSN: process.env.SENTRY_DSN
-  };
-  if ('SENTRY_TRACES_SAMPLE_RATE' in sampleRates) process.env.SENTRY_TRACES_SAMPLE_RATE = sampleRates.SENTRY_TRACES_SAMPLE_RATE;
-  if ('SENTRY_PROFILE_SESSION_SAMPLE_RATE' in sampleRates) process.env.SENTRY_PROFILE_SESSION_SAMPLE_RATE = sampleRates.SENTRY_PROFILE_SESSION_SAMPLE_RATE;
-  if ('SENTRY_DSN' in sampleRates) process.env.SENTRY_DSN = sampleRates.SENTRY_DSN;
+  const envKeys = [
+    'SENTRY_TRACES_SAMPLE_RATE',
+    'SENTRY_PROFILE_SESSION_SAMPLE_RATE',
+    'SENTRY_DSN',
+    'SENTRY_ENABLE_LOGS',
+    'SENTRY_ENABLE_METRICS',
+    'SENTRY_PROFILE_LIFECYCLE'
+  ];
+  const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+  for (const key of envKeys) {
+    if (key in sampleRates) {
+      process.env[key] = sampleRates[key];
+    }
+  }
 
   try {
     const instrument = require(instrumentPath);
@@ -74,6 +84,7 @@ function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {} } =
       for (const [key, value] of Object.entries(originalEnv)) {
         if (value === undefined) delete process.env[key]; else process.env[key] = value;
       }
+      delete require.cache[instrumentPath];
     } };
   } catch (error) {
     Module._load = originalLoad;
@@ -179,6 +190,62 @@ test('instrument falls back when profiling integration is unavailable (coverage 
   }
 });
 
+test('instrument clamps valid sample rates from environment', () => {
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: {
+      SENTRY_TRACES_SAMPLE_RATE: '0.25',
+      SENTRY_PROFILE_SESSION_SAMPLE_RATE: '2',
+      SENTRY_DSN: 'https://example.invalid/1'
+    }
+  });
+
+  try {
+    assert.equal(sentryCalls.init.tracesSampleRate, 0.25);
+    assert.equal(sentryCalls.init.profileSessionSampleRate, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('instrument handles profiling integration that throws when invoked', () => {
+  delete require.cache[instrumentPath];
+  delete require.cache[sentryPath];
+  delete require.cache[profilingPath];
+
+  require.cache[profilingPath] = {
+    id: profilingPath,
+    filename: profilingPath,
+    loaded: true,
+    exports: {
+      nodeProfilingIntegration: () => {
+        throw new Error('integration init failed');
+      }
+    }
+  };
+
+  const originalDsn = process.env.SENTRY_DSN;
+  process.env.SENTRY_DSN = 'https://example.invalid/1';
+
+  const stderrSpy = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = chunk => {
+    stderrSpy.push(String(chunk));
+    return true;
+  };
+
+  try {
+    const loaded = require(instrumentPath);
+    assert.equal(typeof loaded.captureError, 'function');
+    assert.match(stderrSpy.join(''), /profiling integration unavailable/);
+  } finally {
+    process.stderr.write = originalWrite;
+    if (originalDsn === undefined) delete process.env.SENTRY_DSN;
+    else process.env.SENTRY_DSN = originalDsn;
+    delete require.cache[instrumentPath];
+    delete require.cache[profilingPath];
+  }
+});
+
 test('instrument no-ops metrics when Sentry is disabled (coverage merged)', () => {
   const instrument = loadInstrument();
   const original = {
@@ -201,5 +268,63 @@ test('instrument no-ops metrics when Sentry is disabled (coverage merged)', () =
   } finally {
     instrument.Sentry.isEnabled = original.isEnabled;
     instrument.Sentry.metrics = original.metrics;
+  }
+});
+
+test('instrument disables logs and metrics when env flags are false', () => {
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: {
+      SENTRY_DSN: 'https://example.invalid/1',
+      SENTRY_ENABLE_LOGS: 'false',
+      SENTRY_ENABLE_METRICS: 'false'
+    }
+  });
+
+  try {
+    assert.equal(sentryCalls.init.enableLogs, false);
+    assert.equal(sentryCalls.init.enableMetrics, false);
+  } finally {
+    restore();
+  }
+});
+
+test('instrument honors SENTRY_PROFILE_LIFECYCLE env', () => {
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: {
+      SENTRY_DSN: 'https://example.invalid/1',
+      SENTRY_PROFILE_LIFECYCLE: 'manual'
+    }
+  });
+
+  try {
+    assert.equal(sentryCalls.init.profileLifecycle, 'manual');
+  } finally {
+    restore();
+  }
+});
+
+test('instrument loads when getGlobalScope is unavailable', () => {
+  const { instrument, restore } = loadInstrumentWithStubs({
+    omitGlobalScope: true,
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
+  });
+
+  try {
+    assert.equal(typeof instrument.captureError, 'function');
+  } finally {
+    restore();
+  }
+});
+
+test('closeSentry invokes Sentry.close with timeout', async () => {
+  const { instrument, sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
+  });
+
+  try {
+    await instrument.closeSentry();
+    assert.deepEqual(sentryCalls.closeArgs, [2000]);
+  } finally {
+    restore();
   }
 });

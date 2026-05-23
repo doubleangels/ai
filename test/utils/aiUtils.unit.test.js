@@ -36,6 +36,7 @@ test('estimateTokensFromText basic heuristic', () => {
 });
 
 // estimateMessageTokens is internal and not exported; validate estimateTokensFromText instead
+
 test('estimateTokensFromText behaves reasonably', () => {
   assert.equal(aiUtils.estimateTokensFromText('a'.repeat(4)), 1);
   assert.equal(aiUtils.estimateTokensFromText('a'.repeat(8)), 2);
@@ -253,6 +254,171 @@ test('downloadImageAsBase64 rejects invalid URLs, redirects, and oversized image
     await assert.rejects(
       async () => aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
       /exceeds max size/
+    );
+  });
+});
+
+test('splitMessage splits on sentence and word boundaries', () => {
+  const sentenceText = `${'a'.repeat(550)}. ${'b'.repeat(300)}`;
+  const sentenceChunks = aiUtils.splitMessage(sentenceText, 800);
+  assert.equal(sentenceChunks.length >= 2, true);
+
+  const wordText = `${'a'.repeat(500)} ${'b'.repeat(300)}`;
+  const wordChunks = aiUtils.splitMessage(wordText, 800);
+  assert.equal(wordChunks.length >= 2, true);
+
+  const newlineText = `${'a'.repeat(700)}\n${'b'.repeat(200)}`;
+  const newlineChunks = aiUtils.splitMessage(newlineText, 800);
+  assert.equal(newlineChunks.length >= 2, true);
+
+  const paragraphText = `${'a'.repeat(650)}\n\n${'b'.repeat(200)}`;
+  const paragraphChunks = aiUtils.splitMessage(paragraphText, 800);
+  assert.equal(paragraphChunks.length >= 2, true);
+});
+
+test('downloadImageAsBase64 handles request timeout and network errors', async () => {
+  await withHttpsStub((url, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = (_ms, handler) => queueMicrotask(() => handler());
+    request.destroy = error => request.emit('error', error);
+    return request;
+  }, async () => {
+    await assert.rejects(
+      async () => aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
+      /timed out/
+    );
+  });
+
+  await withHttpsStub(() => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = error => request.emit('error', error);
+    queueMicrotask(() => request.emit('error', new Error('network down')));
+    return request;
+  }, async () => {
+    await assert.rejects(
+      async () => aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
+      /network down/
+    );
+  });
+});
+
+test('downloadImageAsBase64 rejects oversized streamed payloads', async () => {
+  const aiUtilsPath = path.resolve(__dirname, '..', '..', 'utils', 'aiUtils.js');
+  const configPath = path.resolve(__dirname, '..', '..', 'config.js');
+  const savedMax = process.env.MAX_IMAGE_BYTES;
+  process.env.MAX_IMAGE_BYTES = '8';
+  delete require.cache[aiUtilsPath];
+  delete require.cache[configPath];
+  const smallLimitUtils = require(aiUtilsPath);
+
+  try {
+    await withHttpsStub((url, callback) => {
+      const request = new EventEmitter();
+      request.setTimeout = () => {};
+      request.destroy = error => request.emit('error', error);
+      queueMicrotask(() => {
+        callback(createResponse(200, { 'content-type': 'image/png' }, ['0123456789', '0123456789']));
+      });
+      return request;
+    }, async () => {
+      await assert.rejects(
+        async () => smallLimitUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
+        /exceeds max size/
+      );
+    });
+  } finally {
+    if (savedMax === undefined) delete process.env.MAX_IMAGE_BYTES;
+    else process.env.MAX_IMAGE_BYTES = savedMax;
+    delete require.cache[aiUtilsPath];
+    delete require.cache[configPath];
+  }
+});
+
+test('processImageAttachments handles non-array input and attachment label fallbacks', async () => {
+  assert.deepEqual(await aiUtils.processImageAttachments(null), []);
+  assert.deepEqual(await aiUtils.processImageAttachments('not-an-array'), []);
+
+  await withHttpsStub((url, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = error => request.emit('error', error);
+    queueMicrotask(() => callback(createResponse(200, {
+      'content-type': 'image/png',
+      'content-length': '4'
+    }, ['test'])));
+    return request;
+  }, async () => {
+    const urlOnly = await aiUtils.processImageAttachments([
+      { contentType: 'image/png', url: 'https://cdn.discordapp.com/by-url.png' }
+    ]);
+    assert.equal(urlOnly.length, 1);
+
+    const nameOnly = await aiUtils.processImageAttachments([
+      { contentType: 'image/png', name: 'named.png', url: 'https://cdn.discordapp.com/by-name.png' }
+    ]);
+    assert.equal(nameOnly.length, 1);
+
+    const filenameOnly = await aiUtils.processImageAttachments([
+      { contentType: 'image/png', filename: 'file.png', url: 'https://cdn.discordapp.com/by-filename.png' }
+    ]);
+    assert.equal(filenameOnly.length, 1);
+
+    const emptyNameUsesFilename = await aiUtils.processImageAttachments([
+      { contentType: 'image/png', name: '', filename: 'fallback.png', url: 'https://cdn.discordapp.com/fallback.png' }
+    ]);
+    assert.equal(emptyNameUsesFilename.length, 1);
+
+    const unknownLabel = await aiUtils.processImageAttachments([
+      { contentType: 'image/png' }
+    ]);
+    assert.equal(unknownLabel.length, 0);
+  });
+});
+
+test('downloadImageAsBase64 treats missing statusCode as zero', async () => {
+  await withHttpsStub((url, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = error => request.emit('error', error);
+    queueMicrotask(() => {
+      const response = new EventEmitter();
+      response.headers = { 'content-type': 'image/png', 'content-length': '4' };
+      response.resume = () => {};
+      callback(response);
+    });
+    return request;
+  }, async () => {
+    await assert.rejects(
+      async () => aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
+      /HTTP 0/
+    );
+  });
+});
+
+test('trimConversationHistory token trimming handles null messages and non-array content', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    null,
+    { role: 'user', content: null },
+    { role: 'user', content: { not: 'array' } },
+    { role: 'user', content: 'a'.repeat(400) }
+  ];
+  aiUtils.trimConversationHistory(history, 10, 1);
+  assert.equal(history[0].role, 'system');
+});
+
+test('downloadImageAsBase64 rejects redirect targets with invalid hosts', async () => {
+  await withHttpsStub((url, callback) => {
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = error => request.emit('error', error);
+    queueMicrotask(() => callback(createResponse(302, { location: 'https://evil.example/redirect.png' })));
+    return request;
+  }, async () => {
+    await assert.rejects(
+      async () => aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
+      /Discord CDN/
     );
   });
 });

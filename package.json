@@ -9,7 +9,7 @@
     "commands:deploy": "doppler run -- node deploy-commands.js",
     "test": "node --require ./test/preload.cjs --test",
     "test:coverage": "c8 npm test",
-    "test:coverage:check": "c8 --check-coverage --lines 90 npm test",
+    "test:coverage:check": "c8 --check-coverage --lines 100 --functions 100 --branches 100 --statements 100 npm test",
     "rebuild": "npm rebuild",
     "predeploy": "npm run test && npm run commands:deploy"
   },

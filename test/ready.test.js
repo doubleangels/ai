@@ -19,6 +19,7 @@ test('ready.execute sets activity and logs without throwing', () => {
 });
 
 // --- appended from test/ready.coverage.test.js ---
+
 test('ready.execute handles startup errors (coverage merged)', () => {
   delete require.cache[require.resolve('../events/ready')];
   const ready2 = require('../events/ready');

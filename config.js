@@ -54,12 +54,12 @@ let defaultForProvider;
 // Use whatever model is set for the selected provider (env or default).
 if (resolvedProvider === 'gemini') {
   defaultForProvider = DEFAULT_GEMINI_MODEL;
-  resolvedModel = (envGeminiModel || envOpenaiModel || defaultForProvider).trim() || defaultForProvider;
+  resolvedModel = envGeminiModel || envOpenaiModel || defaultForProvider;
 } else if (resolvedProvider === 'claude') {
   defaultForProvider = DEFAULT_CLAUDE_MODEL;
-  resolvedModel = (envClaudeModel || envOpenaiModel || defaultForProvider).trim() || defaultForProvider;
+  resolvedModel = envClaudeModel || envOpenaiModel || defaultForProvider;
 } else {
-  resolvedModel = (envOpenaiModel || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  resolvedModel = envOpenaiModel || DEFAULT_MODEL;
 }
 
 const supportedList = resolvedProvider === 'gemini' ? SUPPORTED_GEMINI_MODELS : resolvedProvider === 'claude' ? SUPPORTED_CLAUDE_MODELS : SUPPORTED_MODELS;

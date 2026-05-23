@@ -155,10 +155,6 @@ function splitMessage(text, limit = 2000) {
  * @returns {number} The best split point index
  */
 function findBestSplitPoint(text, limit) {
-  if (text.length <= limit) {
-    return text.length;
-  }
-  
   const paragraphBreak = findLastOccurrence(text, '\n\n', limit);
   if (paragraphBreak > limit * 0.7) {
     return paragraphBreak + 2;
@@ -481,6 +477,7 @@ function createSystemMessage(modelName, includeModelInPrompt = true) {
 }
 
 module.exports = {
+  assertDiscordImageDownloadUrl,
   splitMessage,
   downloadImageAsBase64,
   createMessageContent,

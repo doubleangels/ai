@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
+const fs = require('fs');
+const { spawnSync } = require('node:child_process');
 
 function stubDiscord(restBehavior = { succeed: true }) {
   try {
@@ -59,7 +61,6 @@ test('deployCommands throws when REST.put rejects', async () => {
 });
 
 // --- appended from test/deployCommands.coverage.test.js ---
-const fs = require('fs');
 
 const deployPath = path.resolve(__dirname, '..', 'deploy-commands.js');
 
@@ -75,7 +76,7 @@ function loadDeployWithFs(files) {
   };
 }
 
-test('deploy-commands throws when no command files can be loaded (coverage merged)', async () => {
+test('deploy-commands throws when no command files can be loaded', async () => {
   process.env.DISCORD_CLIENT_ID = 'client-1';
   const { deploy, restore } = loadDeployWithFs(['missing.js']);
   try {
@@ -83,4 +84,61 @@ test('deploy-commands throws when no command files can be loaded (coverage merge
   } finally {
     restore();
   }
+});
+
+test('deploy-commands uses config.clientId when DISCORD_CLIENT_ID env is unset at deploy time', async () => {
+  const originalClientId = process.env.DISCORD_CLIENT_ID;
+  delete process.env.DISCORD_CLIENT_ID;
+  stubDiscord({ succeed: true });
+
+  const configPath = require.resolve('../config');
+  const baseConfig = require(configPath);
+  require.cache[configPath] = {
+    id: configPath,
+    filename: configPath,
+    loaded: true,
+    exports: { ...baseConfig, token: 'test-token', clientId: 'config-client-id' }
+  };
+
+  delete require.cache[require.resolve('../deploy-commands')];
+  const deploy = require('../deploy-commands');
+
+  try {
+    await assert.doesNotReject(async () => deploy());
+  } finally {
+    if (originalClientId === undefined) {
+      delete process.env.DISCORD_CLIENT_ID;
+    } else {
+      process.env.DISCORD_CLIENT_ID = originalClientId;
+    }
+    delete require.cache[configPath];
+  }
+});
+
+test('deploy-commands main entrypoint handles failures and exits cleanly', () => {
+  const preloadPath = path.resolve(__dirname, 'deployCommands.preload.cjs');
+  const result = spawnSync(process.execPath, ['--require', preloadPath, path.resolve(__dirname, '..', 'deploy-commands.js')], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 1);
+});
+
+test('deploy-commands main entrypoint exits cleanly on success', () => {
+  const preloadPath = path.resolve(__dirname, 'deployCommands.preload.cjs');
+  const result = spawnSync(
+    process.execPath,
+    ['--require', preloadPath, path.resolve(__dirname, '..', 'deploy-commands.js')],
+    {
+      cwd: path.resolve(__dirname, '..'),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DEPLOY_COMMANDS_PRELOAD_MODE: 'success'
+      }
+    }
+  );
+
+  assert.equal(result.status, 0);
 });

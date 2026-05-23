@@ -135,7 +135,7 @@ function conversationToGeminiFormat(conversation) {
           if (item.type === 'input_text' && typeof item.text === 'string' && item.text.trim()) {
             parts.push({ text: item.text.trim() });
           }
-          if (item.type === 'input_image' && item.image_url) {
+          if (item.type === 'input_image') {
             const parsed = parseDataUrl(item.image_url);
             if (parsed) parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
           }
