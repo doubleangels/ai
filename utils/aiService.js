@@ -99,6 +99,40 @@ function executeClaudeTool(name, input) {
   return JSON.stringify({ error: `Unknown tool: ${name}` });
 }
 
+const TIME_QUERY_PATTERN = /\b(what time|what('s| is) the time|current time|what day|what date|today'?s date|what time is it|right now|\bnow\b|\bdate\b|\btime\b)\b/i;
+
+/**
+ * Extract plain text from the last user message in a conversation.
+ * @param {Array<{role: string, content: string|Array}>} conversation
+ * @returns {string}
+ */
+function getLastUserMessageText(conversation) {
+  for (let i = conversation.length - 1; i >= 0; i--) {
+    const msg = conversation[i];
+    if (msg.role !== 'user') continue;
+    const content = msg.content;
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter(item => item && item.type === 'input_text' && typeof item.text === 'string')
+        .map(item => item.text)
+        .join(' ');
+    }
+    return '';
+  }
+  return '';
+}
+
+/**
+ * Returns true when the latest user message likely needs the time tool.
+ * @param {Array<{role: string, content: string|Array}>} conversation
+ * @returns {boolean}
+ */
+function conversationMentionsTime(conversation) {
+  const text = getLastUserMessageText(conversation);
+  return Boolean(text && TIME_QUERY_PATTERN.test(text));
+}
+
 /**
  * Parses a data URL (e.g. data:image/png;base64,XXX) into mimeType and base64 data for Gemini.
  * @param {string} dataUrl - data URL string
@@ -407,7 +441,9 @@ async function generateClaudeResponse(conversation) {
     params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
   }
 
-  params.tools = CLAUDE_TOOLS;
+  if (conversationMentionsTime(conversation)) {
+    params.tools = CLAUDE_TOOLS;
+  }
 
   logger.debug(`Sending conversation to Claude API using model: ${modelName}.`, {
     messageCount: conversation.length,

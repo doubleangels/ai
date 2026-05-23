@@ -519,7 +519,31 @@ test('should claude handles tools, thinking, empty responses, and API failures',
       };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  expect(await maxRounds.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't complete/);
+  expect(await maxRounds.generateAIResponse([{ role: 'user', content: 'what time is it?' }])).toMatch(/couldn't complete/);
+
+  let createCalls = 0;
+  const noTools = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async () => {
+          createCalls += 1;
+          return { content: [{ type: 'text', text: 'hello back' }] };
+        }
+      };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  expect(await noTools.generateAIResponse([{ role: 'user', content: 'hello' }])).toBe('hello back');
+  expect(createCalls).toBe(1);
+
+  const oddContent = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = { create: async () => ({ content: [{ type: 'text', text: 'ok' }] }) };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  expect(await oddContent.generateAIResponse([
+    { role: 'assistant', content: 'ignored' },
+    { role: 'user', content: { not: 'text' } }
+  ])).toBe('ok');
 
   const apiFail = await loadAiService({
     anthropic: function FakeAnthropic() {

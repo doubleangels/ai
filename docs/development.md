@@ -82,6 +82,10 @@ Runtime images contain application code and production dependencies only (`npm c
 | `utils/` | AI providers and helpers |
 | `test/` | Test suite (not shipped in Docker) |
 
+## Configuration
+
+All environment variables are documented in the [README configuration section](../README.md#configuration). Performance-related keys (`MAX_REPLY_CHAIN_DEPTH`, `MESSAGE_CACHE_MAX_SIZE`, `MESSAGE_CACHE_TTL_MS`) live under **Performance and memory**.
+
 ## Further reading
 
 - [Observability](./observability.md) — Sentry errors, traces, logs, and metrics
