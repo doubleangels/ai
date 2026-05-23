@@ -1,6 +1,17 @@
 const { Events } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
-const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES, pruneStaleMapEntries, stripImagesFromHistory } = require('../utils/aiUtils');
+const {
+  splitMessage,
+  processImageAttachments,
+  createMessageContent,
+  trimConversationHistory,
+  createSystemMessage,
+  SYSTEM_MESSAGES,
+  pruneStaleMapEntries,
+  stripImagesFromHistory,
+  formatAIUserMessage,
+  isAIUserErrorMessage
+} = require('../utils/aiUtils');
 const { traceReplyChain } = require('../utils/replyChainTracer');
 const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');
@@ -408,21 +419,22 @@ module.exports = {
           }
         });
 
-        if (!reply) {
+        if (!reply?.trim()) {
           logger.warn('No reply generated from AI service.');
           recordCount('discord.message.responded', 1, {
             provider: aiProvider,
             outcome: 'empty'
           });
-          await sendPrimaryResponse("⚠️ I couldn't generate a response.");
+          await sendPrimaryResponse(formatAIUserMessage({ reason: 'unknown', provider: aiProvider }));
           return;
         }
 
+        const replyIsError = isAIUserErrorMessage(reply);
         logger.info(`Sending AI response (${reply.length} chars) for message ${message.id} in channel ${channelId}.`);
 
         const messageChunks = splitMessage(reply);
         if (messageChunks.length === 0) {
-          const fallback = "⚠️ No response to send.";
+          const fallback = formatAIUserMessage({ reason: 'empty_response', provider: aiProvider });
           await sendPrimaryResponse(fallback);
         } else if (messageChunks.length === 1) {
           await sendPrimaryResponse(messageChunks[0]);
@@ -472,31 +484,37 @@ module.exports = {
           }
         }
 
-        logger.debug(`Adding AI response to conversation history for channel ${channelId}.`);
-        channelHistory.push({
-          role: 'assistant',
-          content: reply
-        });
+        if (!replyIsError) {
+          logger.debug(`Adding AI response to conversation history for channel ${channelId}.`);
+          channelHistory.push({
+            role: 'assistant',
+            content: reply
+          });
+        }
 
         logger.info(`Reply sent successfully to ${message.author.tag} in channel: ${channelName}`);
         recordCount('discord.message.responded', 1, {
           provider: aiProvider,
-          outcome: 'success'
+          outcome: replyIsError ? 'error' : 'success'
         });
-        recordDistribution('discord.message.response_chars', reply.length, {
-          unit: 'byte',
-          attributes: {
-            provider: aiProvider,
-            trigger: hasBotPing ? 'mention' : 'reply'
-          }
-        });
+        if (!replyIsError) {
+          recordDistribution('discord.message.response_chars', reply.length, {
+            unit: 'byte',
+            attributes: {
+              provider: aiProvider,
+              trigger: hasBotPing ? 'mention' : 'reply'
+            }
+          });
+        }
 
-        // Update cooldown stamps only after successful completion.
-        const cooldownMaxAge = Math.max(userCooldownMs, channelCooldownMs) * 10 || 600_000;
-        pruneStaleMapEntries(client.userCooldowns, cooldownMaxAge);
-        pruneStaleMapEntries(client.channelCooldowns, cooldownMaxAge);
-        client.userCooldowns.set(userId, Date.now());
-        client.channelCooldowns.set(channelId, Date.now());
+        // Update cooldown stamps only after a successful AI reply (not user-facing errors).
+        if (!replyIsError) {
+          const cooldownMaxAge = Math.max(userCooldownMs, channelCooldownMs) * 10 || 600_000;
+          pruneStaleMapEntries(client.userCooldowns, cooldownMaxAge);
+          pruneStaleMapEntries(client.channelCooldowns, cooldownMaxAge);
+          client.userCooldowns.set(userId, Date.now());
+          client.channelCooldowns.set(channelId, Date.now());
+        }
       } catch (error) {
         captureError(error, { event: 'messageCreate', handler: 'processMessage' });
         recordCount('discord.message.responded', 1, {
@@ -510,7 +528,7 @@ module.exports = {
           channelId
         });
 
-        await sendPrimaryResponse("⚠️ An error occurred while processing your request.");
+        await sendPrimaryResponse(formatAIUserMessage({ error, provider: aiProvider }));
       } finally {
         stripImagesFromHistory(channelHistory);
         recordDistribution('discord.message.processing_ms', Date.now() - messageStartedAt, {

@@ -14,4 +14,4 @@ updates:
       interval: "daily"
     target-branch: "dev"
     commit-message:
-      prefix: "[NPM]"
+      prefix: "[pnpm]"

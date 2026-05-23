@@ -132,7 +132,7 @@ test('should openAI API failure results in empty reply', async () => {
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'ping' }
   ]);
-  expect(reply).toBe('');
+  expect(reply).toMatch(/^⚠️ /);
 });
 
 test('should gemini retries without cache when cached content causes 404', async () => {
@@ -170,7 +170,7 @@ test('should rejects empty conversation', async () => {
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
   const reply = await aiService.generateAIResponse([]);
-  expect(reply).toBe('');
+  expect(reply).toMatch(/^⚠️ /);
 });
 
 test('should rethrows when provider span callback fails', async () => {
@@ -189,7 +189,22 @@ test('should rethrows when provider span callback fails', async () => {
 test('should openAI returns empty when API key missing', async () => {
   const aiService = await loadAiService({}, { AI_PROVIDER: 'openai', OPENAI_API_KEY: undefined });
   const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
-  expect(reply).toBe('');
+  expect(reply).toMatch(/^⚠️ /);
+});
+
+test('should record error_user_message outcome for user-facing AI errors', async () => {
+  const outcomes = [];
+  const aiService = await loadAiService({
+    instrument: {
+      recordCount: (_name, _value, attrs) => {
+        if (attrs?.outcome) outcomes.push(attrs.outcome);
+      }
+    }
+  }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: undefined });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(reply).toMatch(/isn't configured/);
+  expect(outcomes).toContain('error_user_message');
 });
 
 test('should openAI handles API errors and incomplete responses', async () => {
@@ -210,7 +225,7 @@ test('should openAI handles API errors and incomplete responses', async () => {
     }
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
-  expect(await aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
+  expect(await aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 
   call = 0;
   const aiService2 = await loadAiService({
@@ -230,7 +245,7 @@ test('should openAI handles API errors and incomplete responses', async () => {
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
   expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('partial');
-  expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi again' }])).toMatch(/couldn't generate a response/);
+  expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi again' }])).toMatch(/empty response/);
 });
 
 test('should openAI outer catch returns empty string', async () => {
@@ -254,17 +269,17 @@ test('should openAI outer catch returns empty string', async () => {
   });
 
   const reply = await aiService.generateAIResponse(brokenConversation);
-  expect(reply).toBe('');
+  expect(reply).toMatch(/^⚠️ /);
 });
 
 test('should gemini returns empty without API key or valid turns', async () => {
   const noKey = await loadAiService({}, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: undefined });
-  expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
+  expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/isn't configured/);
 
   const emptyTurns = await loadAiService({
     genai: { GoogleGenAI: class { constructor() { this.models = { generateContent: async () => ({ text: 'x' }) }; } } }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  expect(await emptyTurns.generateAIResponse([{ role: 'system', content: 'only system' }])).toBe('');
+  expect(await emptyTurns.generateAIResponse([{ role: 'system', content: 'only system' }])).toMatch(/^⚠️ /);
 });
 
 test('should gemini uses cache, tools, safety settings, and handles failures', async () => {
@@ -319,7 +334,7 @@ test('should gemini uses cache, tools, safety settings, and handles failures', a
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  expect(await emptyReply.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
+  expect(await emptyReply.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/empty response/);
 
   const retryFail = await loadAiService({
     genai: {
@@ -337,7 +352,7 @@ test('should gemini uses cache, tools, safety settings, and handles failures', a
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  expect(await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(3000) }, { role: 'user', content: 'hi' }])).toBe('');
+  expect(await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(3000) }, { role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 });
 
 test('should openAI prepends image analysis system prompt when missing', async () => {
@@ -499,14 +514,14 @@ test('should claude handles tools, thinking, empty responses, and API failures',
   expect(reply).toBe('done');
 
   const noKey = await loadAiService({}, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: undefined });
-  expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
+  expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/isn't configured/);
 
   const emptyText = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = { create: async () => ({ content: [{ type: 'text', text: '  ' }] }) };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  expect(await emptyText.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
+  expect(await emptyText.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/empty response/);
 
   let toolRounds = 0;
   const maxRounds = await loadAiService({
@@ -519,7 +534,7 @@ test('should claude handles tools, thinking, empty responses, and API failures',
       };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  expect(await maxRounds.generateAIResponse([{ role: 'user', content: 'what time is it?' }])).toMatch(/couldn't complete/);
+  expect(await maxRounds.generateAIResponse([{ role: 'user', content: 'what time is it?' }])).toMatch(/^⚠️ /);
 
   let createCalls = 0;
   const noTools = await loadAiService({
@@ -550,7 +565,7 @@ test('should claude handles tools, thinking, empty responses, and API failures',
       this.messages = { create: async () => { throw new Error('claude down'); } };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  expect(await apiFail.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
+  expect(await apiFail.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 });
 
 test('should gemini handles non-stale API failures, empty retries, and text property responses', async () => {
@@ -568,7 +583,7 @@ test('should gemini handles non-stale API failures, empty retries, and text prop
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  expect(await notStale.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
+  expect(await notStale.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 
   const emptyRetry = await loadAiService({
     genai: {
@@ -589,7 +604,7 @@ test('should gemini handles non-stale API failures, empty retries, and text prop
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  expect(await emptyRetry.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
+  expect(await emptyRetry.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toMatch(/empty response/);
 
   const textProperty = await loadAiService({
     genai: {
@@ -684,7 +699,7 @@ test('should gemini handles missing response text and invalid image data URLs', 
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  expect(await missingText.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
+  expect(await missingText.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/empty response/);
 
   const invalidImageUrl = await loadAiService({
     genai: {
@@ -768,7 +783,7 @@ test('should gemini retry path handles text() function responses after stale cac
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  expect(await retryMissingText.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
+  expect(await retryMissingText.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toMatch(/empty response/);
 });
 
 test('should provider formatters handle non-string message content branches', async () => {
@@ -813,7 +828,7 @@ test('should gemini handles non-string API errors and retry text() responses', a
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  expect(await nonStringError.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
+  expect(await nonStringError.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 
   const retryTextFn = await loadAiService({
     genai: {
@@ -846,7 +861,7 @@ test('should claude handles missing response content in tool rounds', async () =
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
 
-  expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
+  expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/empty response/);
 });
 
 test('should openAI outer catch tags unknown provider when config provider is empty', async () => {
@@ -897,7 +912,7 @@ test('should openAI outer catch tags unknown provider when config provider is em
   });
 
   const reply = await aiService.generateAIResponse(broken);
-  expect(reply).toBe('');
+  expect(reply).toMatch(/^⚠️ /);
   expect(capturedProvider).toBe('unknown');
 });
 

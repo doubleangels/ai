@@ -16,20 +16,19 @@ RUN apk update && apk upgrade --no-cache && \
     adduser -u 1001 -G nodejs -s /bin/sh -D discordbot
 
 # Copy package files for dependency installation (better caching)
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml .npmrc ./
 
 # Build stage for native modules
 FROM base AS builder
 
-# Upgrade npm for npm ci; pulls patched transitive deps (e.g. brace-expansion, ip-address)
-RUN npm install -g npm@latest && npm cache clean --force
+RUN corepack enable
 
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     apk update && apk add --no-cache python3 make g++ && \
-    npm ci --omit=dev && \
+    pnpm install --frozen-lockfile --prod && \
     find node_modules -type f \( -name '*.md' -o -name '*.map' -o -name 'LICENSE*' -o -name 'CHANGELOG*' \) -delete && \
     find node_modules -depth -type d \( -name test -o -name tests -o -name __tests__ -o -name docs \) -exec rm -rf {} + 2>/dev/null || true && \
-    npm cache clean --force && \
+    pnpm store prune && \
     apk del python3 make g++
 
 # Final runtime stage

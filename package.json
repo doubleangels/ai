@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "A Discord bot that uses AI to respond to messages.",
   "main": "index.js",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "doppler run -- nodemon index.js",
     "start": "doppler run -- node index.js",
@@ -10,8 +14,17 @@
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:coverage:check": "jest --coverage",
-    "rebuild": "npm rebuild",
-    "predeploy": "npm run test && npm run commands:deploy"
+    "rebuild": "pnpm rebuild",
+    "predeploy": "pnpm test && pnpm commands:deploy"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@google/genai",
+      "@sentry/profiling-node",
+      "@sentry-internal/node-cpu-profiler",
+      "protobufjs",
+      "unrs-resolver"
+    ]
   },
   "repository": {
     "type": "git",
