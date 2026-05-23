@@ -5,13 +5,14 @@ This document covers local setup, testing, and coverage for contributors.
 ## Prerequisites
 
 - **Node.js 24.x** (matches CI and the Docker image)
-- **npm** (bundled with Node)
+- **pnpm** via [Corepack](https://nodejs.org/api/corepack.html) (bundled with Node)
 - Optional: [Doppler CLI](https://docs.doppler.com/docs/cli) for running the bot with secrets locally
 
 ## Install
 
 ```bash
-npm ci
+corepack enable
+pnpm install --frozen-lockfile
 ```
 
 ## Run the bot locally
@@ -19,14 +20,14 @@ npm ci
 With Doppler (recommended):
 
 ```bash
-npm run dev      # nodemon + Doppler
-npm start        # production-style start
+pnpm dev      # nodemon + Doppler
+pnpm start    # production-style start
 ```
 
 Deploy slash commands:
 
 ```bash
-npm run commands:deploy
+pnpm commands:deploy
 ```
 
 ## Testing
@@ -34,19 +35,19 @@ npm run commands:deploy
 ### Unit and integration tests
 
 ```bash
-npm test
+pnpm test
 ```
 
 This runs the full suite with [Jest](https://jestjs.io/) using shared setup in [`test/jest.setup.cjs`](../test/jest.setup.cjs) and [`test/jest.afterEnv.cjs`](../test/jest.afterEnv.cjs), which stub Discord, AI SDKs, and Sentry.
 
-**CI runs `npm test` only** — coverage is not generated or uploaded in GitHub Actions.
+**CI runs `pnpm test` only** — coverage is not generated or uploaded in GitHub Actions.
 
 ### Coverage gate (local / maintainer)
 
 100% coverage is enforced locally with Jest's V8 coverage provider:
 
 ```bash
-npm run test:coverage:check
+pnpm test:coverage:check
 ```
 
 Thresholds (lines, branches, functions, statements) are defined in [`jest.config.cjs`](../jest.config.cjs). Coverage output is written to `coverage/` and is gitignored.
@@ -56,7 +57,7 @@ On Windows, run the command directly in PowerShell without piping output — pip
 ### Pre-deploy check
 
 ```bash
-npm run predeploy   # runs tests, then deploys commands
+pnpm predeploy   # runs tests, then deploys commands
 ```
 
 ## Docker
@@ -67,7 +68,7 @@ Production images are built from the multi-stage [`Dockerfile`](../Dockerfile). 
 - `jest.config.cjs`
 - `coverage/`, `*.lcov`, `.nyc_output/`
 
-Runtime images contain application code and production dependencies only (`npm ci --omit=dev`).
+Runtime images contain application code and production dependencies only (`pnpm install --prod --frozen-lockfile`).
 
 ## Project layout
 

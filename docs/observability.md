@@ -139,4 +139,4 @@ After deploying with `SENTRY_DSN` set:
 
 ## Testing observability code
 
-Sentry modules are covered at 100% in the test suite. See [`test/instrument.test.js`](../test/instrument.test.js) and [`test/logger.test.js`](../test/logger.test.js). Run `npm run test:coverage:check` locally to verify.
+Sentry modules are covered at 100% in the test suite. See [`test/instrument.test.js`](../test/instrument.test.js) and [`test/logger.test.js`](../test/logger.test.js). Run `pnpm test:coverage:check` locally to verify.

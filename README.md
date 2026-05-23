@@ -184,9 +184,10 @@ Attach an image with a caption like `@AI describe this chart` for multi-modal an
 ## Development
 
 ```bash
-npm ci
-npm test                      # CI runs this
-npm run test:coverage:check   # local 100% coverage gate
+corepack enable
+pnpm install --frozen-lockfile
+pnpm test                      # CI runs this
+pnpm test:coverage:check   # local 100% coverage gate
 ```
 
 See [docs/development.md](./docs/development.md) for local setup, Docker build notes, and project layout.
