@@ -1,32 +1,65 @@
-# AI Discord Bot
-
 <div align="center">
-  <img src="logo.png" alt="Logo" width="250">
+  <img src="https://raw.githubusercontent.com/doubleangels/ai/main/logo.png" alt="Logo" width="200" style="border-radius: 20px; margin-bottom: 20px;">
+
+  <h1>AI Discord Bot</h1>
+  <p><b>A multi-provider AI Discord assistant powered by OpenAI, Google Gemini, and Anthropic Claude.</b></p>
+
+  [![Node.js](https://img.shields.io/badge/node.js-24.x-brightgreen.svg?style=flat-square&logo=nodedotjs)](https://nodejs.org/)
+  [![Discord.js](https://img.shields.io/badge/discord.js-14.x-blue.svg?style=flat-square&logo=discord)](https://discord.js.org/)
+  [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?style=flat-square&logo=docker)](https://www.docker.com/)
+  [![Doppler](https://img.shields.io/badge/doppler-secrets-000000.svg?style=flat-square&logo=doppler)](https://www.doppler.com/)
+  [![Sentry](https://img.shields.io/badge/sentry-observability-362D59.svg?style=flat-square&logo=sentry)](https://sentry.io/)
 </div>
-<br>
 
-A feature-rich Discord bot powered by OpenAI (ChatGPT), Google (Gemini), or Anthropic (Claude) models, designed to provide intelligent conversational capabilities with image analysis support right within your Discord server.
+<hr>
 
-## 🚀 Quick Start
+## Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Observability](#observability)
+- [Usage](#usage)
+- [Development](#development)
+- [Documentation](#documentation)
+
+---
+
+## Features
+
+- **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via configuration.
+- **Vision** — Attach images; the bot analyzes charts, photos, and screenshots.
+- **Shared channel memory** — Per-channel conversation history for collaborative threads.
+- **Reply-chain context** — Traces Discord reply chains for accurate multi-turn context.
+- **Web search & maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
+- **Prompt caching** — Reduces cost and latency for long conversations.
+- **Anti-spam** — Per-user and per-channel cooldowns, queue backpressure, safe mention defaults.
+- **Memory optimized** — Aggressive Discord cache limits and V8 heap caps for container deployments.
+- **Production observability** — Sentry errors, traces, profiling, logs, and custom metrics via Pino.
+- **Secure secrets** — Doppler injects environment variables at runtime.
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
-- [Discord Bot Token](https://discord.com/developers/applications) - Create a new application and bot
-- [OpenAI](https://platform.openai.com/overview), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com) API key - Depending on which provider you use
-- [Doppler](https://www.doppler.com/) - For secure secret management at runtime
+- [Discord Developer Portal](https://discord.com/developers/applications) — bot token and client ID
+- API key from [OpenAI](https://platform.openai.com/), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com/)
+- [Doppler](https://www.doppler.com/) for secrets
 - Docker and Docker Compose
 
-### Docker Deployment
+### Configure Doppler
 
-1. **Set up Doppler:**
+Add these secrets to your Doppler config (e.g. `prd` or `dev`):
 
-   - Create a [Doppler](https://www.doppler.com/) project and config (e.g. `dev`, `prd`)
-   - Add the following secrets to your Doppler config:
-     - **Required:** `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, and one of: `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`
-     - **Optional:** `AI_PROVIDER`, `OPENAI_MODEL_NAME`, `GEMINI_MODEL_NAME`, `CLAUDE_MODEL_NAME`, `LOG_LEVEL`, `MAX_HISTORY_LENGTH`, `MAX_HISTORY_TOKENS`, `REASONING_EFFORT`, `RESPONSES_VERBOSITY`, `ENABLE_WEB_SEARCH`, `ENABLE_GOOGLE_MAPS`, `ENABLE_CONTEXT_CACHE`, `USER_COOLDOWN_MS`, `CHANNEL_COOLDOWN_MS`, `MAX_PENDING_PER_CHANNEL`, `IMAGE_DOWNLOAD_TIMEOUT_MS`, `MAX_IMAGE_BYTES`, and others listed in Configuration below
-   - Create a **service token** for the config and copy it (you will pass it as `DOPPLER_TOKEN`)
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_CLIENT_ID`
+- `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` (matching your provider)
 
-2. **Create a `docker-compose.yml` file:**
+Generate a service token for the config you deploy.
+
+### Deploy with Docker Compose
 
 ```yaml
 services:
@@ -45,140 +78,112 @@ services:
     read_only: true
     environment:
       - DOPPLER_TOKEN=${DOPPLER_TOKEN}
+      - NODE_OPTIONS=--max-old-space-size=256
     tmpfs:
       - /tmp
 ```
 
-3. **Set the Doppler token and deploy:**
-
 ```bash
-export DOPPLER_TOKEN=your_doppler_service_token_here
+export DOPPLER_TOKEN="dp.st.config.your_token_here"
 docker compose up -d
 ```
 
-## ⚙️ Configuration
+Production images exclude tests, coverage config, and dev dependencies. See [Development](./docs/development.md#docker).
 
-### Doppler Setup
+---
 
-This bot uses [Doppler](https://www.doppler.com/) to inject secrets as environment variables at runtime. The container runs `doppler run -- ...` so all keys in your Doppler config are available to the app.
+## Configuration
 
-**Required:**
+Add optional keys to Doppler to customize behavior.
 
-1. Create a Doppler project and config (e.g. `prd`).
-2. Add your secrets in the Doppler dashboard (or CLI). At minimum: `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, and one of `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`.
-3. Generate a **service token** for that config and pass it when running the container as `DOPPLER_TOKEN` (e.g. in `docker-compose.yml` or your orchestration).
-
-### Environment Variables
-
-| Variable           | Description                                      | Required | Default | Example |
-| ------------------ | ------------------------------------------------- | :------: | :-----: | ------- |
-| `DOPPLER_TOKEN`   | Doppler service token for the project/config      |    ✅    |    -    | -       |
-
-All other variables below can be stored in Doppler (recommended) or set in `environment` in your `docker-compose.yml`. The app reads them after Doppler injects them at startup.
-
-#### AI provider and models
+### AI provider and models
 
 | Variable | Description | Default |
-| --- | --- | --- |
-| `AI_PROVIDER` | Backend to use: `openai`, `gemini`, or `claude`. | `openai` |
-| `OPENAI_MODEL_NAME` | OpenAI model when `AI_PROVIDER=openai`. | `gpt-5-nano` |
-| `GEMINI_MODEL_NAME` | Gemini model when `AI_PROVIDER=gemini`. Falls back to `OPENAI_MODEL_NAME` if unset. | `gemini-2.5-flash` |
-| `CLAUDE_MODEL_NAME` | Claude model when `AI_PROVIDER=claude`. Falls back to `OPENAI_MODEL_NAME` if unset. | `claude-haiku-4-5-20251001` |
+| :--- | :--- | :--- |
+| `AI_PROVIDER` | `openai`, `gemini`, or `claude` | `openai` |
+| `OPENAI_MODEL_NAME` | OpenAI model | `gpt-5.4-nano` |
+| `GEMINI_MODEL_NAME` | Gemini model | `gemini-3-flash-preview` |
+| `CLAUDE_MODEL_NAME` | Claude model | `claude-sonnet-4-6` |
+| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs (empty = all) | *All servers* |
 
-**OpenAI (Responses API, text + image, reasoning, verbosity, optional web search):**  
-`gpt-5.2`, `gpt-5.1`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5.2-pro`, `gpt-5-pro`, `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3`, `o4-mini`, `o3-pro`, `o3-mini`
-
-**Gemini (text + image, search grounding, thinking):**  
-`gemini-3-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.0-flash-lite`
-
-**Claude (vision, extended thinking on 4.5):**  
-`claude-sonnet-4-5-20250929`, `claude-sonnet-4-5`, `claude-haiku-4-5-20251001`, `claude-haiku-4-5`, `claude-opus-4-5-20251101`, `claude-opus-4-5`, `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-3-sonnet-20240229`, `claude-3-haiku-20240307`, `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20240620`
-
-Set `OPENAI_API_KEY` for OpenAI; `GEMINI_API_KEY` for Gemini ([Google AI Studio](https://aistudio.google.com/apikey)); `ANTHROPIC_API_KEY` for Claude ([Anthropic Console](https://console.anthropic.com)).
-
-#### Reasoning, verbosity, and search
+### Advanced AI settings
 
 | Variable | Description | Default |
-| --- | --- | --- |
-| `REASONING_EFFORT` | **OpenAI only.** Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`. GPT-5.2 also supports `none`; GPT-5.2-pro supports `medium`, `high`, `xhigh`. | `none` |
-| `RESPONSES_VERBOSITY` | **OpenAI GPT-5 only.** Response verbosity: `low`, `medium`, `high`. | `low` |
-| `ENABLE_WEB_SEARCH` | **OpenAI and Gemini.** Set to `true` or `1` to enable web search (OpenAI built-in tool; Gemini Google Search grounding). | off |
-| `ENABLE_GOOGLE_MAPS` | **Gemini only.** Set to `true` or `1` to enable grounding with Google Maps (places, area summaries, location-aware answers). | off |
+| :--- | :--- | :--- |
+| `ENABLE_WEB_SEARCH` | Live internet search (OpenAI/Gemini) | `false` |
+| `ENABLE_GOOGLE_MAPS` | Google Maps grounding (Gemini) | `false` |
+| `ENABLE_CONTEXT_CACHE` | Long-context caching | `false` |
+| `REASONING_EFFORT` | OpenAI reasoning: `low`, `medium`, `high` | `none` |
+| `RESPONSES_VERBOSITY` | Response verbosity | `low` |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking (0 = off) | `0` |
 
-#### Optional tuning variables
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `MAX_OUTPUT_TOKENS` | Max tokens per reply (all providers). Clamped 256–65536. Lower values reduce cost. | `1024` |
-| `MAX_HISTORY_TOKENS` | Rough token-estimated cap for stored per-channel conversation history (in addition to `MAX_HISTORY_LENGTH`). `0` disables token trimming. | `0` |
-| `USER_COOLDOWN_MS` | Minimum time between requests per user (basic anti-spam/cost control). | `4000` |
-| `CHANNEL_COOLDOWN_MS` | Minimum time between requests per channel (reduces pile-ups). | `1500` |
-| `MAX_PENDING_PER_CHANNEL` | Max queued requests per channel before the bot responds “busy”. | `3` |
-| `IMAGE_DOWNLOAD_TIMEOUT_MS` | Timeout for downloading image attachments. | `8000` |
-| `MAX_IMAGE_BYTES` | Max bytes downloaded per image attachment. | `6000000` |
-| `OPENAI_TIMEOUT_MS` | **OpenAI only.** Request timeout in milliseconds (5000–300000). | `60000` |
-| `OPENAI_MAX_RETRIES` | **OpenAI only.** Max retries for transient failures (0–5). | `2` |
-
-#### Context caching
-
-Reduces cost and latency by caching static prompt content. Single switch for all providers. Can be stored in Doppler or set in your environment.
+### Conversation and cost limits
 
 | Variable | Description | Default |
-| --- | --- | --- |
-| `ENABLE_CONTEXT_CACHE` | Set to `true` or `1` to enable context/prompt caching for all providers. | `false` |
-| `GEMINI_CACHE_TTL_SECONDS` | TTL for Gemini context cache (60–2073600). | `3600` |
+| :--- | :--- | :--- |
+| `MAX_OUTPUT_TOKENS` | Response token cap (256–65536) | `1024` |
+| `MAX_HISTORY_TOKENS` | Channel history cap (0 = off) | `0` |
+| `USER_COOLDOWN_MS` | Per-user cooldown | `4000` |
+| `CHANNEL_COOLDOWN_MS` | Per-channel cooldown | `1500` |
+| `MAX_PENDING_PER_CHANNEL` | Queue depth before "busy" reply | `3` |
 
-#### Claude extended thinking
+---
 
-| Variable | Description | Default |
-| --- | --- | --- |
-| `CLAUDE_THINKING_BUDGET_TOKENS` | **Claude only.** Token budget for extended thinking on supported 4.5 models (0 = disabled, max 32000). | `0` |
+## Observability
 
-#### Gemini safety
+Set `SENTRY_DSN` in Doppler to enable Sentry. The bot reports errors, performance traces, structured logs, custom metrics, and optional profiling.
 
-| Variable | Description | Default |
-| --- | --- | --- |
-| `GEMINI_SAFETY_SETTINGS` | **Gemini only.** JSON array of `{"category":"...","threshold":"..."}` to tune safety filters. Example: `[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]`. Unset = API defaults. | - |
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `SENTRY_DSN` | *unset* | Enable reporting |
+| `SENTRY_TRACES_SAMPLE_RATE` | `1.0` | Performance traces |
+| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `1.0` | Code profiling |
+| `SENTRY_PROFILE_LIFECYCLE` | `trace` | Profile lifecycle |
+| `SENTRY_ENABLE_LOGS` | `true` | Pino → Sentry logs |
+| `SENTRY_ENABLE_METRICS` | `true` | Custom metrics |
 
-## 🖼️ Image Analysis
+Full metric and span reference: [docs/observability.md](./docs/observability.md).
 
-The bot supports comprehensive image analysis when using vision-capable models:
+---
 
-- **Image Descriptions**: Get detailed descriptions of image content
-- **Visual Q&A**: Ask questions about images and receive contextual answers
-- **Multi-Modal Input**: Combine text and images in the same message
-- **Automatic Detection**: Automatically processes image attachments
+## Usage
 
-**Usage Examples:**
+### Interacting with the bot
 
-- Send an image with text: "What's in this image?"
-- Ask follow-up questions about previously shared images
-- Get analysis of charts, diagrams, or screenshots
+- **Mention:** `@AI What is the capital of France?`
+- **Reply:** Use Discord's reply feature on a bot message to continue a thread.
+- The bot ignores `@here` and `@everyone`.
 
-## 💬 Conversation Features
+### Images
 
-### Multi-Channel Support
+Attach an image with a caption like `@AI describe this chart` for multi-modal analysis.
 
-- Shared conversation history per channel, allowing multiple users to participate
-- Context preservation across message exchanges from all users
-- Automatic history management and cleanup
-- Basic backpressure (per-channel queue limit) and cooldowns to reduce spam/cost
+### Admin commands
 
-### Interaction Methods
+- `/reset` — Clear conversation history (channel or server scope). Requires **Administrator**.
 
-- **Mentions**: `@AI What's the weather like?`
-- **Replies**: Reply to any bot message to continue the conversation
+---
 
-### Safety Defaults
+## Development
 
-- The bot sends messages with mentions disabled (`allowedMentions: { parse: [] }`) to avoid accidental `@everyone` / role pings.
-- Logs avoid printing full message contents and full model replies by default (metadata only).
+```bash
+npm ci
+npm test                      # CI runs this
+npm run test:coverage:check   # local 100% coverage gate
+```
 
-## 🔧 Commands
+See [docs/development.md](./docs/development.md) for local setup, Docker build notes, and project layout.
 
-### `/reset` (admin only)
+---
 
-Reset conversation history for a specific channel or all channels. Only users with the **Administrator** permission can see and use this command.
+## Documentation
 
-- **No channel specified**: Resets conversation history for all channels
-- **Channel specified**: Resets conversation history for the selected channel only
+| Guide | Description |
+|-------|-------------|
+| [Development](./docs/development.md) | Testing, coverage, Docker exclusions |
+| [Observability](./docs/observability.md) | Sentry errors, traces, logs, metrics |
+
+<br>
+<div align="center">
+  <sub>Built with Node.js and Discord.js</sub>
+</div>

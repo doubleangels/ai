@@ -20,6 +20,7 @@ const {
   openaiTimeoutMs,
   openaiMaxRetries
 } = require('../config');
+const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const { hasImages, SYSTEM_MESSAGES, estimateTokensFromText } = require('./aiUtils');
@@ -134,7 +135,7 @@ function conversationToGeminiFormat(conversation) {
           if (item.type === 'input_text' && typeof item.text === 'string' && item.text.trim()) {
             parts.push({ text: item.text.trim() });
           }
-          if (item.type === 'input_image' && item.image_url) {
+          if (item.type === 'input_image') {
             const parsed = parseDataUrl(item.image_url);
             if (parsed) parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
           }
@@ -230,7 +231,8 @@ async function generateGeminiResponse(conversation) {
   }
 
   const config = {
-    temperature: getTemperature()
+    temperature: getTemperature(),
+    maxOutputTokens
   };
 
   let useCachedContent = false;
@@ -266,10 +268,19 @@ async function generateGeminiResponse(conversation) {
     }
   }
   if (!useCachedContent && systemWithImageHint) config.systemInstruction = systemWithImageHint;
-  if (enableWebSearch || enableGoogleMaps) {
+  // Gemini API: google_search and google_maps cannot be used in the same request (400 INVALID_ARGUMENT).
+  let geminiUseWebSearch = enableWebSearch;
+  let geminiUseMaps = enableGoogleMaps;
+  if (enableWebSearch && enableGoogleMaps) {
+    geminiUseMaps = false;
+    logger.warn(
+      'ENABLE_WEB_SEARCH and ENABLE_GOOGLE_MAPS are both on; Gemini allows only one per request. Using Google Search grounding only. Disable ENABLE_WEB_SEARCH to use Maps.'
+    );
+  }
+  if (geminiUseWebSearch || geminiUseMaps) {
     config.tools = [];
-    if (enableWebSearch) config.tools.push({ googleSearch: {} });
-    if (enableGoogleMaps) config.tools.push({ googleMaps: {} });
+    if (geminiUseWebSearch) config.tools.push({ googleSearch: {} });
+    if (geminiUseMaps) config.tools.push({ googleMaps: {} });
   }
   if (geminiSafetySettings && geminiSafetySettings.length > 0) {
     config.safetySettings = geminiSafetySettings;
@@ -279,8 +290,8 @@ async function generateGeminiResponse(conversation) {
     messageCount: conversation.length,
     model: modelName,
     contentsLength: contents.length,
-    searchGrounding: enableWebSearch,
-    mapsGrounding: enableGoogleMaps,
+    searchGrounding: geminiUseWebSearch,
+    mapsGrounding: geminiUseMaps,
     hasImages: hasImages(conversation),
     usingContextCache: useCachedContent,
     safetySettings: config.safetySettings ? config.safetySettings.length : 0
@@ -306,16 +317,11 @@ async function generateGeminiResponse(conversation) {
     });
     return text.trim();
   } catch (apiError) {
+    const errMsg = typeof apiError?.message === 'string' ? apiError.message : '';
     const isLikelyStaleCache = useCachedContent && (
       apiError?.status === 404 ||
       apiError?.code === 404 ||
-      (typeof apiError?.message === 'string' && (
-        apiError.message.includes('cached') ||
-        apiError.message.includes('not found') ||
-        apiError.message.includes('NOT_FOUND') ||
-        apiError.message.includes('invalid') ||
-        apiError.message.includes('INVALID_ARGUMENT')
-      ))
+      (/cachedcontent|cached.?content/i.test(errMsg) && /not\s*found|NOT_FOUND|expired|was\s+deleted/i.test(errMsg))
     );
     if (isLikelyStaleCache) {
       geminiCacheEntry = null;
@@ -340,6 +346,7 @@ async function generateGeminiResponse(conversation) {
           return retryText.trim();
         }
       } catch (retryErr) {
+        captureError(retryErr, { provider: 'gemini', handler: 'retryWithoutCache' });
         logger.error('Gemini API retry without cache failed.', {
           error: retryErr?.stack,
           message: retryErr?.message,
@@ -348,6 +355,7 @@ async function generateGeminiResponse(conversation) {
         return '';
       }
     }
+    captureError(apiError, { provider: 'gemini' });
     logger.error('Gemini API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
@@ -453,6 +461,7 @@ async function generateClaudeResponse(conversation) {
     logger.warn('Claude hit max tool rounds without final text.');
     return 'I apologize, but I couldn\'t complete that request. Please try again.';
   } catch (apiError) {
+    captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
@@ -480,10 +489,18 @@ async function generateOpenAIResponse(conversation) {
     // Keep system and static content first for OpenAI automatic prompt caching (≥1024 tokens; cache-friendly order).
     let messages = [...conversation];
     if (hasImages(conversation)) {
-      messages.push({
-        role: 'system',
-        content: SYSTEM_MESSAGES.IMAGE_ANALYSIS
-      });
+      const sysIdx = messages.findIndex(m => m.role === 'system');
+      if (sysIdx >= 0 && typeof messages[sysIdx].content === 'string') {
+        messages[sysIdx] = {
+          role: 'system',
+          content: `${messages[sysIdx].content}\n\n${SYSTEM_MESSAGES.IMAGE_ANALYSIS}`
+        };
+      } else {
+        messages.unshift({
+          role: 'system',
+          content: SYSTEM_MESSAGES.IMAGE_ANALYSIS
+        });
+      }
     }
 
     const requestParams = {
@@ -536,6 +553,7 @@ async function generateOpenAIResponse(conversation) {
     try {
       response = await openai.responses.create(requestParams);
     } catch (apiError) {
+      captureError(apiError, { provider: 'openai' });
       logger.error('API request failed.', {
         error: apiError?.stack,
         message: apiError?.message,
@@ -579,6 +597,7 @@ async function generateOpenAIResponse(conversation) {
 
     return reply;
   } catch (error) {
+    captureError(error, { provider: aiProvider || 'unknown' });
     logger.error('Error generating AI response:', {
       error: error?.stack,
       message: error?.message,
@@ -600,16 +619,58 @@ async function generateOpenAIResponse(conversation) {
 async function generateAIResponse(conversation) {
   if (!conversation || conversation.length === 0) {
     logger.error('Cannot generate AI response; empty conversation provided.');
+    recordCount('ai.generate.requests', 1, {
+      provider: aiProvider,
+      outcome: 'empty_conversation'
+    });
     return '';
   }
 
-  if (aiProvider === 'gemini') {
-    return generateGeminiResponse(conversation);
-  }
-  if (aiProvider === 'claude') {
-    return generateClaudeResponse(conversation);
-  }
-  return generateOpenAIResponse(conversation);
+  const startedAt = Date.now();
+
+  return startSpan({
+    op: 'ai.generate',
+    name: `Generate AI response (${aiProvider})`
+  }, async () => {
+    try {
+      let reply;
+      if (aiProvider === 'gemini') {
+        reply = await generateGeminiResponse(conversation);
+      } else if (aiProvider === 'claude') {
+        reply = await generateClaudeResponse(conversation);
+      } else {
+        reply = await generateOpenAIResponse(conversation);
+      }
+
+      recordCount('ai.generate.requests', 1, {
+        provider: aiProvider,
+        outcome: reply ? 'success' : 'empty'
+      });
+      recordDistribution('ai.generate.duration_ms', Date.now() - startedAt, {
+        unit: 'millisecond',
+        attributes: {
+          provider: aiProvider,
+          outcome: reply ? 'success' : 'empty'
+        }
+      });
+
+      return reply;
+    } catch (error) {
+      captureError(error, { provider: aiProvider || 'unknown', handler: 'generateAIResponse' });
+      recordCount('ai.generate.requests', 1, {
+        provider: aiProvider,
+        outcome: 'error'
+      });
+      recordDistribution('ai.generate.duration_ms', Date.now() - startedAt, {
+        unit: 'millisecond',
+        attributes: {
+          provider: aiProvider,
+          outcome: 'error'
+        }
+      });
+      throw error;
+    }
+  });
 }
 
 

@@ -1,5 +1,6 @@
 const pino = require('pino');
 
+const { Sentry } = require('./instrument');
 const config = require('./config');
 
 // Create base logger with configuration
@@ -28,41 +29,72 @@ function getLogger(label) {
     // Create a child logger with the label as context
     const childLogger = baseLogger.child({ label });
 
+    function sendToSentry(level, message, meta) {
+      const sentryLogger = Sentry && Sentry.logger;
+      if (!sentryLogger || typeof sentryLogger[level] !== 'function') {
+        return;
+      }
+
+      try {
+        if (meta && typeof meta === 'object') {
+          sentryLogger[level](message, meta);
+        } else {
+          sentryLogger[level](message);
+        }
+      } catch (error) {
+        childLogger.debug({ error: error.message }, 'Failed to forward log to Sentry.');
+      }
+    }
+
+    function write(level, message, meta) {
+      // Ensure message is a full sentence with ending punctuation when it's a string.
+      if (typeof message === 'string' && message.trim().length > 0) {
+        const trimmed = message.trim();
+        const last = trimmed[trimmed.length - 1];
+        if (!['.', '!', '?'].includes(last)) {
+          message = `${trimmed}.`;
+        } else {
+          message = trimmed;
+        }
+      }
+
+      if (meta && typeof meta === 'object') {
+        childLogger[level](meta, message);
+      } else {
+        childLogger[level](message);
+      }
+
+      sendToSentry(level, message, meta);
+    }
+
     // Wrap the logger methods to maintain compatibility with winston-style usage
     // where metadata objects are passed as second parameter
     return {
       info: (message, meta) => {
-        if (meta && typeof meta === 'object') {
-          childLogger.info(meta, message);
-        } else {
-          childLogger.info(message);
-        }
+        write('info', message, meta);
       },
       error: (message, meta) => {
-        if (meta && typeof meta === 'object') {
-          childLogger.error(meta, message);
-        } else {
-          childLogger.error(message);
-        }
+        write('error', message, meta);
       },
       warn: (message, meta) => {
-        if (meta && typeof meta === 'object') {
-          childLogger.warn(meta, message);
-        } else {
-          childLogger.warn(message);
-        }
+        write('warn', message, meta);
       },
       debug: (message, meta) => {
-        if (meta && typeof meta === 'object') {
-          childLogger.debug(meta, message);
-        } else {
-          childLogger.debug(message);
-        }
+        write('debug', message, meta);
+      },
+      trace: (message, meta) => {
+        write('trace', message, meta);
+      },
+      fatal: (message, meta) => {
+        write('fatal', message, meta);
       },
       // Expose the raw pino logger for advanced usage if needed
       _pino: childLogger
     };
   } catch (error) {
+    if (Sentry && typeof Sentry.captureException === 'function') {
+      Sentry.captureException(error, { tags: { source: 'logger', handler: 'createLogger' } });
+    }
     console.error('Failed to create logger:', error);
     throw new Error('Failed to create logger instance.');
   }

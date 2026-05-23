@@ -6,6 +6,7 @@
 
 const { ActivityType, Events } = require('discord.js');
 const path = require('path');
+const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const logger = require('../logger')(path.basename(__filename));
 const { modelName } = require('../config');
 
@@ -21,20 +22,40 @@ module.exports = {
    * @returns {void}
    */
   execute(client) {
+    const startedAt = Date.now();
     try {
-      logger.info(`Bot is online: ${client.user.tag}`);
-      logger.info(`Using AI model: ${modelName}`);
+      startSpan({
+        op: 'discord.ready',
+        name: 'Client ready'
+      }, () => {
+        logger.info(`Bot is online: ${client.user.tag}`);
+        logger.info(`Using AI model: ${modelName}`);
 
-      client.user.setActivity('for mentions! 📢', { type: ActivityType.Watching });
-      logger.info(`Bot activity set to: for mentions! 📢`);
+        client.user.setPresence({
+          activities: [{ name: 'for mentions! 📢', type: ActivityType.Watching }],
+          status: 'online',
+        });
+        logger.info(`Bot activity set to: for mentions! 📢`);
 
-      const guilds = client.guilds.cache;
-      const guildList = Array.from(guilds.values())
-        .map(guild => `${guild.name} (ID: ${guild.id})`)
-        .join(', ');
-      logger.info(`Bot is in ${guilds.size} guilds: ${guildList}`);
+        const guilds = client.guilds.cache;
+        const guildList = Array.from(guilds.values())
+          .map(guild => `${guild.name} (ID: ${guild.id})`)
+          .join(', ');
+        logger.info(`Bot is in ${guilds.size} guilds: ${guildList}`);
+        recordCount('discord.ready', 1, { outcome: 'success' });
+        recordDistribution('discord.ready.duration_ms', Date.now() - startedAt, {
+          unit: 'millisecond',
+          attributes: { outcome: 'success' }
+        });
+      });
 
     } catch (error) {
+      captureError(error, { event: 'ready', handler: 'execute' });
+      recordCount('discord.ready', 1, { outcome: 'error' });
+      recordDistribution('discord.ready.duration_ms', Date.now() - startedAt, {
+        unit: 'millisecond',
+        attributes: { outcome: 'error' }
+      });
       logger.error('Error getting guilds:', {
         error: error.stack,
         message: error.message

@@ -1,0 +1,348 @@
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîü auth for agents [www.vestauth.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ suppress logs { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at require (test/instrument.test.js:79:24)
+      at Object.loadInstrumentWithStubs (test/instrument.test.js:172:48)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ suppress logs { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at require (test/instrument.test.js:79:24)
+      at Object.loadInstrumentWithStubs (test/instrument.test.js:192:36)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîü auth for agents [www.vestauth.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at Object.require (test/instrument.test.js:235:20)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at require (test/instrument.test.js:79:24)
+      at Object.loadInstrumentWithStubs (test/instrument.test.js:273:36)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at require (test/instrument.test.js:79:24)
+      at Object.loadInstrumentWithStubs (test/instrument.test.js:290:36)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at require (test/instrument.test.js:79:24)
+      at Object.loadInstrumentWithStubs (test/instrument.test.js:305:35)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γîü auth for agents [www.vestauth.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.error
+    Invalid Sentry Dsn: https://example.invalid/1
+
+      48 | }
+      49 |
+    > 50 | Sentry.init({
+         |        ^
+      51 |   dsn: process.env.SENTRY_DSN,
+      52 |   sendDefaultPii: true,
+      53 |   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+
+      at node_modules/@sentry/core/src/utils/dsn.ts:46:6
+      at Module.consoleSandbox (node_modules/@sentry/core/src/utils/debug-logger.ts:63:12)
+      at consoleSandbox (node_modules/@sentry/core/src/utils/dsn.ts:44:6)
+      at Module.makeDsn (node_modules/@sentry/core/src/utils/dsn.ts:159:6)
+      at new makeDsn (node_modules/@sentry/core/src/client.ts:231:19)
+      at new ServerRuntimeClient (node_modules/@sentry/core/src/server-runtime-client.ts:46:5)
+      at new NodeClient (node_modules/@sentry/node-core/src/sdk/client.ts:56:115)
+      at _init (node_modules/@sentry/node-core/src/sdk/index.ts:132:18)
+      at Module.init (node_modules/@sentry/node-core/src/sdk/index.ts:82:10)
+      at initNodeCore (node_modules/@sentry/node/src/sdk/index.ts:55:18)
+      at Module.init (node_modules/@sentry/node/src/sdk/index.ts:43:10)
+      at Object.init (instrument.js:50:8)
+      at require (test/instrument.test.js:79:24)
+      at Object.loadInstrumentWithStubs (test/instrument.test.js:318:48)
+
+(node:9412) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 beforeExit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL test/instrument.test.js
+  ΓêÜ should returns the error object (18 ms)
+  ΓêÜ should executes callback and returns its value (4 ms)
+  ΓêÜ should does not throw (1 ms)
+  ΓêÜ should records metrics and captures errors with tags (coverage merged) (165 ms)
+  ΓêÜ should captureError falls back without withScope (coverage merged) (157 ms)
+  ├ù should falls back when profiling integration is unavailable (coverage merged) (178 ms)
+  ├ù should clamps valid sample rates from environment (159 ms)
+  ├ù should handles profiling integration that throws when invoked (140 ms)
+  ΓêÜ should no-ops metrics when Sentry is disabled (coverage merged) (143 ms)
+  ├ù should disables logs and metrics when env flags are false (140 ms)
+  ├ù should honors SENTRY_PROFILE_LIFECYCLE env (142 ms)
+  ΓêÜ should loads when getGlobalScope is unavailable (137 ms)
+  ├ù should closeSentry invokes Sentry.close with timeout (146 ms)
+
+  ΓùÅ should falls back when profiling integration is unavailable (coverage merged)
+
+    TypeError: Cannot read properties of null (reading 'tracesSampleRate')
+
+      181 |   try {
+      182 |     expect(typeof instrument.captureError).toBe('function');
+    > 183 |     expect(sentryCalls.init.tracesSampleRate).toBe(1);
+          |                             ^
+      184 |     expect(sentryCalls.init.profileSessionSampleRate).toBe(1);
+      185 |     expect(Array.isArray(sentryCalls.init.integrations)).toBe(true);
+      186 |   } finally {
+
+      at Object.tracesSampleRate (test/instrument.test.js:183:29)
+
+  ΓùÅ should clamps valid sample rates from environment
+
+    TypeError: Cannot read properties of null (reading 'tracesSampleRate')
+
+      199 |
+      200 |   try {
+    > 201 |     expect(sentryCalls.init.tracesSampleRate).toBe(0.25);
+          |                             ^
+      202 |     expect(sentryCalls.init.profileSessionSampleRate).toBe(1);
+      203 |   } finally {
+      204 |     restore();
+
+      at Object.tracesSampleRate (test/instrument.test.js:201:29)
+
+  ΓùÅ should handles profiling integration that throws when invoked
+
+    expect(received).toMatch(expected)
+
+    Expected pattern: /profiling integration unavailable/
+    Received string:  ""
+
+      235 |     const loaded = require(instrumentPath);
+      236 |     expect(typeof loaded.captureError).toBe('function');
+    > 237 |     expect(stderrSpy.join('')).toMatch(/profiling integration unavailable/);
+          |                                ^
+      238 |   } finally {
+      239 |     process.stderr.write = originalWrite;
+      240 |     if (originalDsn === undefined) delete process.env.SENTRY_DSN;
+
+      at Object.toMatch (test/instrument.test.js:237:32)
+
+  ΓùÅ should disables logs and metrics when env flags are false
+
+    TypeError: Cannot read properties of null (reading 'enableLogs')
+
+      280 |
+      281 |   try {
+    > 282 |     expect(sentryCalls.init.enableLogs).toBe(false);
+          |                             ^
+      283 |     expect(sentryCalls.init.enableMetrics).toBe(false);
+      284 |   } finally {
+      285 |     restore();
+
+      at Object.enableLogs (test/instrument.test.js:282:29)
+
+  ΓùÅ should honors SENTRY_PROFILE_LIFECYCLE env
+
+    TypeError: Cannot read properties of null (reading 'profileLifecycle')
+
+      296 |
+      297 |   try {
+    > 298 |     expect(sentryCalls.init.profileLifecycle).toBe('manual');
+          |                             ^
+      299 |   } finally {
+      300 |     restore();
+      301 |   }
+
+      at Object.profileLifecycle (test/instrument.test.js:298:29)
+
+  ΓùÅ should closeSentry invokes Sentry.close with timeout
+
+    expect(received).toEqual(expected) // deep equality
+
+    Expected: [2000]
+    Received: null
+
+      322 |   try {
+      323 |     await instrument.closeSentry();
+    > 324 |     expect(sentryCalls.closeArgs).toEqual([2000]);
+          |                                   ^
+      325 |   } finally {
+      326 |     restore();
+      327 |   }
+
+      at Object.toEqual (test/instrument.test.js:324:35)
+
+Test Suites: 1 failed, 1 total
+Tests:       6 failed, 7 passed, 13 total
+Snapshots:   0 total
+Time:        2.505 s
+Ran all test suites matching /test\\instrument.test.js/i.

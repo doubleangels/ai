@@ -1,22 +1,70 @@
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const https = require('https');
-const http = require('http');
 const { URL } = require('url');
-const { imageDownloadTimeoutMs, maxImageBytes } = require('../config');
+const { imageDownloadTimeoutMs, maxImageBytes, maxOutputTokens } = require('../config');
+
+/** Only these hosts may be fetched (including redirects) — mitigates SSRF via malicious redirects from attachment URLs. */
+const DISCORD_IMAGE_CDN_HOSTS = new Set([
+  'cdn.discordapp.com',
+  'media.discordapp.net'
+]);
+
+/**
+ * @param {string} urlString
+ * @returns {URL}
+ */
+function assertDiscordImageDownloadUrl(urlString) {
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error('Invalid image URL.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Image download must use HTTPS.');
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!DISCORD_IMAGE_CDN_HOSTS.has(host)) {
+    throw new Error('Image download is restricted to Discord CDN URLs.');
+  }
+  return parsed;
+}
+
+/** Rough vision-token budget per attached image for history trimming (text-only estimates are insufficient). */
+const ESTIMATED_TOKENS_PER_IMAGE = 768;
+
+/**
+ * Rough max reply length hint for the model (Discord sends ~2000 chars per message; align with MAX_OUTPUT_TOKENS).
+ * @returns {number} Character budget for FORMAT_RULES
+ */
+function getApproxMaxReplyChars() {
+  const max = typeof maxOutputTokens === 'number' && maxOutputTokens > 0 ? maxOutputTokens : 1024;
+  return Math.min(1900, Math.max(600, Math.floor(max * 2.5)));
+}
 
 /**
  * Shared format rules for all providers: no titles, same general structure.
  */
-const FORMAT_RULES = 'Do not start with a title or ## header; reply directly in a consistent, plain format. Keep every reply under 1500 characters, stay focused on the user\'s goal, and avoid filler. Use Discord markdown sparingly for clarity: **bold** for key terms, *italics* for subtle emphasis, bullet lists or numbered steps only when they organize information, `inline code` for identifiers, and fenced code blocks for longer snippets. If the user\'s request is ambiguous, ask for clarification before proceeding. Always provide actionable, trustworthy information tailored to the conversation context.';
+function getFormatRules() {
+  const charCap = getApproxMaxReplyChars();
+  return (
+    'Do not start with a title or ## header; reply directly in a consistent, plain format. ' +
+    `Keep every reply under ${charCap} characters (Discord message limit is ~2000), stay focused on the user's goal, and avoid filler. ` +
+    'Prefer a direct answer first; this is a fast chat channel. Use Discord markdown sparingly for clarity: **bold** for key terms, *italics* for subtle emphasis, ' +
+    'bullet lists or numbered steps only when they organize information, `inline code` for identifiers, and fenced code blocks for longer snippets. ' +
+    "If the user's request is ambiguous, ask one clarifying question before proceeding. " +
+    'Always provide actionable, trustworthy information tailored to the conversation context.'
+  );
+}
 
 /**
  * System message constants. BASE includes the model name (for OpenAI); BASE_GENERIC does not (for Gemini/Claude).
  * All providers use the same format rules (no titles, same structure).
  */
 const SYSTEM_MESSAGES = {
-  BASE: (modelName) => `You are an AI assistant running inside a Discord bot and powered by the ${modelName} model. You can analyze both text and images—describe only the details relevant to the user's request. ${FORMAT_RULES}`,
-  BASE_GENERIC: `You are an AI assistant running inside a Discord bot. You can analyze both text and images—describe only the details relevant to the user's request. ${FORMAT_RULES}`,
+  BASE: (modelName) => `You are an AI assistant running inside a Discord bot and powered by the ${modelName} model. You can analyze both text and images—describe only the details relevant to the user's request. ${getFormatRules()}`,
+  BASE_GENERIC: `You are an AI assistant running inside a Discord bot. You can analyze both text and images—describe only the details relevant to the user's request. ${getFormatRules()}`,
   IMAGE_ANALYSIS: "When analyzing images, focus on the elements that answer the user's question. Keep the description short, factual, and relevant; avoid ornamental details. Do not use titles or headers.",
   IMAGE_DESCRIPTION_PROMPT: "Give a brief description of this image, highlighting only the key elements."
 };
@@ -76,7 +124,7 @@ function splitMessage(text, limit = 2000) {
       }
     }
     
-    logger.info(`Message split into ${chunks.length} chunks.`, {
+    logger.debug(`Message split into ${chunks.length} chunks.`, {
       originalLength: text.length,
       chunkCount: chunks.length,
       chunkSizes: chunks.map(chunk => chunk.length),
@@ -107,10 +155,6 @@ function splitMessage(text, limit = 2000) {
  * @returns {number} The best split point index
  */
 function findBestSplitPoint(text, limit) {
-  if (text.length <= limit) {
-    return text.length;
-  }
-  
   const paragraphBreak = findLastOccurrence(text, '\n\n', limit);
   if (paragraphBreak > limit * 0.7) {
     return paragraphBreak + 2;
@@ -186,15 +230,13 @@ async function downloadImageAsBase64(url) {
   const download = (currentUrl, redirectsLeft) => new Promise((resolve, reject) => {
     let parsed;
     try {
-      parsed = new URL(currentUrl);
-    } catch {
-      reject(new Error('Invalid image URL.'));
+      parsed = assertDiscordImageDownloadUrl(currentUrl);
+    } catch (err) {
+      reject(err);
       return;
     }
 
-    const protocol = parsed.protocol === 'https:' ? https : http;
-
-    const req = protocol.get(currentUrl, (response) => {
+    const req = https.get(currentUrl, (response) => {
       const status = response.statusCode || 0;
 
       // Handle redirects.
@@ -204,7 +246,15 @@ async function downloadImageAsBase64(url) {
           reject(new Error('Too many redirects while downloading image.'));
           return;
         }
-        const nextUrl = new URL(response.headers.location, parsed).toString();
+        let nextUrl;
+        try {
+          nextUrl = new URL(response.headers.location, parsed).toString();
+          assertDiscordImageDownloadUrl(nextUrl);
+        } catch (err) {
+          response.resume();
+          reject(err);
+          return;
+        }
         response.resume();
         resolve(download(nextUrl, redirectsLeft - 1));
         return;
@@ -289,35 +339,42 @@ function createMessageContent(text, imageContents = []) {
  * @returns {Promise<Array>} Array of processed image content objects
  */
 async function processImageAttachments(attachments) {
-  const imageContents = [];
-  
-  for (const attachment of attachments) {
-    const isImage = attachment.contentType && attachment.contentType.startsWith('image/');
-    
-    if (isImage) {
+  const list = Array.isArray(attachments) ? attachments : [];
+
+  const indexed = await Promise.all(
+    list.map(async (attachment, index) => {
+      const isImage = attachment.contentType && attachment.contentType.startsWith('image/');
+      if (!isImage) return { index, item: null };
+
+      const attachmentLabel = attachment.name || attachment.filename || attachment.url || 'unknown';
       try {
-        const attachmentLabel = attachment.name || attachment.filename || attachment.url || 'unknown';
         logger.debug(`Processing image attachment: ${attachmentLabel} (${attachment.contentType})`);
         const base64Image = await downloadImageAsBase64(attachment.url);
-        
-        imageContents.push({
-          type: 'input_image',
-          image_url: base64Image
-        });
-        
         logger.debug(`Successfully processed image: ${attachmentLabel}`);
+        return {
+          index,
+          item: {
+            type: 'input_image',
+            image_url: base64Image
+          }
+        };
       } catch (error) {
-        const attachmentLabel = attachment.name || attachment.filename || attachment.url || 'unknown';
         logger.error(`Failed to process image attachment: ${attachmentLabel}`, {
           error: error.stack,
           message: error.message
         });
+        return { index, item: null };
       }
-    }
-  }
-  
-  return imageContents;
+    })
+  );
+
+  return indexed
+    .filter(entry => entry.item)
+    .sort((a, b) => a.index - b.index)
+    .map(entry => entry.item);
 }
+
+
 
 /**
  * Checks if a conversation contains images.
@@ -350,6 +407,9 @@ function estimateMessageTokens(message) {
   for (const item of content) {
     if (item && item.type === 'input_text' && typeof item.text === 'string') {
       total += estimateTokensFromText(item.text);
+    }
+    if (item && item.type === 'input_image') {
+      total += ESTIMATED_TOKENS_PER_IMAGE;
     }
   }
   return total;
@@ -417,6 +477,7 @@ function createSystemMessage(modelName, includeModelInPrompt = true) {
 }
 
 module.exports = {
+  assertDiscordImageDownloadUrl,
   splitMessage,
   downloadImageAsBase64,
   createMessageContent,

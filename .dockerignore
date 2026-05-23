@@ -1,3 +1,7 @@
+# Dev-only (tests and coverage tooling)
+test/
+jest.config.cjs
+
 # Dependencies
 node_modules
 npm-debug.log*

@@ -10,10 +10,7 @@ on:
       - dev
 
 permissions:
-  pull-requests: write
-  contents: write
-  actions: write
-  packages: write
+  contents: read
 
 jobs:
   build:
@@ -33,6 +30,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
@@ -45,6 +43,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run tests
+        run: npm test
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
@@ -65,7 +66,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7
         with:
           sarif_file: 'trivy-results.sarif'
           category: 'trivy-fs'
@@ -79,11 +80,11 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Extract metadata
         id: meta
@@ -130,7 +131,7 @@ jobs:
           done
 
       - name: Upload Trivy image scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@0d579ffd059c29b07949a3cce3983f0780820c98
+        uses: github/codeql-action/upload-sarif@e46ed2cbd01164d986452f91f178727624ae40d7
         with:
           sarif_file: 'trivy-image-results.sarif'
           category: 'trivy-image'
@@ -147,7 +148,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write
-      contents: read
     steps:
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@bd2822c9d98065c9766fb1f4bbc32325c47de4fb
@@ -158,98 +158,3 @@ jobs:
           keep_minimum_runs: 10
           delete_workflow_pattern: build-dev-docker
           check_pullrequest_exist: true
-
-  automerge:
-    needs: [build]
-    if: >
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.user.login == 'dependabot[bot]' &&
-      needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: write
-      issues: write
-    steps:
-      - name: Check PR mergeability
-        id: check-mergeable
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        with:
-          script: |
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number
-            });
-
-            // GitHub may return null while mergeability is still being computed
-            if (pr.mergeable === null) {
-              core.setFailed(`PR #${context.issue.number} mergeability not yet computed. Please re-run the workflow in a moment.`);
-              return;
-            }
-
-            if (pr.mergeable === false) {
-              core.setFailed(`PR #${context.issue.number} is not mergeable. State: ${pr.mergeable_state}`);
-              return;
-            }
-
-            if (pr.mergeable_state === 'dirty' || pr.mergeable_state === 'blocked' || pr.mergeable_state === 'unknown') {
-              core.setFailed(`PR #${context.issue.number} cannot be merged. State: ${pr.mergeable_state}`);
-              return;
-            }
-
-            core.info(`PR #${context.issue.number} is mergeable. State: ${pr.mergeable_state}`);
-            core.setOutput('mergeable', 'true');
-
-      - name: Comment on PR
-        if: steps.check-mergeable.outputs.mergeable == 'true'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        continue-on-error: true
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: 'Build passed! PR is mergeable. Enabling automerge...'
-            });
-
-      - name: Automerge Dependabot PR
-        if: steps.check-mergeable.outputs.mergeable == 'true'
-        uses: peter-evans/enable-pull-request-automerge@a660677d5469627102a1c1e11409dd063606628d
-        continue-on-error: true
-        id: automerge
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ github.event.pull_request.number }}
-          merge-method: merge
-
-      - name: Comment on automerge success
-        if: steps.automerge.outcome == 'success'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        continue-on-error: true
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: 'Automerge enabled successfully! This PR will be merged automatically once all checks pass.'
-            });
-
-      - name: Comment on automerge failure
-        if: steps.automerge.outcome == 'failure'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
-        continue-on-error: true
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: 'Failed to enable automerge. Please merge this PR manually or check branch protection settings.'
-            });
-
-      - name: Fail job when automerge did not succeed
-        if: steps.check-mergeable.outputs.mergeable == 'true' && steps.automerge.outcome == 'failure'
-        run: exit 1

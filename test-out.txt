@@ -1,0 +1,90 @@
+FAIL test/integration.test.js
+  ΓêÜ should falls back to provider defaults when model env vars are blank (479 ms)
+  ΓêÜ should index sends successful command error replies and swallows metric failures (11 ms)
+  ΓêÜ should index swallows context menu reply metric failures (7 ms)
+  ΓêÜ should records failures using statusCode and swallows metric errors (9 ms)
+  ΓêÜ should reset handles missing guild metadata and all-channel error scope (4 ms)
+  ΓêÜ should logger uses default log level and forwards string-only messages to Sentry (2 ms)
+  ΓêÜ should records metrics without attributes (59 ms)
+  ΓêÜ should aiUtils covers remaining helper branches (66 ms)
+  ΓêÜ should replyChainTracer uses Unknown author fallback (65 ms)
+  ΓêÜ should gemini cache creation failure, stale cache retry success, and Claude empty turns (26 ms)
+  ΓêÜ should covers cooldown failures, bot reply fetch, and fallback reply metrics (19 ms)
+  ΓêÜ should rejects unknown mime types without content-type header (4 ms)
+  ΓêÜ should initializes missing client state maps (3 ms)
+  ΓêÜ should ignores bot authors and prefetch fetch failures (2 ms)
+  ΓêÜ should handles reply trigger and additional chunk rate limit metrics (3 ms)
+  ΓêÜ should index covers interaction handler guard branches and httpStatus fallbacks (7 ms)
+  ΓêÜ should resolves claude model from CLAUDE_MODEL_NAME (2 ms)
+  ΓêÜ should reset initializes missing channelLocks on the client (2 ms)
+  ΓêÜ should openAI and Claude branch coverage for optional request fields (5 ms)
+  ├ù should gemini maps-only grounding and invalid image data URLs (6 ms)
+  ΓêÜ should aiUtils covers attachment and token helper branches (621 ms)
+  ΓêÜ should replyChainTracer returns partial chains and empty message metadata (3 ms)
+  ΓêÜ should branch coverage for channel name, triggers, and reply paths (9 ms)
+  ΓêÜ should index covers remaining reply error and rejection branches (3 ms)
+  ΓêÜ should reset logs when error-path followUp succeeds after editReply fails (2 ms)
+  ΓêÜ should and aiUtils cover remaining model and download branches (1 ms)
+  ΓêÜ should replyChainTracer handles empty content in context formatting (2 ms)
+  ΓêÜ should records rate limit metrics and swallows metric failures (3 ms)
+  ΓêÜ should index context menu reply failures record rate limits and metric errors (2 ms)
+  ├ù should covers thinking failures, chain tracing, and chain images (2 ms)
+  ├ù should aiService and aiUtils remaining branches (6 ms)
+
+  ΓùÅ should gemini maps-only grounding and invalid image data URLs
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "maps ok"
+    Received: "I apologize, but I couldn't generate a response. Please try again."
+
+      1080 |     ENABLE_GOOGLE_MAPS: '1'
+      1081 |   });
+    > 1082 |   expect(await mapsOnly.generateAIResponse([{ role: 'user', content: 'where' }])).toBe('maps ok');
+           |                                                                                   ^
+      1083 |
+      1084 |   const invalidImage = await loadAiService({
+      1085 |     genai: {
+
+      at Object.toBe (test/integration.test.js:1082:83)
+
+  ΓùÅ should covers thinking failures, chain tracing, and chain images
+
+    TypeError: Cannot read properties of undefined (reading 'MessageCreate')
+
+      36 |  */
+      37 | module.exports = {
+    > 38 |   name: Events.MessageCreate,
+         |                ^
+      39 |   /**
+      40 |    * Handles incoming messages and generates AI responses when appropriate.
+      41 |    * Processes direct mentions of the bot and replies to the bot's messages.
+
+      at Object.MessageCreate (events/messageCreate.js:38:16)
+      at test/testUtils.cjs:78:14
+      at reloadModule (test/testUtils.cjs:76:8)
+      at reloadModule (test/integration.test.js:24:10)
+      at Object.loadMessageCreate (test/integration.test.js:1560:15)
+
+  ΓùÅ should aiService and aiUtils remaining branches
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "ok"
+    Received: ""
+
+      1662 |   expect(await claudeService.generateAIResponse([
+      1663 |     { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
+    > 1664 |   ])).toBe('ok');
+           |       ^
+      1665 |
+      1666 |   const config = await loadConfig({
+      1667 |     AI_PROVIDER: 'gemini',
+
+      at Object.toBe (test/integration.test.js:1664:7)
+
+Test Suites: 1 failed, 1 total
+Tests:       3 failed, 28 passed, 31 total
+Snapshots:   0 total
+Time:        2.409 s
+Ran all test suites matching /test\\integration.test.js/i.
