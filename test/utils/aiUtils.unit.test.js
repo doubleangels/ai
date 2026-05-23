@@ -404,3 +404,31 @@ test('should uses default reply char budget when maxOutputTokens is invalid', ()
 
   expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-5.4-nano')).toMatch(/1900 characters/);
 });
+
+test('should pruneStaleMapEntries removes expired timestamps and ignores invalid input', () => {
+  const map = new Map([
+    ['old', Date.now() - 10_000],
+    ['fresh', Date.now()]
+  ]);
+  aiUtils.pruneStaleMapEntries(map, 5000);
+  expect(map.has('old')).toBe(false);
+  expect(map.has('fresh')).toBe(true);
+
+  aiUtils.pruneStaleMapEntries(null, 5000);
+  aiUtils.pruneStaleMapEntries(map, 0);
+});
+
+test('should stripImagesFromHistory replaces prior image parts', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    {
+      role: 'user',
+      content: [{ type: 'input_image', image_url: 'data:image/png;base64,OLD' }]
+    },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,NEW' }] }
+  ];
+  aiUtils.stripImagesFromHistory(history);
+  expect(history[1].content[0]).toEqual({ type: 'input_text', text: '[Previous Image Processed]' });
+  expect(history[2].content[0].type).toBe('input_image');
+  aiUtils.stripImagesFromHistory(null);
+});

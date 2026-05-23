@@ -122,6 +122,20 @@ test('should ignores invalid GEMINI_SAFETY_SETTINGS JSON', () => {
   expect(config.geminiSafetySettings).toBe(undefined);
 });
 
+test('should resolves performance tuning env vars with clamping', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    MAX_REPLY_CHAIN_DEPTH: '99',
+    MESSAGE_CACHE_MAX_SIZE: '99999',
+    MESSAGE_CACHE_TTL_MS: '999999999'
+  });
+
+  expect(config.maxReplyChainDepth).toBe(50);
+  expect(config.messageCacheMaxSize).toBe(10000);
+  expect(config.messageCacheTtlMs).toBe(86400000);
+});
+
 test('should resolves model names from each provider-specific env field', () => {
   const geminiPrimary = loadConfig({
     AI_PROVIDER: 'gemini',

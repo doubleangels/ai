@@ -30,11 +30,11 @@
 - **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via configuration.
 - **Vision** — Attach images; the bot analyzes charts, photos, and screenshots.
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
-- **Reply-chain context** — Traces Discord reply chains for accurate multi-turn context.
+- **Reply-chain context** — Traces Discord reply chains for context on new threads; reuses channel history when a conversation already exists.
 - **Web search & maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
 - **Prompt caching** — Reduces cost and latency for long conversations.
 - **Anti-spam** — Per-user and per-channel cooldowns, queue backpressure, safe mention defaults.
-- **Memory optimized** — Aggressive Discord cache limits and V8 heap caps for container deployments.
+- **Memory optimized** — Bounded reply-chain cache, current-message vision only, cooldown pruning, and aggressive Discord.js cache limits for container deployments.
 - **Production observability** — Sentry errors, traces, profiling, logs, and custom metrics via Pino.
 - **Secure secrets** — Doppler injects environment variables at runtime.
 
@@ -126,6 +126,23 @@ Add optional keys to Doppler to customize behavior.
 | `USER_COOLDOWN_MS` | Per-user cooldown | `4000` |
 | `CHANNEL_COOLDOWN_MS` | Per-channel cooldown | `1500` |
 | `MAX_PENDING_PER_CHANNEL` | Queue depth before "busy" reply | `3` |
+| `MAX_HISTORY_LENGTH` | Max messages kept per channel (plus system) | `20` |
+
+### Performance and memory
+
+These settings control reply-chain traversal and in-process caching before each AI call. Lower values reduce memory use and pre-API latency; higher values preserve more Discord thread context on brand-new conversations.
+
+| Variable | Description | Default | Valid range |
+| :--- | :--- | :--- | :--- |
+| `MAX_REPLY_CHAIN_DEPTH` | How many parent messages to fetch when tracing a reply chain | `15` | 1–50 |
+| `MESSAGE_CACHE_MAX_SIZE` | Max Discord messages cached for reply-chain fetches (LRU eviction) | `500` | 10–10000 |
+| `MESSAGE_CACHE_TTL_MS` | How long cached Discord messages stay valid (milliseconds) | `1800000` (30 min) | 60000–86400000 |
+
+**Behavior notes:**
+
+- Reply-chain **text** is injected only when the channel has no prior turns beyond the system message. Ongoing threads rely on `conversationHistory` instead.
+- **Images** are downloaded and sent to the model only for the current message, not for every message in the reply chain.
+- Setting `MAX_HISTORY_TOKENS` (see table above) is recommended for long threads to cap API payload size.
 
 ---
 

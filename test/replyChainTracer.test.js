@@ -1,6 +1,8 @@
 const path = require('path');
+const { reloadModule } = require('./testUtils.cjs');
 
 const tracerPath = path.resolve(__dirname, '..', 'utils', 'replyChainTracer.js');
+const configPath = path.resolve(__dirname, '..', 'config.js');
 
 function loadTracer() {
   delete require.cache[tracerPath];
@@ -137,7 +139,7 @@ test('should traceReplyChain stops when parent fetch fails', async () => {
   expect(chain.map(m => m.id)).toEqual(['m2']);
 });
 
-test('should traceReplyChain respects MAX_CHAIN_DEPTH', async () => {
+test('should traceReplyChain respects maxDepth parameter', async () => {
   const tracer = loadTracer();
   let depth = 0;
   const channel = {
@@ -154,8 +156,8 @@ test('should traceReplyChain respects MAX_CHAIN_DEPTH', async () => {
   };
 
   const start = makeMessage({ id: 'start', reference: { messageId: 'p-0' } });
-  const chain = await tracer.traceReplyChain(start, channel);
-  expect(chain.length <= tracer.MAX_CHAIN_DEPTH + 1).toBeTruthy();
+  const chain = await tracer.traceReplyChain(start, channel, 5);
+  expect(chain.length <= 6).toBeTruthy();
 });
 
 test('should traceReplyChain returns partial chain on unexpected error', async () => {
@@ -239,4 +241,117 @@ test('should extractChainMessages maps chain metadata', async () => {
   expect(rows[0].author.username).toBe('alice');
   expect(rows[0].attachments).toBe(2);
   expect(rows[0].isBot).toBe(false);
+});
+
+test('should fetchMessageCached refetches after TTL expiry', async () => {
+  jest.useFakeTimers();
+  const savedTtl = process.env.MESSAGE_CACHE_TTL_MS;
+  process.env.MESSAGE_CACHE_TTL_MS = '60000';
+
+  const tracer = reloadModule(tracerPath, () => {
+    delete require.cache[configPath];
+  });
+  tracer.clearCache();
+
+  let fetchCount = 0;
+  const channel = {
+    id: 'chan-1',
+    messages: {
+      fetch: async (messageId) => {
+        fetchCount += 1;
+        return makeMessage({ id: messageId, content: `v${fetchCount}` });
+      }
+    }
+  };
+
+  try {
+    await tracer.fetchMessageCached(channel, 'm1');
+    jest.advanceTimersByTime(60_001);
+    const msg = await tracer.fetchMessageCached(channel, 'm1');
+    expect(fetchCount).toBe(2);
+    expect(msg.content).toBe('v2');
+  } finally {
+    jest.useRealTimers();
+    if (savedTtl === undefined) delete process.env.MESSAGE_CACHE_TTL_MS;
+    else process.env.MESSAGE_CACHE_TTL_MS = savedTtl;
+    delete require.cache[configPath];
+    delete require.cache[tracerPath];
+  }
+});
+
+test('should fetchMessageCached evicts oldest entries at max size', async () => {
+  const savedMax = process.env.MESSAGE_CACHE_MAX_SIZE;
+  process.env.MESSAGE_CACHE_MAX_SIZE = '10';
+
+  const tracer = reloadModule(tracerPath, () => {
+    delete require.cache[configPath];
+  });
+  tracer.clearCache();
+
+  const fetchCounts = new Map();
+  const channel = {
+    id: 'chan-1',
+    messages: {
+      fetch: async (messageId) => {
+        fetchCounts.set(messageId, (fetchCounts.get(messageId) || 0) + 1);
+        return makeMessage({ id: messageId, content: messageId });
+      }
+    }
+  };
+
+  try {
+    for (let i = 1; i <= 11; i++) {
+      await tracer.fetchMessageCached(channel, `m${i}`);
+    }
+    await tracer.fetchMessageCached(channel, 'm1');
+    expect(fetchCounts.get('m1')).toBe(2);
+    expect(fetchCounts.get('m11')).toBe(1);
+  } finally {
+    if (savedMax === undefined) delete process.env.MESSAGE_CACHE_MAX_SIZE;
+    else process.env.MESSAGE_CACHE_MAX_SIZE = savedMax;
+    delete require.cache[configPath];
+    delete require.cache[tracerPath];
+  }
+});
+
+test('should trimMessageCache removes expired entries on insert', async () => {
+  jest.useFakeTimers();
+  const savedTtl = process.env.MESSAGE_CACHE_TTL_MS;
+  process.env.MESSAGE_CACHE_TTL_MS = '60000';
+
+  const tracer = reloadModule(tracerPath, () => {
+    delete require.cache[configPath];
+  });
+  tracer.clearCache();
+
+  const channel = {
+    id: 'chan-1',
+    messages: {
+      fetch: async (messageId) => makeMessage({ id: messageId })
+    }
+  };
+
+  try {
+    await tracer.fetchMessageCached(channel, 'm1');
+    jest.advanceTimersByTime(60_001);
+    await tracer.fetchMessageCached(channel, 'm2');
+    let fetchCount = 0;
+    channel.messages.fetch = async (messageId) => {
+      fetchCount += 1;
+      return makeMessage({ id: messageId });
+    };
+    await tracer.fetchMessageCached(channel, 'm1');
+    expect(fetchCount).toBe(1);
+  } finally {
+    jest.useRealTimers();
+    if (savedTtl === undefined) delete process.env.MESSAGE_CACHE_TTL_MS;
+    else process.env.MESSAGE_CACHE_TTL_MS = savedTtl;
+    delete require.cache[configPath];
+    delete require.cache[tracerPath];
+  }
+});
+
+test('should exports DEFAULT_MAX_CHAIN_DEPTH', () => {
+  const tracer = loadTracer();
+  expect(tracer.DEFAULT_MAX_CHAIN_DEPTH).toBe(15);
 });

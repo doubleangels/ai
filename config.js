@@ -129,6 +129,11 @@ const config = {
   userCooldownMs: parseInt(process.env.USER_COOLDOWN_MS, 10) || 4000,
   channelCooldownMs: parseInt(process.env.CHANNEL_COOLDOWN_MS, 10) || 1500,
   maxPendingPerChannel: parseInt(process.env.MAX_PENDING_PER_CHANNEL, 10) || 3,
+  // Reply chain traversal cap (Discord parent-message fetches before AI call).
+  maxReplyChainDepth: Math.max(1, Math.min(50, parseInt(process.env.MAX_REPLY_CHAIN_DEPTH, 10) || 15)),
+  // In-memory Discord message cache for reply-chain traversal (LRU + TTL).
+  messageCacheMaxSize: Math.max(10, Math.min(10000, parseInt(process.env.MESSAGE_CACHE_MAX_SIZE, 10) || 500)),
+  messageCacheTtlMs: Math.max(60_000, Math.min(86_400_000, parseInt(process.env.MESSAGE_CACHE_TTL_MS, 10) || 1_800_000)),
   // Image download safety limits
   imageDownloadTimeoutMs: parseInt(process.env.IMAGE_DOWNLOAD_TIMEOUT_MS, 10) || 8000,
   maxImageBytes: parseInt(process.env.MAX_IMAGE_BYTES, 10) || 6_000_000,

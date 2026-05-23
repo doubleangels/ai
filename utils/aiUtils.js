@@ -459,6 +459,41 @@ function trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTok
 }
 
 /**
+ * Removes stale entries from a Map keyed by id with timestamp values.
+ * @param {Map<string|number, number>} map - Map of id → last-used timestamp
+ * @param {number} maxAgeMs - Entries older than this are deleted
+ */
+function pruneStaleMapEntries(map, maxAgeMs) {
+  if (!map || typeof maxAgeMs !== 'number' || maxAgeMs <= 0) return;
+  const cutoff = Date.now() - maxAgeMs;
+  for (const [key, timestamp] of map) {
+    if (timestamp < cutoff) {
+      map.delete(key);
+    }
+  }
+}
+
+/**
+ * Replaces base64 image parts in prior user turns with a lightweight placeholder.
+ * @param {Array} channelHistory - Conversation history array
+ */
+function stripImagesFromHistory(channelHistory) {
+  if (!Array.isArray(channelHistory)) return;
+
+  for (let idx = 0; idx < channelHistory.length - 1; idx++) {
+    const historyMessage = channelHistory[idx];
+    if (historyMessage.role === 'user' && Array.isArray(historyMessage.content)) {
+      for (let j = 0; j < historyMessage.content.length; j++) {
+        const part = historyMessage.content[j];
+        if (part && part.type === 'input_image' && part.image_url) {
+          historyMessage.content[j] = { type: 'input_text', text: '[Previous Image Processed]' };
+        }
+      }
+    }
+  }
+}
+
+/**
  * Creates a system message for conversation initialization.
  * Only OpenAI is told which model is running; Gemini and Claude get a generic prompt.
  *
@@ -485,6 +520,8 @@ module.exports = {
   hasImages,
   estimateTokensFromText,
   trimConversationHistory,
+  pruneStaleMapEntries,
+  stripImagesFromHistory,
   createSystemMessage,
   SYSTEM_MESSAGES
 };

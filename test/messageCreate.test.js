@@ -319,13 +319,97 @@ test('should strips prior image data and records conversation id', async () => {
   expect(conversationIdCalls).toEqual(['chan-1', null]);
 });
 
-test('should handles processing errors', async () => {
+test('should handles processing errors and strips prior images from history', async () => {
   const mod = loadMessageCreate({
     generateAIResponse: async () => { throw new Error('ai failed'); }
   });
   const failMessage = createBaseMessage();
+  failMessage.client.conversationHistory.set('chan-1', [
+    { role: 'system', content: 'sys' },
+    {
+      role: 'user',
+      content: [{ type: 'input_image', image_url: 'data:image/png;base64,OLD' }]
+    }
+  ]);
   await mod.execute(failMessage);
   expect(failMessage.getReplyTexts().some(text => text.includes('error occurred'))).toBeTruthy();
+  const history = failMessage.client.conversationHistory.get('chan-1');
+  expect(history[1].content[0].text).toBe('[Previous Image Processed]');
+});
+
+test('should skips reply-chain text when channel history already has turns', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'done' });
+  const parent = {
+    id: 'parent-1',
+    author: { id: 'user-2', username: 'bob', bot: false },
+    content: 'prior thread text',
+    reference: null,
+    attachments: { size: 0, values: () => [] }
+  };
+  const message = createBaseMessage({
+    content: '<@123> follow up',
+    reference: { messageId: 'parent-1' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async messageId => {
+          if (messageId === 'parent-1') return parent;
+          return { author: { id: 'bot-123' }, content: 'bot', reference: null, attachments: { size: 0, values: () => [] } };
+        }
+      }
+    }
+  });
+  message.client.conversationHistory.set('chan-1', [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'earlier' },
+    { role: 'assistant', content: 'earlier reply' }
+  ]);
+
+  await mod.execute(message);
+  const history = message.client.conversationHistory.get('chan-1');
+  const lastUser = [...history].reverse().find(entry => entry.role === 'user');
+  expect(JSON.stringify(lastUser.content)).not.toMatch(/\[Previous conversation:/);
+});
+
+test('should ignores reply-chain parent attachments and prunes stale cooldown entries', async () => {
+  let imageCalls = 0;
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    config: { userCooldownMs: 1000, channelCooldownMs: 1000 },
+    aiUtils: {
+      ...realAiUtils,
+      processImageAttachments: async attachments => {
+        imageCalls += attachments.length;
+        return attachments.map(() => ({ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }));
+      }
+    }
+  });
+
+  const parent = {
+    id: 'parent-1',
+    author: { id: 'user-2', username: 'bob', bot: false },
+    content: 'prior',
+    reference: null,
+    attachments: { size: 1, values: () => [{ url: 'https://cdn.discordapp.com/a.png', contentType: 'image/png' }] }
+  };
+  const message = createBaseMessage({
+    content: '<@123> with image',
+    reference: { messageId: 'parent-1' },
+    attachments: new Map([['att-1', { url: 'https://cdn.discordapp.com/b.png', contentType: 'image/png' }]]),
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async messageId => (messageId === 'parent-1' ? parent : parent)
+      }
+    }
+  });
+  message.client.userCooldowns.set('stale-user', Date.now() - 999_999);
+  message.client.channelCooldowns.set('stale-channel', Date.now() - 999_999);
+
+  await mod.execute(message);
+  expect(imageCalls).toBe(1);
+  expect(message.client.userCooldowns.has('stale-user')).toBe(false);
+  expect(message.client.channelCooldowns.has('stale-channel')).toBe(false);
 });
 
 test('should uses image-only prompt and stops when primary chunk cannot be sent', async () => {

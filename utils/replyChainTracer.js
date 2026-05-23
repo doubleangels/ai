@@ -1,10 +1,11 @@
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
+const { messageCacheMaxSize, messageCacheTtlMs } = require('../config');
 
-/** Maximum depth for reply chain traversal (prevent infinite loops) */
-const MAX_CHAIN_DEPTH = 50;
+/** Default maximum depth for reply chain traversal (prevent infinite loops). */
+const DEFAULT_MAX_CHAIN_DEPTH = 15;
 
-/** Cache for fetched messages to avoid duplicate API calls */
+/** Cache for fetched messages to avoid duplicate API calls. */
 const MESSAGE_CACHE = new Map();
 
 /**
@@ -15,6 +16,36 @@ function clearCache() {
 }
 
 /**
+ * Remove expired entries and enforce LRU capacity.
+ */
+function trimMessageCache() {
+  const now = Date.now();
+  for (const [key, entry] of MESSAGE_CACHE) {
+    if (entry.expiresAt <= now) {
+      MESSAGE_CACHE.delete(key);
+    }
+  }
+
+  while (MESSAGE_CACHE.size > messageCacheMaxSize) {
+    const oldestKey = MESSAGE_CACHE.keys().next().value;
+    MESSAGE_CACHE.delete(oldestKey);
+  }
+}
+
+/**
+ * Store a message in the cache with TTL.
+ * @param {string} cacheKey
+ * @param {import('discord.js').Message} message
+ */
+function setCachedMessage(cacheKey, message) {
+  MESSAGE_CACHE.set(cacheKey, {
+    message,
+    expiresAt: Date.now() + messageCacheTtlMs
+  });
+  trimMessageCache();
+}
+
+/**
  * Fetch a message with caching
  * @param {Channel} channel - Discord channel object
  * @param {string} messageId - Message ID to fetch
@@ -22,15 +53,18 @@ function clearCache() {
  */
 async function fetchMessageCached(channel, messageId) {
   const cacheKey = `${channel.id}:${messageId}`;
-  
-  // Return from cache if available
-  if (MESSAGE_CACHE.has(cacheKey)) {
-    return MESSAGE_CACHE.get(cacheKey);
+
+  const cached = MESSAGE_CACHE.get(cacheKey);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.message;
+    }
+    MESSAGE_CACHE.delete(cacheKey);
   }
 
   try {
     const message = await channel.messages.fetch(messageId);
-    MESSAGE_CACHE.set(cacheKey, message);
+    setCachedMessage(cacheKey, message);
     return message;
   } catch (error) {
     logger.debug('Failed to fetch message for chain traversal', {
@@ -45,19 +79,20 @@ async function fetchMessageCached(channel, messageId) {
 /**
  * Trace a reply chain backwards to find all messages in the conversation
  * Follows message.reference → fetches parent → repeats until reaching the start
- * 
+ *
  * @param {Message} startMessage - The Discord message to start tracing from
  * @param {Channel} channel - The Discord channel
+ * @param {number} [maxDepth=DEFAULT_MAX_CHAIN_DEPTH] - Maximum parent fetches
  * @returns {Promise<Array<Message>>} Array of messages from oldest to newest (including startMessage)
  */
-async function traceReplyChain(startMessage, channel) {
+async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHAIN_DEPTH) {
   const chain = [];
   let currentMessage = startMessage;
   let depth = 0;
 
   try {
     // Traverse backwards through the reply chain
-    while (currentMessage && depth < MAX_CHAIN_DEPTH) {
+    while (currentMessage && depth < maxDepth) {
       // Add current message to the beginning (we'll reverse at the end)
       chain.unshift(currentMessage);
 
@@ -69,7 +104,7 @@ async function traceReplyChain(startMessage, channel) {
 
       // Fetch the parent message
       const parentMessage = await fetchMessageCached(channel, currentMessage.reference.messageId);
-      
+
       if (!parentMessage) {
         // Can't fetch parent, stop here
         logger.debug('Could not fetch parent message, stopping chain traversal', {
@@ -84,10 +119,10 @@ async function traceReplyChain(startMessage, channel) {
       depth++;
     }
 
-    if (depth >= MAX_CHAIN_DEPTH) {
+    if (depth >= maxDepth) {
       logger.warn('Reply chain depth limit reached', {
         channelId: channel.id,
-        depth: MAX_CHAIN_DEPTH
+        depth: maxDepth
       });
     }
 
@@ -112,7 +147,7 @@ async function traceReplyChain(startMessage, channel) {
 /**
  * Extract conversation context from a reply chain
  * Formats messages as a readable conversation string
- * 
+ *
  * @param {Array<Message>} chain - Array of messages in the reply chain
  * @returns {string} Formatted conversation context
  */
@@ -133,16 +168,16 @@ function formatChainAsContext(chain) {
   for (let i = 0; i < chain.length - 1; i++) {
     const msg = chain[i];
     const author = msg.author?.username || msg.author?.tag || 'Unknown';
-    
+
     // Truncate long messages in context
     let content = msg.content || '';
     if (content.length > 200) {
       content = content.substring(0, 200) + '...';
     }
-    
+
     // Clean up mentions in context
     content = content.replace(/<@!?\d+>/g, '@user');
-    
+
     contextLines.push(`${author}: ${content}`);
   }
 
@@ -152,7 +187,7 @@ function formatChainAsContext(chain) {
 
 /**
  * Get all messages in the reply chain with their content and metadata
- * 
+ *
  * @param {Array<Message>} chain - Array of messages in the reply chain
  * @returns {Promise<Array<Object>>} Array of message objects with content and metadata
  */
@@ -185,5 +220,5 @@ module.exports = {
   extractChainMessages,
   fetchMessageCached,
   clearCache,
-  MAX_CHAIN_DEPTH
+  DEFAULT_MAX_CHAIN_DEPTH
 };

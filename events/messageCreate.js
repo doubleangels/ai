@@ -1,7 +1,7 @@
 const { Events } = require('discord.js');
 const { generateAIResponse } = require('../utils/aiService');
-const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES } = require('../utils/aiUtils');
-const { traceReplyChain, formatChainAsContext } = require('../utils/replyChainTracer');
+const { splitMessage, processImageAttachments, createMessageContent, trimConversationHistory, createSystemMessage, SYSTEM_MESSAGES, pruneStaleMapEntries, stripImagesFromHistory } = require('../utils/aiUtils');
+const { traceReplyChain } = require('../utils/replyChainTracer');
 const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -13,6 +13,7 @@ const {
   userCooldownMs,
   channelCooldownMs,
   maxPendingPerChannel,
+  maxReplyChainDepth,
   allowedGuildIds
 } = require('../config');
 
@@ -299,62 +300,6 @@ module.exports = {
 
       let userText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
-      // Trace full reply chain for complete context
-      let replyChain = [message];
-      if (hasReference) {
-        try {
-          logger.debug('Tracing reply chain for context', { channelId, messageId: message.id });
-          replyChain = await traceReplyChain(message, message.channel);
-          logger.debug(`Reply chain traced: ${replyChain.length} messages`, { channelId });
-        } catch (error) {
-          logger.warn('Error tracing reply chain', { channelId, error: error.message });
-          replyChain = [message];
-        }
-      }
-
-      // Extract text from all messages in the reply chain (except the current message and bot messages)
-      const quotedTextParts = [];
-      for (let i = 0; i < replyChain.length - 1; i++) {
-        const msg = replyChain[i];
-        if (msg.author.id === client.user.id) continue;
-        const text = (msg.content || '').trim();
-        if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
-      }
-
-      // Add chain context if there are previous messages
-      if (quotedTextParts.length > 0) {
-        let quotedBlock = quotedTextParts.join('\n');
-        if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
-          quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
-        }
-        userText = userText ? `[Previous conversation:\n${quotedBlock}]\n\n${userText}` : `[Previous conversation:\n${quotedBlock}]`;
-      }
-
-      // Process image attachments from current message
-      let imageContents = [];
-      if (message.attachments && message.attachments.size > 0) {
-        logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}`);
-        imageContents = await processImageAttachments(Array.from(message.attachments.values()));
-        logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
-      }
-
-      // Include image attachments from the reply chain (images from all messages)
-      for (let i = 0; i < replyChain.length - 1; i++) {
-        const msg = replyChain[i];
-        if (msg.attachments && msg.attachments.size > 0) {
-          logger.debug(`Processing ${msg.attachments.size} attachment(s) from chain message ${msg.id}`);
-          const processedImages = await processImageAttachments(Array.from(msg.attachments.values()));
-          imageContents.push(...processedImages);
-          logger.info(`Processed ${processedImages.length} image(s) from chain message ${msg.id}`);
-        }
-      }
-
-      // Add bot's previous response if replying to bot
-      referencedMessage = null;
-      if (isReplyToBot && replyChain.length > 0) {
-        referencedMessage = replyChain[replyChain.length - 1];
-      }
-
       if (!client.conversationHistory.has(channelId)) {
         logger.debug(`No conversation history found for channel ${channelId}.`);
         const systemMessage = createSystemMessage(modelName, aiProvider === 'openai');
@@ -363,6 +308,53 @@ module.exports = {
       }
 
       const channelHistory = client.conversationHistory.get(channelId);
+      const hasPriorTurns = channelHistory.length > 1;
+
+      // Trace full reply chain for complete context
+      let replyChain = [message];
+      if (hasReference) {
+        try {
+          logger.debug('Tracing reply chain for context', { channelId, messageId: message.id });
+          replyChain = await traceReplyChain(message, message.channel, maxReplyChainDepth);
+          logger.debug(`Reply chain traced: ${replyChain.length} messages`, { channelId });
+        } catch (error) {
+          logger.warn('Error tracing reply chain', { channelId, error: error.message });
+          replyChain = [message];
+        }
+      }
+
+      // Extract text from reply chain only when history has no prior turns (avoids duplicate context).
+      if (!hasPriorTurns) {
+        const quotedTextParts = [];
+        for (let i = 0; i < replyChain.length - 1; i++) {
+          const msg = replyChain[i];
+          if (msg.author.id === client.user.id) continue;
+          const text = (msg.content || '').trim();
+          if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
+        }
+
+        if (quotedTextParts.length > 0) {
+          let quotedBlock = quotedTextParts.join('\n');
+          if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
+            quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
+          }
+          userText = userText ? `[Previous conversation:\n${quotedBlock}]\n\n${userText}` : `[Previous conversation:\n${quotedBlock}]`;
+        }
+      }
+
+      // Process image attachments from current message only
+      let imageContents = [];
+      if (message.attachments && message.attachments.size > 0) {
+        logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}`);
+        imageContents = await processImageAttachments(Array.from(message.attachments.values()));
+        logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
+      }
+
+      // Add bot's previous response if replying to bot
+      referencedMessage = null;
+      if (isReplyToBot && replyChain.length > 0) {
+        referencedMessage = replyChain[replyChain.length - 1];
+      }
 
       if (isReplyToBot && referencedMessage) {
         const lastAssistant = [...channelHistory].reverse().find(m => m.role === 'assistant');
@@ -500,21 +492,11 @@ module.exports = {
         });
 
         // Update cooldown stamps only after successful completion.
+        const cooldownMaxAge = Math.max(userCooldownMs, channelCooldownMs) * 10 || 600_000;
+        pruneStaleMapEntries(client.userCooldowns, cooldownMaxAge);
+        pruneStaleMapEntries(client.channelCooldowns, cooldownMaxAge);
         client.userCooldowns.set(userId, Date.now());
         client.channelCooldowns.set(channelId, Date.now());
-
-        // Memory Optimization: Strip large base64 image strings from older history turns to free V8 heap space
-        for (let idx = 0; idx < channelHistory.length - 1; idx++) {
-          const historyMessage = channelHistory[idx];
-          if (historyMessage.role === 'user' && Array.isArray(historyMessage.content)) {
-            for (let j = 0; j < historyMessage.content.length; j++) {
-              const part = historyMessage.content[j];
-              if (part && part.type === 'input_image' && part.image_url) {
-                historyMessage.content[j] = { type: 'input_text', text: '[Previous Image Processed]' };
-              }
-            }
-          }
-        }
       } catch (error) {
         captureError(error, { event: 'messageCreate', handler: 'processMessage' });
         recordCount('discord.message.responded', 1, {
@@ -530,6 +512,7 @@ module.exports = {
 
         await sendPrimaryResponse("⚠️ An error occurred while processing your request.");
       } finally {
+        stripImagesFromHistory(channelHistory);
         recordDistribution('discord.message.processing_ms', Date.now() - messageStartedAt, {
           unit: 'millisecond',
           attributes: {
