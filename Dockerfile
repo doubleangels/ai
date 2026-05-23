@@ -21,6 +21,7 @@ COPY package*.json ./
 # Build stage for native modules
 FROM base AS builder
 
+# Upgrade npm for npm ci; pulls patched transitive deps (e.g. brace-expansion, ip-address)
 RUN npm install -g npm@latest && npm cache clean --force
 
 RUN --mount=type=cache,target=/root/.npm \
@@ -33,6 +34,9 @@ RUN --mount=type=cache,target=/root/.npm \
 
 # Final runtime stage
 FROM base AS runtime
+
+# Production only runs node; remove bundled npm CLI and its deps from the image
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm
 
 # Install Doppler CLI for runtime secrets (apk repo)
 RUN apk update && apk add --no-cache ca-certificates wget && \

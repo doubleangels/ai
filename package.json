@@ -24,10 +24,12 @@
   "homepage": "https://github.com/doubleangels/ai#readme",
   "overrides": {
     "tar": ">=7.5.8",
-    "minimatch": ">=10.2.1"
+    "minimatch": ">=10.2.1",
+    "brace-expansion": ">=5.0.6",
+    "ip-address": ">=10.1.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.2",
+    "@anthropic-ai/sdk": "^0.98.0",
     "@discordjs/rest": "^2.6.1",
     "@google/genai": "^2.6.0",
     "@sentry/node": "^10.32.0",
@@ -38,7 +40,7 @@
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
+    "jest": "^30.4.2",
     "nodemon": "^3.1.14"
   }
 }
