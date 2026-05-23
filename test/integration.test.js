@@ -590,7 +590,7 @@ test('should gemini cache creation failure, stale cache retry success, and Claud
     GEMINI_API_KEY: 'fake',
     ENABLE_CONTEXT_CACHE: '1'
   });
-  expect(await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
+  expect(await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 
   const imageOnlyGemini = await loadAiService({
     genai: {
@@ -629,7 +629,7 @@ test('should gemini cache creation failure, stale cache retry success, and Claud
       this.messages = { create: async () => ({ content: [{ type: 'text', text: 'should not run' }] }) };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  expect(await claudeEmpty.generateAIResponse([{ role: 'system', content: 'sys only' }])).toBe('');
+  expect(await claudeEmpty.generateAIResponse([{ role: 'system', content: 'sys only' }])).toMatch(/^⚠️ /);
 
   const claudeAssistant = await loadAiService({
     anthropic: function FakeAnthropic() {
@@ -1040,7 +1040,7 @@ test('should openAI and Claude branch coverage for optional request fields', asy
       responsesVerbosity: null
     });
   });
-  expect(await openaiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
+  expect(await openaiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/empty response/);
 
   let round = 0;
   global.__anthropicStub = function FakeAnthropic() {
@@ -1107,7 +1107,7 @@ test('should gemini maps-only grounding and invalid image data URLs', async () =
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
   expect(await invalidImage.generateAIResponse([
       { role: 'user', content: [{ type: 'input_image', image_url: 'not-a-data-url' }] }
-    ])).toBe('');
+    ])).toMatch(/^⚠️ /);
 });
 
 test('should aiUtils covers attachment and token helper branches', async () => {
@@ -1649,7 +1649,7 @@ test('should aiService and aiUtils remaining branches', async () => {
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
   expect(await openaiService.generateAIResponse([
     { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
-  ])).toBe('');
+  ])).toMatch(/empty response/);
 
   setSdkStubs({
     openai: {
@@ -1664,11 +1664,12 @@ test('should aiService and aiUtils remaining branches', async () => {
     stubModule(instrumentPath, defaultInstrumentStub());
     stubModule(configPath, { ...DEFAULT_CONFIG });
     stubModule(aiUtilsPath, {
+      ...realAiUtils,
       hasImages: () => { throw new Error('hasImages failed'); },
       SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image analysis' }
     });
   });
-  expect(await throwingService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
+  expect(await throwingService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/^⚠️ /);
 
   clearStubRegistry();
   const claudeService = await loadAiService({

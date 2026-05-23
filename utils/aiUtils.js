@@ -511,6 +511,423 @@ function createSystemMessage(modelName, includeModelInPrompt = true) {
   };
 }
 
+/** @typedef {'rate_limit'|'quota_exceeded'|'timeout'|'auth'|'permission_denied'|'billing'|'content_filter'|'context_length'|'missing_api_key'|'empty_response'|'not_found'|'invalid_request'|'overloaded'|'api_error'|'unknown'} AIErrorReason */
+
+/** @typedef {'openai'|'claude'|'gemini'} AIProviderName */
+
+const DEFAULT_ERROR_MESSAGES = {
+  rate_limit: 'The AI service is busy. Please wait a moment and try again.',
+  quota_exceeded: 'The AI usage quota was exceeded. Contact the bot owner to check billing.',
+  timeout: 'The request timed out. Please try again.',
+  auth: 'The AI service rejected the request (authentication). Contact the bot owner.',
+  permission_denied: 'The AI service denied access. Contact the bot owner.',
+  billing: 'There is a billing issue with the AI provider. Contact the bot owner.',
+  content_filter: "Your message couldn't be processed due to content restrictions.",
+  context_length: 'The conversation is too long. Try `/reset` or a shorter message.',
+  missing_api_key: "The AI provider isn't configured on this bot.",
+  empty_response: 'The model returned an empty response. Please try again.',
+  not_found: 'The requested AI model or resource was not found. Contact the bot owner.',
+  invalid_request: 'The AI service rejected the request format. Please try again or rephrase.',
+  overloaded: 'The AI service is temporarily overloaded. Please try again shortly.',
+  api_error: 'The AI service returned an error. Please try again.',
+  unknown: 'Something went wrong while generating a response. Please try again.'
+};
+
+/** Provider-specific user messages keyed by classified reason. */
+const PROVIDER_ERROR_MESSAGES = {
+  openai: {
+    rate_limit: 'OpenAI rate limit reached (429). Please wait a moment and try again.',
+    quota_exceeded: 'OpenAI quota exceeded (429). Contact the bot owner to check billing and usage limits.',
+    timeout: 'OpenAI request timed out. Please try again.',
+    auth: 'OpenAI authentication failed (401). Contact the bot owner to verify the API key.',
+    permission_denied: 'OpenAI denied access (403). This may be a permissions or region restriction.',
+    content_filter: "OpenAI blocked the response due to content policy.",
+    context_length: 'OpenAI context limit exceeded. Try `/reset` or send a shorter message.',
+    not_found: 'OpenAI could not find the model or resource (404). Contact the bot owner.',
+    invalid_request: 'OpenAI rejected the request (400). Please try again or rephrase.',
+    overloaded: 'OpenAI is overloaded (503). Please try again shortly.',
+    api_error: 'OpenAI returned a server error (5xx). Please try again.',
+    missing_api_key: "OpenAI isn't configured on this bot (missing OPENAI_API_KEY).",
+    empty_response: 'OpenAI returned an empty response. Please try again.',
+    unknown: 'Something went wrong with OpenAI. Please try again.'
+  },
+  claude: {
+    rate_limit: 'Claude rate limit reached (429). Please wait and try again.',
+    quota_exceeded: 'Claude rate or token limit reached (429). Please wait and try again.',
+    timeout: 'Claude request timed out (504). Please try again or use a shorter prompt.',
+    auth: 'Claude authentication failed (401). Contact the bot owner to verify the API key.',
+    permission_denied: 'Claude permission denied (403). The API key may lack access to this model.',
+    billing: 'Claude billing issue (402). Contact the bot owner to check payment details.',
+    content_filter: "Claude blocked the request due to content policy.",
+    context_length: 'Claude request too large (413). Try `/reset` or send a shorter message.',
+    not_found: 'Claude could not find the model or resource (404). Contact the bot owner.',
+    invalid_request: 'Claude rejected the request (400 invalid_request_error). Please try again or rephrase.',
+    overloaded: 'Claude is temporarily overloaded (529). Please try again shortly.',
+    api_error: 'Claude returned an internal error (500). Please try again.',
+    missing_api_key: "Claude isn't configured on this bot (missing ANTHROPIC_API_KEY).",
+    empty_response: 'Claude returned an empty response. Please try again.',
+    unknown: 'Something went wrong with Claude. Please try again.'
+  },
+  gemini: {
+    rate_limit: 'Gemini rate limit reached (429 RESOURCE_EXHAUSTED). Please wait and try again.',
+    quota_exceeded: 'Gemini quota exceeded (429 RESOURCE_EXHAUSTED). Contact the bot owner to check billing.',
+    timeout: 'Gemini request timed out (504 DEADLINE_EXCEEDED). Please try again.',
+    auth: 'Gemini authentication failed (401 UNAUTHENTICATED). Contact the bot owner to verify the API key.',
+    permission_denied: 'Gemini permission denied (403 PERMISSION_DENIED). Contact the bot owner.',
+    content_filter: "Gemini blocked the request due to safety settings or policy.",
+    context_length: 'Gemini input limit exceeded (400/413). Try `/reset` or send a shorter message.',
+    not_found: 'Gemini could not find the model (404 NOT_FOUND). Contact the bot owner.',
+    invalid_request: 'Gemini rejected the request (400 INVALID_ARGUMENT). Please try again or rephrase.',
+    overloaded: 'Gemini is temporarily unavailable (503 UNAVAILABLE). Please try again shortly.',
+    api_error: 'Gemini returned a server error (500). Please try again.',
+    missing_api_key: "Gemini isn't configured on this bot (missing GEMINI_API_KEY).",
+    empty_response: 'Gemini returned an empty response. Please try again.',
+    unknown: 'Something went wrong with Gemini. Please try again.'
+  }
+};
+
+/**
+ * @param {string|undefined|null} provider
+ * @returns {AIProviderName|null}
+ */
+function normalizeAIProvider(provider) {
+  if (!provider) return null;
+  const normalized = String(provider).trim().toLowerCase();
+  if (normalized === 'openai') return 'openai';
+  if (normalized === 'claude' || normalized === 'anthropic') return 'claude';
+  if (normalized === 'gemini' || normalized === 'google') return 'gemini';
+  return null;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {number|undefined}
+ */
+function getErrorStatus(error) {
+  if (!error || typeof error !== 'object') return undefined;
+  const status = error.status ?? error.statusCode ?? error.httpStatus;
+  if (typeof status === 'number' && !Number.isNaN(status)) return status;
+  if (typeof status === 'string' && /^\d+$/.test(status)) return Number(status);
+  return undefined;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorMessageText(error) {
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object' && error !== null) {
+    const nested = error.error;
+    if (nested && typeof nested === 'object' && typeof nested.message === 'string') {
+      return nested.message;
+    }
+    if (typeof error.message === 'string') return error.message;
+  }
+  return '';
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorType(error) {
+  if (!error || typeof error !== 'object') return '';
+  const nested = error.error;
+  if (nested && typeof nested === 'object' && typeof nested.type === 'string') {
+    return nested.type.toLowerCase();
+  }
+  if (typeof error.type === 'string') {
+    const type = error.type.toLowerCase();
+    if (type !== 'error') return type;
+  }
+  return '';
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorCode(error) {
+  if (!error || typeof error !== 'object') return '';
+  const nested = error.error;
+  if (nested && typeof nested === 'object' && nested.code != null) {
+    return String(nested.code).toLowerCase();
+  }
+  if (error.code != null) {
+    const code = String(error.code);
+    if (/^\d+$/.test(code)) return code;
+    return code.toLowerCase();
+  }
+  return '';
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getRpcStatusCode(error) {
+  if (!error || typeof error !== 'object') return '';
+  const candidates = [error.status, error.statusCode, error.code];
+  if (error.error && typeof error.error === 'object') {
+    candidates.push(error.error.status, error.error.code, error.error.statusCode);
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && /^[A-Z][A-Z0-9_]*$/.test(candidate)) {
+      return candidate;
+    }
+  }
+  return '';
+}
+
+/**
+ * @param {string} message
+ * @param {string} code
+ * @returns {AIErrorReason|null}
+ */
+function classifyByMessageHints(message, code) {
+  if (/quota|billing|insufficient_quota|exceeded your current quota/.test(message) || code === 'insufficient_quota') {
+    return 'quota_exceeded';
+  }
+  if (/rate.?limit|too many requests/.test(message) || code === 'rate_limit_exceeded') {
+    return 'rate_limit';
+  }
+  if (/timeout|timed out|deadline exceeded/.test(message) || code === 'etimedout' || code === 'econnaborted') {
+    return 'timeout';
+  }
+  if (/context length|maximum context|token limit|too long|max_tokens|prompt is too long|input too large|request_too_large|out_of_range/.test(message) ||
+      code === 'context_length_exceeded') {
+    return 'context_length';
+  }
+  if (/content.?filter|safety|blocked|policy|harmful|moderation|refused|recitation/.test(message) ||
+      code === 'content_filter') {
+    return 'content_filter';
+  }
+  if (/invalid api key|authentication|unauthorized|unauthenticated/.test(message) ||
+      code === 'invalid_api_key' || code === 'invalid_authentication') {
+    return 'auth';
+  }
+  if (/permission denied|permission_error|not supported|forbidden/.test(message)) {
+    return 'permission_denied';
+  }
+  if (/not found|model_not_found/.test(message) || code === 'model_not_found') {
+    return 'not_found';
+  }
+  if (/overloaded|unavailable|engine is currently overloaded/.test(message)) {
+    return 'overloaded';
+  }
+  if (/network|econnreset|enotfound|fetch failed|socket hang up|connection error/.test(message)) {
+    return 'api_error';
+  }
+  return null;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {AIErrorReason|null}
+ */
+function classifyOpenAIError(error) {
+  const status = getErrorStatus(error);
+  const type = getErrorType(error);
+  const code = getErrorCode(error);
+  const message = getErrorMessageText(error).toLowerCase();
+
+  if (code === 'insufficient_quota' || (status === 429 && /quota|billing/.test(message))) {
+    return 'quota_exceeded';
+  }
+  if (status === 429 || type === 'rate_limit_error' || code === 'rate_limit_exceeded') {
+    return 'rate_limit';
+  }
+  if (status === 401 || type === 'authentication_error' || code === 'invalid_api_key') {
+    return 'auth';
+  }
+  if (status === 403 || type === 'permission_denied_error') {
+    return 'permission_denied';
+  }
+  if (status === 404 || type === 'not_found_error' || code === 'model_not_found') {
+    return 'not_found';
+  }
+  if (status === 408 || status === 504 || type === 'timeout_error') {
+    return 'timeout';
+  }
+  if (status === 503 || /overloaded|engine is currently overloaded/.test(message)) {
+    return 'overloaded';
+  }
+  if (status === 413 || code === 'context_length_exceeded' || type === 'context_length_exceeded') {
+    return 'context_length';
+  }
+  if (type === 'content_filter' || code === 'content_filter') {
+    return 'content_filter';
+  }
+  if (status === 400 || status === 422 || type === 'invalid_request_error') {
+    return classifyByMessageHints(message, code) || 'invalid_request';
+  }
+  if (status != null && status >= 500) {
+    return 'api_error';
+  }
+  return classifyByMessageHints(message, code);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {AIErrorReason|null}
+ */
+function classifyClaudeError(error) {
+  const status = getErrorStatus(error);
+  const type = getErrorType(error);
+  const message = getErrorMessageText(error).toLowerCase();
+
+  if (type === 'rate_limit_error' || status === 429) return 'rate_limit';
+  if (type === 'authentication_error' || status === 401) return 'auth';
+  if (type === 'billing_error' || status === 402) return 'billing';
+  if (type === 'permission_error' || status === 403) return 'permission_denied';
+  if (type === 'not_found_error' || status === 404) return 'not_found';
+  if (type === 'timeout_error' || status === 504) return 'timeout';
+  if (type === 'overloaded_error' || status === 529) return 'overloaded';
+  if (type === 'request_too_large' || status === 413) return 'context_length';
+  if (type === 'invalid_request_error' || status === 400) {
+    return classifyByMessageHints(message, '') || 'invalid_request';
+  }
+  if (type === 'api_error' || (status != null && status >= 500)) return 'api_error';
+  return classifyByMessageHints(message, '');
+}
+
+/**
+ * @param {unknown} error
+ * @returns {AIErrorReason|null}
+ */
+function classifyGeminiError(error) {
+  const status = getErrorStatus(error);
+  const rpc = getRpcStatusCode(error);
+  const message = getErrorMessageText(error).toLowerCase();
+  const code = getErrorCode(error);
+
+  if (rpc === 'RESOURCE_EXHAUSTED' || status === 429) {
+    return /quota|billing|limit exceeded/.test(message) ? 'quota_exceeded' : 'rate_limit';
+  }
+  if (rpc === 'UNAUTHENTICATED' || status === 401) return 'auth';
+  if (rpc === 'PERMISSION_DENIED' || status === 403) return 'permission_denied';
+  if (rpc === 'NOT_FOUND' || status === 404) return 'not_found';
+  if (rpc === 'DEADLINE_EXCEEDED' || status === 504) return 'timeout';
+  if (rpc === 'UNAVAILABLE' || status === 503) return 'overloaded';
+  if (rpc === 'OUT_OF_RANGE' || status === 413) return 'context_length';
+  if (rpc === 'INTERNAL' || rpc === 'UNKNOWN' || (status != null && status >= 500)) return 'api_error';
+  if (rpc === 'INVALID_ARGUMENT' || rpc === 'FAILED_PRECONDITION' || status === 400) {
+    return classifyByMessageHints(message, code) || 'invalid_request';
+  }
+  if (rpc === 'CANCELLED' || status === 499) return 'timeout';
+  return classifyByMessageHints(message, code);
+}
+
+/**
+ * Classifies an API or runtime error into a safe user-facing reason (no raw API text returned).
+ *
+ * @param {unknown} [error]
+ * @param {string} [provider]
+ * @returns {AIErrorReason}
+ */
+function classifyAIError(error, provider) {
+  const normalizedProvider = normalizeAIProvider(provider);
+  let providerReason = null;
+  if (normalizedProvider === 'openai') providerReason = classifyOpenAIError(error);
+  else if (normalizedProvider === 'claude') providerReason = classifyClaudeError(error);
+  else if (normalizedProvider === 'gemini') providerReason = classifyGeminiError(error);
+  if (providerReason) return providerReason;
+
+  const status = getErrorStatus(error);
+  const message = getErrorMessageText(error).toLowerCase();
+  const code = getErrorCode(error);
+
+  if (status === 429 || /rate.?limit|too many requests/.test(message) || code === 'rate_limit_exceeded') {
+    return /quota|billing/.test(message) || code === 'insufficient_quota' ? 'quota_exceeded' : 'rate_limit';
+  }
+  if (
+    status === 408 ||
+    status === 504 ||
+    code === 'etimedout' ||
+    code === 'econnaborted' ||
+    /timeout|timed out|deadline exceeded/.test(message)
+  ) {
+    return 'timeout';
+  }
+  if (status === 402) return 'billing';
+  if (status === 401 || /unauthorized|authentication|invalid api key|api key/.test(message)) {
+    return 'auth';
+  }
+  if (status === 403 || /permission denied|forbidden/.test(message)) {
+    return 'permission_denied';
+  }
+  if (status === 404 || /not found/.test(message)) {
+    return 'not_found';
+  }
+  if (status === 413 || /context length|maximum context|token limit|too long|max_tokens|prompt is too long|input too large/.test(message)) {
+    return 'context_length';
+  }
+  if (
+    /content.?filter|safety|blocked|policy|harmful|moderation|refused|recitation/.test(message) ||
+    (status === 400 && /content|safety|policy/.test(message))
+  ) {
+    return 'content_filter';
+  }
+  if (status === 503 || status === 529 || /overloaded|unavailable/.test(message)) {
+    return 'overloaded';
+  }
+  if (status != null && status >= 500) {
+    return 'api_error';
+  }
+  if (status === 400 || status === 422) {
+    return classifyByMessageHints(message, code) || 'invalid_request';
+  }
+  if (status != null && status >= 400) {
+    return 'api_error';
+  }
+  if (/network|econnreset|enotfound|fetch failed|socket hang up/.test(message)) {
+    return 'api_error';
+  }
+  return classifyByMessageHints(message, code) || 'unknown';
+}
+
+/**
+ * @param {AIErrorReason} reason
+ * @param {AIProviderName|null} provider
+ * @returns {string}
+ */
+function getAIErrorMessageBody(reason, provider) {
+  if (provider && PROVIDER_ERROR_MESSAGES[provider]?.[reason]) {
+    return PROVIDER_ERROR_MESSAGES[provider][reason];
+  }
+  return DEFAULT_ERROR_MESSAGES[reason] || DEFAULT_ERROR_MESSAGES.unknown;
+}
+
+/**
+ * Formats a short, safe user-facing Discord message for AI failures.
+ *
+ * @param {{ reason?: AIErrorReason, error?: unknown, provider?: string }} [options]
+ * @returns {string}
+ */
+function formatAIUserMessage(options = {}) {
+  const { error, provider } = options;
+  const normalizedProvider = normalizeAIProvider(provider);
+  let reason = options.reason;
+  if (!reason && error) {
+    reason = classifyAIError(error, provider);
+  }
+  if (!reason) {
+    reason = 'unknown';
+  }
+  const body = getAIErrorMessageBody(reason, normalizedProvider);
+  return `⚠️ ${body}`;
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isAIUserErrorMessage(text) {
+  return typeof text === 'string' && text.startsWith('⚠️ ');
+}
+
 module.exports = {
   assertDiscordImageDownloadUrl,
   splitMessage,
@@ -523,5 +940,8 @@ module.exports = {
   pruneStaleMapEntries,
   stripImagesFromHistory,
   createSystemMessage,
+  classifyAIError,
+  formatAIUserMessage,
+  isAIUserErrorMessage,
   SYSTEM_MESSAGES
 };

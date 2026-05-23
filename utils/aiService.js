@@ -23,7 +23,13 @@ const {
 const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
-const { hasImages, SYSTEM_MESSAGES, estimateTokensFromText } = require('./aiUtils');
+const {
+  hasImages,
+  SYSTEM_MESSAGES,
+  estimateTokensFromText,
+  formatAIUserMessage,
+  isAIUserErrorMessage
+} = require('./aiUtils');
 
 /** Gemini context cache minimum token count (API requirement; Flash 1024, Pro 4096 — use 2048 to be safe). */
 const GEMINI_MIN_CACHE_TOKENS = 2048;
@@ -248,13 +254,13 @@ function conversationToClaudeFormat(conversation) {
 async function generateGeminiResponse(conversation) {
   if (!genAI) {
     logger.error('Gemini API key not configured (GEMINI_API_KEY).');
-    return '';
+    return formatAIUserMessage({ reason: 'missing_api_key', provider: 'gemini' });
   }
 
   const { systemInstruction, contents } = conversationToGeminiFormat(conversation);
   if (contents.length === 0) {
     logger.error('No valid user/model turns for Gemini.');
-    return '';
+    return formatAIUserMessage({ reason: 'api_error' });
   }
 
   let systemWithImageHint = systemInstruction;
@@ -342,7 +348,7 @@ async function generateGeminiResponse(conversation) {
     const text = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
     if (!text || !text.trim()) {
       logger.warn('Gemini response is empty.');
-      return 'I apologize, but I couldn\'t generate a response. Please try again.';
+      return formatAIUserMessage({ reason: 'empty_response' });
     }
 
     logger.info('Generated AI response successfully (Gemini):', {
@@ -386,8 +392,9 @@ async function generateGeminiResponse(conversation) {
           message: retryErr?.message,
           model: modelName
         });
-        return '';
+        return formatAIUserMessage({ error: retryErr, provider: 'gemini' });
       }
+      return formatAIUserMessage({ reason: 'empty_response' });
     }
     captureError(apiError, { provider: 'gemini' });
     logger.error('Gemini API request failed.', {
@@ -395,7 +402,7 @@ async function generateGeminiResponse(conversation) {
       message: apiError?.message,
       model: modelName
     });
-    return '';
+    return formatAIUserMessage({ error: apiError, provider: 'gemini' });
   }
 }
 
@@ -407,13 +414,13 @@ async function generateGeminiResponse(conversation) {
 async function generateClaudeResponse(conversation) {
   if (!anthropic) {
     logger.error('Anthropic API key not configured (ANTHROPIC_API_KEY).');
-    return '';
+    return formatAIUserMessage({ reason: 'missing_api_key', provider: 'claude' });
   }
 
   const { system, messages } = conversationToClaudeFormat(conversation);
   if (messages.length === 0) {
     logger.error('No valid user/assistant turns for Claude.');
-    return '';
+    return formatAIUserMessage({ reason: 'api_error' });
   }
 
   let systemWithImageHint = system;
@@ -469,7 +476,7 @@ async function generateClaudeResponse(conversation) {
         const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
         if (!text) {
           logger.warn('Claude response is empty.');
-          return 'I apologize, but I couldn\'t generate a response. Please try again.';
+          return formatAIUserMessage({ reason: 'empty_response' });
         }
         logger.info('Generated AI response successfully (Claude):', {
           charCount: text.length,
@@ -495,7 +502,7 @@ async function generateClaudeResponse(conversation) {
     const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
     if (text) return text;
     logger.warn('Claude hit max tool rounds without final text.');
-    return 'I apologize, but I couldn\'t complete that request. Please try again.';
+    return formatAIUserMessage({ reason: 'api_error' });
   } catch (apiError) {
     captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
@@ -503,7 +510,7 @@ async function generateClaudeResponse(conversation) {
       message: apiError?.message,
       model: modelName
     });
-    return '';
+    return formatAIUserMessage({ error: apiError, provider: 'claude' });
   }
 }
 
@@ -516,7 +523,7 @@ async function generateClaudeResponse(conversation) {
 async function generateOpenAIResponse(conversation) {
   if (!openai) {
     logger.error('OpenAI API key not configured (OPENAI_API_KEY).');
-    return '';
+    return formatAIUserMessage({ reason: 'missing_api_key', provider: 'openai' });
   }
 
   try {
@@ -596,7 +603,7 @@ async function generateOpenAIResponse(conversation) {
         model: modelName,
         statusCode: apiError?.status ?? 'unknown'
       });
-      return '';
+      return formatAIUserMessage({ error: apiError, provider: 'openai' });
     }
 
     logger.debug('Received response from OpenAI API:', {
@@ -617,12 +624,12 @@ async function generateOpenAIResponse(conversation) {
       });
 
       if (reply && reply.trim()) return reply;
-      return '';
+      return formatAIUserMessage({ reason: 'empty_response' });
     }
 
     if (!reply || reply.trim() === '') {
       logger.warn('Response is empty.');
-      return 'I apologize, but I couldn\'t generate a response. Please try again.';
+      return formatAIUserMessage({ reason: 'empty_response' });
     }
 
     logger.info('Generated AI response successfully:', {
@@ -642,7 +649,7 @@ async function generateOpenAIResponse(conversation) {
       errorCode: error?.code ?? 'unknown',
       statusCode: error?.status ?? 'unknown'
     });
-    return '';
+    return formatAIUserMessage({ error, provider: aiProvider || 'openai' });
   }
 }
 
@@ -650,7 +657,7 @@ async function generateOpenAIResponse(conversation) {
  * Generates an AI response using the configured provider (OpenAI, Gemini, or Claude).
  *
  * @param {Array<{role: string, content: string|Array}>} conversation - Array of conversation messages
- * @returns {Promise<string>} The generated AI response, or empty string if generation fails
+ * @returns {Promise<string>} The generated AI response, or a user-facing error message if generation fails
  */
 async function generateAIResponse(conversation) {
   if (!conversation || conversation.length === 0) {
@@ -659,7 +666,7 @@ async function generateAIResponse(conversation) {
       provider: aiProvider,
       outcome: 'empty_conversation'
     });
-    return '';
+    return formatAIUserMessage({ reason: 'api_error' });
   }
 
   const startedAt = Date.now();
@@ -678,15 +685,17 @@ async function generateAIResponse(conversation) {
         reply = await generateOpenAIResponse(conversation);
       }
 
+      const isErrorReply = isAIUserErrorMessage(reply);
+      const outcome = isErrorReply ? 'error_user_message' : 'success';
       recordCount('ai.generate.requests', 1, {
         provider: aiProvider,
-        outcome: reply ? 'success' : 'empty'
+        outcome
       });
       recordDistribution('ai.generate.duration_ms', Date.now() - startedAt, {
         unit: 'millisecond',
         attributes: {
           provider: aiProvider,
-          outcome: reply ? 'success' : 'empty'
+          outcome
         }
       });
 

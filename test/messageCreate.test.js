@@ -290,7 +290,7 @@ test('should handles multi-chunk replies, empty chunks, and chunk failures', asy
   });
   const emptyMessage = createBaseMessage();
   await emptyChunks.execute(emptyMessage);
-  expect(emptyMessage.getReplyTexts().some(text => text.includes('No response'))).toBeTruthy();
+  expect(emptyMessage.getReplyTexts().some(text => text.startsWith('⚠️'))).toBeTruthy();
 });
 
 test('should strips prior image data and records conversation id', async () => {
@@ -332,7 +332,7 @@ test('should handles processing errors and strips prior images from history', as
     }
   ]);
   await mod.execute(failMessage);
-  expect(failMessage.getReplyTexts().some(text => text.includes('error occurred'))).toBeTruthy();
+  expect(failMessage.getReplyTexts().some(text => text.startsWith('⚠️'))).toBeTruthy();
   const history = failMessage.client.conversationHistory.get('chan-1');
   expect(history[1].content[0].text).toBe('[Previous Image Processed]');
 });
@@ -589,7 +589,22 @@ test('should replies with a clear error message when the AI service returns no c
 
   await mod.execute(message);
   expect(responses[0]).toBe('*Thinking...*');
-  expect(responses[1]).toBe("⚠️ I couldn't generate a response.");
+  expect(responses[1]).toMatch(/^⚠️ Something went wrong/);
+});
+
+test('should send categorized AI errors without storing them in history', async () => {
+  const errorReply = realAiUtils.formatAIUserMessage({ reason: 'rate_limit' });
+  const mod = loadMessageCreate({ generateAIResponse: async () => errorReply });
+  const message = createBaseMessage();
+  message.client.conversationHistory.set('chan-1', [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hello' }
+  ]);
+
+  await mod.execute(message);
+  expect(message.getReplyTexts().some(text => text.includes('busy'))).toBe(true);
+  const history = message.client.conversationHistory.get('chan-1');
+  expect(history.some(entry => entry.role === 'assistant')).toBe(false);
 });
 
 test('should does not reply to messages with only @here or @everyone mention', async () => {
