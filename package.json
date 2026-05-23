@@ -7,9 +7,9 @@
     "dev": "doppler run -- nodemon index.js",
     "start": "doppler run -- node index.js",
     "commands:deploy": "doppler run -- node deploy-commands.js",
-    "test": "node --require ./test/preload.cjs --test",
-    "test:coverage": "c8 npm test",
-    "test:coverage:check": "c8 --check-coverage --lines 100 --functions 100 --branches 100 --statements 100 npm test",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:coverage:check": "jest --coverage",
     "rebuild": "npm rebuild",
     "predeploy": "npm run test && npm run commands:deploy"
   },
@@ -38,7 +38,7 @@
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "c8": "^11.0.0",
+    "jest": "^29.7.0",
     "nodemon": "^3.1.14"
   }
 }

@@ -100,8 +100,8 @@ async function deployCommands() {
 
 module.exports = deployCommands;
 
-if (require.main === module) {
-  deployCommands()
+function runDeployCli() {
+  return deployCommands()
     .then(() => logger.info('Command deployment completed successfully.'))
     .catch(err => {
       captureError(err, { source: 'deployCommands', handler: 'main' });
@@ -112,3 +112,11 @@ if (require.main === module) {
       process.exit(1);
     });
 }
+
+module.exports.runDeployCli = runDeployCli;
+
+/* v8 ignore start */
+if (require.main === module) {
+  runDeployCli();
+}
+/* v8 ignore stop */

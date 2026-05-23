@@ -1,5 +1,3 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 
 const path = require('path');
 
@@ -39,7 +37,7 @@ function createInteraction({ channelOption = null } = {}) {
   return { interaction, calls };
 }
 
-test('waits for the existing channel lock before clearing channel history', async () => {
+test('should waits for the existing channel lock before clearing channel history', async () => {
   const command = loadResetCommand();
   const gate = {};
   gate.promise = new Promise(resolve => {
@@ -57,16 +55,16 @@ test('waits for the existing channel lock before clearing channel history', asyn
   });
 
   await Promise.resolve();
-  assert.equal(resetCompleted, false);
-  assert.equal(interaction.client.conversationHistory.has('chan-1'), true);
+  expect(resetCompleted).toBe(false);
+  expect(interaction.client.conversationHistory.has('chan-1')).toBe(true);
 
   gate.resolve();
   await execution;
 
-  assert.equal(interaction.client.conversationHistory.has('chan-1'), false);
+  expect(interaction.client.conversationHistory.has('chan-1')).toBe(false);
 });
 
-test('clears all histories only after existing locks settle', async () => {
+test('should clears all histories only after existing locks settle', async () => {
   const command = loadResetCommand();
   const gate = {};
   gate.promise = new Promise(resolve => {
@@ -83,18 +81,18 @@ test('clears all histories only after existing locks settle', async () => {
   });
 
   await Promise.resolve();
-  assert.equal(resetCompleted, false);
-  assert.equal(interaction.client.conversationHistory.size, 2);
+  expect(resetCompleted).toBe(false);
+  expect(interaction.client.conversationHistory.size).toBe(2);
 
   gate.resolve();
   await execution;
 
-  assert.equal(interaction.client.conversationHistory.size, 0);
+  expect(interaction.client.conversationHistory.size).toBe(0);
 });
 
 // --- appended from test/reset.coverage.test.js ---
 
-test('reset reports when a channel has no history (coverage merged)', async () => {
+test('should reset reports when a channel has no history (coverage merged)', async () => {
   const command = loadResetCommand();
   const calls = [];
   const interaction = {
@@ -114,11 +112,11 @@ test('reset reports when a channel has no history (coverage merged)', async () =
   };
 
   await command.execute(interaction);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].embeds[0].data.title, '⚠️ No History Found');
+  expect(calls.length).toBe(1);
+  expect(calls[0].embeds[0].data.title).toBe('⚠️ No History Found');
 });
 
-test('reset reports when no histories exist across all channels (coverage merged)', async () => {
+test('should reset reports when no histories exist across all channels (coverage merged)', async () => {
   const command = loadResetCommand();
   const calls = [];
   const interaction = {
@@ -138,11 +136,11 @@ test('reset reports when no histories exist across all channels (coverage merged
   };
 
   await command.execute(interaction);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].embeds[0].data.title, '⚠️ No History Found');
+  expect(calls.length).toBe(1);
+  expect(calls[0].embeds[0].data.title).toBe('⚠️ No History Found');
 });
 
-test('reset falls back to followUp when editReply fails (coverage merged)', async () => {
+test('should reset falls back to followUp when editReply fails (coverage merged)', async () => {
   const command = loadResetCommand();
   const calls = [];
   const interaction = {
@@ -166,11 +164,11 @@ test('reset falls back to followUp when editReply fails (coverage merged)', asyn
   };
 
   await command.execute(interaction);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].embeds[0].data.title, '🗑️ Channel History Reset');
+  expect(calls.length).toBe(1);
+  expect(calls[0].embeds[0].data.title).toBe('🗑️ Channel History Reset');
 });
 
-test('reset logs when followUp fails after editReply fails', async () => {
+test('should reset logs when followUp fails after editReply fails', async () => {
   const command = loadResetCommand();
   const interaction = {
     user: { id: 'admin-1', tag: 'Admin#0001' },
@@ -194,10 +192,10 @@ test('reset logs when followUp fails after editReply fails', async () => {
     }
   };
 
-  await assert.doesNotReject(async () => command.execute(interaction));
+  await expect(command.execute(interaction)).resolves.not.toThrow();
 });
 
-test('reset logs when error reply followUp fails', async () => {
+test('should reset logs when error reply followUp fails', async () => {
   const command = loadResetCommand();
   const interaction = {
     user: { id: 'admin-1', tag: 'Admin#0001' },
@@ -225,10 +223,10 @@ test('reset logs when error reply followUp fails', async () => {
     }
   };
 
-  await assert.doesNotReject(async () => command.execute(interaction));
+  await expect(command.execute(interaction)).resolves.not.toThrow();
 });
 
-test('reset handles command errors through the catch path (coverage merged)', async () => {
+test('should reset handles command errors through the catch path (coverage merged)', async () => {
   const command = loadResetCommand();
   const calls = [];
   const interaction = {
@@ -254,5 +252,5 @@ test('reset handles command errors through the catch path (coverage merged)', as
   };
 
   await command.execute(interaction);
-  assert.equal(calls.length >= 1, true);
+  expect(calls.length >= 1).toBe(true);
 });

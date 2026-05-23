@@ -1,24 +1,22 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const path = require('path');
 
 const instrument = require(path.resolve(__dirname, '..', 'instrument.js'));
 
-test('captureError returns the error object', () => {
+test('should returns the error object', () => {
   const err = new Error('boom');
   const res = instrument.captureError(err, { foo: 'bar' });
-  assert.equal(res, err);
+  expect(res).toBe(err);
 });
 
-test('startSpan executes callback and returns its value', async () => {
+test('should executes callback and returns its value', async () => {
   const val = await instrument.startSpan({ op: 'test' }, async () => {
     return 42;
   });
-  assert.equal(val, 42);
+  expect(val).toBe(42);
 });
 
-test('recordCount does not throw', () => {
-  assert.doesNotThrow(() => instrument.recordCount('test.metric', 1, { a: 1 }));
+test('should does not throw', () => {
+  expect(() => instrument.recordCount('test.metric', 1, { a: 1 })).not.toThrow();
 });
 
 // --- appended from test/instrument.coverage.test.js ---
@@ -47,28 +45,14 @@ function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {}, om
     sentryExports.getGlobalScope = () => ({ setAttributes() {} });
   }
 
-  require.cache[sentryPath] = {
-    id: sentryPath,
-    filename: sentryPath,
-    loaded: true,
-    exports: sentryExports
-  };
-
-  const originalLoad = Module._load;
-  Module._load = function(request, parent, isMain) {
-    if (request === '@sentry/profiling-node' && profilingThrows) {
-      throw new Error('profiling unavailable');
-    }
-    return originalLoad.apply(this, arguments);
-  };
-
   const envKeys = [
     'SENTRY_TRACES_SAMPLE_RATE',
     'SENTRY_PROFILE_SESSION_SAMPLE_RATE',
     'SENTRY_DSN',
     'SENTRY_ENABLE_LOGS',
     'SENTRY_ENABLE_METRICS',
-    'SENTRY_PROFILE_LIFECYCLE'
+    'SENTRY_PROFILE_LIFECYCLE',
+    'NODE_ENV'
   ];
   const originalEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
   for (const key of envKeys) {
@@ -77,22 +61,32 @@ function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {}, om
     }
   }
 
-  try {
-    const instrument = require(instrumentPath);
-    return { instrument, sentryCalls, restore: () => {
-      Module._load = originalLoad;
+  let instrument;
+  jest.isolateModules(() => {
+    jest.doMock('@sentry/node', () => sentryExports);
+    if (profilingThrows) {
+      jest.doMock('@sentry/profiling-node', () => {
+        throw new Error('profiling unavailable');
+      });
+    } else {
+      jest.doMock('@sentry/profiling-node', () => ({
+        nodeProfilingIntegration: () => () => {}
+      }));
+    }
+    instrument = require(instrumentPath);
+  });
+
+  return {
+    instrument,
+    sentryCalls,
+    restore: () => {
       for (const [key, value] of Object.entries(originalEnv)) {
-        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
       }
       delete require.cache[instrumentPath];
-    } };
-  } catch (error) {
-    Module._load = originalLoad;
-    for (const [key, value] of Object.entries(originalEnv)) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
-    throw error;
-  }
+  };
 }
 
 function loadInstrument() {
@@ -100,7 +94,7 @@ function loadInstrument() {
   return require(instrumentPath);
 }
 
-test('instrument records metrics and captures errors with tags (coverage merged)', () => {
+test('should records metrics and captures errors with tags (coverage merged)', () => {
   const instrument = loadInstrument();
   const metricCalls = [];
   const scopeCalls = [];
@@ -125,22 +119,22 @@ test('instrument records metrics and captures errors with tags (coverage merged)
   instrument.Sentry.startSpan = undefined;
 
   const error = new Error('boom');
-  assert.equal(instrument.captureError(error, { foo: 'bar', nested: { a: 1 } }), error);
+  expect(instrument.captureError(error, { foo: 'bar', nested: { a: 1 } })).toBe(error);
   instrument.recordCount('metric.count', 2, { a: 1 });
   instrument.recordGauge('metric.gauge', 3, { b: true });
   instrument.recordDistribution('metric.dist', 4, { unit: 'millisecond', attributes: { nested: { a: 1 } } });
   instrument.recordCount('metric.nullish', 1, { keep: 'yes', dropNull: null, dropUndefined: undefined });
   instrument.recordDistribution('metric.no_unit', 5, { attributes: {} });
-  assert.equal(instrument.startSpan({}, () => 123), 123);
+  expect(instrument.startSpan({}, () => 123)).toBe(123);
 
-  assert.equal(captureCalls.length, 1);
-  assert.equal(scopeCalls.length, 1);
-  assert.equal(metricCalls.length, 5);
-  assert.deepEqual(metricCalls[0][3].attributes, { a: 1 });
-  assert.deepEqual(metricCalls[1][3].attributes, { b: true });
-  assert.deepEqual(metricCalls[2][3].attributes, { nested: '{"a":1}' });
-  assert.deepEqual(metricCalls[3][3].attributes, { keep: 'yes' });
-  assert.deepEqual(metricCalls[4][3], {});
+  expect(captureCalls.length).toBe(1);
+  expect(scopeCalls.length).toBe(1);
+  expect(metricCalls.length).toBe(5);
+  expect(metricCalls[0][3].attributes).toEqual({ a: 1 });
+  expect(metricCalls[1][3].attributes).toEqual({ b: true });
+  expect(metricCalls[2][3].attributes).toEqual({ nested: '{"a":1}' });
+  expect(metricCalls[3][3].attributes).toEqual({ keep: 'yes' });
+  expect(metricCalls[4][3]).toEqual({});
 
   instrument.Sentry.metrics = original.metrics;
   instrument.Sentry.isEnabled = original.isEnabled;
@@ -149,7 +143,7 @@ test('instrument records metrics and captures errors with tags (coverage merged)
   instrument.Sentry.startSpan = original.startSpan;
 });
 
-test('instrument captureError falls back without withScope (coverage merged)', () => {
+test('should captureError falls back without withScope (coverage merged)', () => {
   const instrument = loadInstrument();
   const original = {
     withScope: instrument.Sentry.withScope,
@@ -163,14 +157,14 @@ test('instrument captureError falls back without withScope (coverage merged)', (
   };
 
   const error = new Error('fallback');
-  assert.equal(instrument.captureError(error, { foo: 'bar' }), error);
-  assert.deepEqual(capturedTags, { foo: 'bar' });
+  expect(instrument.captureError(error, { foo: 'bar' })).toBe(error);
+  expect(capturedTags).toEqual({ foo: 'bar' });
 
   instrument.Sentry.withScope = original.withScope;
   instrument.Sentry.captureException = original.captureException;
 });
 
-test('instrument falls back when profiling integration is unavailable (coverage merged)', () => {
+test('should falls back when profiling integration is unavailable (coverage merged)', () => {
   const { instrument, sentryCalls, restore } = loadInstrumentWithStubs({
     profilingThrows: true,
     sampleRates: {
@@ -181,16 +175,16 @@ test('instrument falls back when profiling integration is unavailable (coverage 
   });
 
   try {
-    assert.equal(typeof instrument.captureError, 'function');
-    assert.equal(sentryCalls.init.tracesSampleRate, 1);
-    assert.equal(sentryCalls.init.profileSessionSampleRate, 1);
-    assert.equal(Array.isArray(sentryCalls.init.integrations), true);
+    expect(typeof instrument.captureError).toBe('function');
+    expect(sentryCalls.init.tracesSampleRate).toBe(1);
+    expect(sentryCalls.init.profileSessionSampleRate).toBe(1);
+    expect(Array.isArray(sentryCalls.init.integrations)).toBe(true);
   } finally {
     restore();
   }
 });
 
-test('instrument clamps valid sample rates from environment', () => {
+test('should clamps valid sample rates from environment', () => {
   const { sentryCalls, restore } = loadInstrumentWithStubs({
     sampleRates: {
       SENTRY_TRACES_SAMPLE_RATE: '0.25',
@@ -200,27 +194,27 @@ test('instrument clamps valid sample rates from environment', () => {
   });
 
   try {
-    assert.equal(sentryCalls.init.tracesSampleRate, 0.25);
-    assert.equal(sentryCalls.init.profileSessionSampleRate, 1);
+    expect(sentryCalls.init.tracesSampleRate).toBe(0.25);
+    expect(sentryCalls.init.profileSessionSampleRate).toBe(1);
   } finally {
     restore();
   }
 });
 
-test('instrument handles profiling integration that throws when invoked', () => {
+test('should handles profiling integration that throws when invoked', () => {
   delete require.cache[instrumentPath];
   delete require.cache[sentryPath];
   delete require.cache[profilingPath];
 
-  require.cache[profilingPath] = {
-    id: profilingPath,
-    filename: profilingPath,
-    loaded: true,
-    exports: {
-      nodeProfilingIntegration: () => {
-        throw new Error('integration init failed');
-      }
-    }
+  const sentryExports = {
+    init: () => {},
+    withScope: undefined,
+    captureException: () => {},
+    isEnabled: () => false,
+    metrics: null,
+    startSpan: undefined,
+    close: async () => {},
+    getGlobalScope: () => ({ setAttributes() {} })
   };
 
   const originalDsn = process.env.SENTRY_DSN;
@@ -234,9 +228,18 @@ test('instrument handles profiling integration that throws when invoked', () => 
   };
 
   try {
-    const loaded = require(instrumentPath);
-    assert.equal(typeof loaded.captureError, 'function');
-    assert.match(stderrSpy.join(''), /profiling integration unavailable/);
+    let loaded;
+    jest.isolateModules(() => {
+      jest.doMock('@sentry/node', () => sentryExports);
+      jest.doMock('@sentry/profiling-node', () => ({
+        nodeProfilingIntegration: () => {
+          throw new Error('integration init failed');
+        }
+      }));
+      loaded = require(instrumentPath);
+    });
+    expect(typeof loaded.captureError).toBe('function');
+    expect(stderrSpy.join('')).toMatch(/profiling integration unavailable/);
   } finally {
     process.stderr.write = originalWrite;
     if (originalDsn === undefined) delete process.env.SENTRY_DSN;
@@ -246,7 +249,7 @@ test('instrument handles profiling integration that throws when invoked', () => 
   }
 });
 
-test('instrument no-ops metrics when Sentry is disabled (coverage merged)', () => {
+test('should no-ops metrics when Sentry is disabled (coverage merged)', () => {
   const instrument = loadInstrument();
   const original = {
     isEnabled: instrument.Sentry.isEnabled,
@@ -261,7 +264,7 @@ test('instrument no-ops metrics when Sentry is disabled (coverage merged)', () =
   };
 
   try {
-    assert.equal(instrument.closeSentry() instanceof Promise, true);
+    expect(instrument.closeSentry() instanceof Promise).toBe(true);
     instrument.recordCount('metric.count');
     instrument.recordGauge('metric.gauge', 1);
     instrument.recordDistribution('metric.dist', 2);
@@ -271,7 +274,7 @@ test('instrument no-ops metrics when Sentry is disabled (coverage merged)', () =
   }
 });
 
-test('instrument disables logs and metrics when env flags are false', () => {
+test('should disables logs and metrics when env flags are false', () => {
   const { sentryCalls, restore } = loadInstrumentWithStubs({
     sampleRates: {
       SENTRY_DSN: 'https://example.invalid/1',
@@ -281,14 +284,14 @@ test('instrument disables logs and metrics when env flags are false', () => {
   });
 
   try {
-    assert.equal(sentryCalls.init.enableLogs, false);
-    assert.equal(sentryCalls.init.enableMetrics, false);
+    expect(sentryCalls.init.enableLogs).toBe(false);
+    expect(sentryCalls.init.enableMetrics).toBe(false);
   } finally {
     restore();
   }
 });
 
-test('instrument honors SENTRY_PROFILE_LIFECYCLE env', () => {
+test('should honors SENTRY_PROFILE_LIFECYCLE env', () => {
   const { sentryCalls, restore } = loadInstrumentWithStubs({
     sampleRates: {
       SENTRY_DSN: 'https://example.invalid/1',
@@ -297,33 +300,65 @@ test('instrument honors SENTRY_PROFILE_LIFECYCLE env', () => {
   });
 
   try {
-    assert.equal(sentryCalls.init.profileLifecycle, 'manual');
+    expect(sentryCalls.init.profileLifecycle).toBe('manual');
   } finally {
     restore();
   }
 });
 
-test('instrument loads when getGlobalScope is unavailable', () => {
+test('should loads when getGlobalScope is unavailable', () => {
   const { instrument, restore } = loadInstrumentWithStubs({
     omitGlobalScope: true,
     sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
   });
 
   try {
-    assert.equal(typeof instrument.captureError, 'function');
+    expect(typeof instrument.captureError).toBe('function');
   } finally {
     restore();
   }
 });
 
-test('closeSentry invokes Sentry.close with timeout', async () => {
+test('should uses NODE_ENV in Sentry init when set', () => {
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: {
+      SENTRY_DSN: 'https://example.invalid/1',
+      NODE_ENV: 'staging'
+    }
+  });
+
+  try {
+    expect(sentryCalls.init.environment).toBe('staging');
+  } finally {
+    restore();
+  }
+});
+
+test('should defaults environment to production when NODE_ENV is unset', () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  delete process.env.NODE_ENV;
+
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
+  });
+
+  try {
+    expect(sentryCalls.init.environment).toBe('production');
+  } finally {
+    restore();
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+  }
+});
+
+test('should closeSentry invokes Sentry.close with timeout', async () => {
   const { instrument, sentryCalls, restore } = loadInstrumentWithStubs({
     sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
   });
 
   try {
     await instrument.closeSentry();
-    assert.deepEqual(sentryCalls.closeArgs, [2000]);
+    expect(sentryCalls.closeArgs).toEqual([2000]);
   } finally {
     restore();
   }

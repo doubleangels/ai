@@ -37,21 +37,21 @@ npm run commands:deploy
 npm test
 ```
 
-This runs the full suite via Node's built-in test runner with the shared preload stub ([`test/preload.cjs`](../test/preload.cjs)) that mocks Discord, AI SDKs, and Sentry.
+This runs the full suite with [Jest](https://jestjs.io/) using shared setup in [`test/jest.setup.cjs`](../test/jest.setup.cjs) and [`test/jest.afterEnv.cjs`](../test/jest.afterEnv.cjs), which stub Discord, AI SDKs, and Sentry.
 
 **CI runs `npm test` only** — coverage is not generated or uploaded in GitHub Actions.
 
 ### Coverage gate (local / maintainer)
 
-100% coverage is enforced locally with [c8](https://github.com/bcoe/c8):
+100% coverage is enforced locally with Jest's V8 coverage provider:
 
 ```bash
 npm run test:coverage:check
 ```
 
-Thresholds (lines, branches, functions, statements) are defined in [`.c8rc.json`](../.c8rc.json). Coverage output is written to `coverage/` and is gitignored.
+Thresholds (lines, branches, functions, statements) are defined in [`jest.config.cjs`](../jest.config.cjs). Coverage output is written to `coverage/` and is gitignored.
 
-On Windows, run the command directly in PowerShell without piping output — piping can cause c8 to hang.
+On Windows, run the command directly in PowerShell without piping output — piping can cause Jest to hang.
 
 ### Pre-deploy check
 
@@ -64,7 +64,7 @@ npm run predeploy   # runs tests, then deploys commands
 Production images are built from the multi-stage [`Dockerfile`](../Dockerfile). The build context excludes tests and coverage tooling via [`.dockerignore`](../.dockerignore):
 
 - `test/`
-- `.c8rc.json`
+- `jest.config.cjs`
 - `coverage/`, `*.lcov`, `.nyc_output/`
 
 Runtime images contain application code and production dependencies only (`npm ci --omit=dev`).

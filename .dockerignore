@@ -1,6 +1,6 @@
 # Dev-only (tests and coverage tooling)
 test/
-.c8rc.json
+jest.config.cjs
 
 # Dependencies
 node_modules

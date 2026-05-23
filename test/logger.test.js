@@ -1,18 +1,17 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const path = require('path');
+const { stubModule, reloadModule } = require('./testUtils.cjs');
 
 const getLogger = require(path.resolve(__dirname, '..', 'logger.js'));
 
-test('getLogger throws on invalid label', () => {
-  assert.throws(() => getLogger(null));
+test('should throws on invalid label', () => {
+  expect(() => getLogger(null)).toThrow();
 });
 
-test('getLogger returns logger with methods', () => {
+test('should returns logger with methods', () => {
   const logger = getLogger('test');
-  assert.equal(typeof logger.info, 'function');
-  assert.equal(typeof logger.error, 'function');
-  assert.equal(typeof logger._pino, 'object');
+  expect(typeof logger.info).toBe('function');
+  expect(typeof logger.error).toBe('function');
+  expect(typeof logger._pino).toBe('object');
 });
 
 // --- appended from test/logger.coverage.test.js ---
@@ -21,23 +20,15 @@ const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const pinoPath = require.resolve('pino');
 
 function loadLoggerWithPino(pinoFactory) {
-  delete require.cache[loggerPath];
-  delete require.cache[pinoPath];
-  const fakePino = Object.assign(pinoFactory, {
+  global.__pinoStub = Object.assign(pinoFactory, {
     stdTimeFunctions: {
       isoTime: () => new Date().toISOString()
     }
   });
-  require.cache[pinoPath] = {
-    id: pinoPath,
-    filename: pinoPath,
-    loaded: true,
-    exports: fakePino
-  };
-  return require(loggerPath);
+  return reloadModule(loggerPath);
 }
 
-test('logger forwards structured messages to Sentry logger methods (coverage merged)', () => {
+test('should logger forwards structured messages to Sentry logger methods (coverage merged)', () => {
   const instrument = require(instrumentPath);
   const sentryCalls = [];
   const original = instrument.Sentry.logger;
@@ -59,14 +50,14 @@ test('logger forwards structured messages to Sentry logger methods (coverage mer
   logger.trace('trace message');
   logger.fatal('fatal message', { d: 4 });
 
-  assert.equal(sentryCalls.length, 6);
-  assert.equal(sentryCalls[0][0], 'info');
-  assert.equal(sentryCalls[5][0], 'fatal');
+  expect(sentryCalls.length).toBe(6);
+  expect(sentryCalls[0][0]).toBe('info');
+  expect(sentryCalls[5][0]).toBe('fatal');
 
   instrument.Sentry.logger = original;
 });
 
-test('logger swallows Sentry forwarding failures (coverage merged)', () => {
+test('should logger swallows Sentry forwarding failures (coverage merged)', () => {
   const instrument = require(instrumentPath);
   const original = instrument.Sentry.logger;
   instrument.Sentry.logger = {
@@ -75,21 +66,26 @@ test('logger swallows Sentry forwarding failures (coverage merged)', () => {
 
   const getLogger = require(loggerPath);
   const logger = getLogger('coverage-forward-failure');
-  assert.doesNotThrow(() => logger.info('message'));
+  expect(() => logger.info('message')).not.toThrow();
 
   instrument.Sentry.logger = original;
 });
 
-test('logger pino level formatter uppercases labels', () => {
+test('should logger pino level formatter uppercases labels', () => {
   let capturedFormatter;
   loadLoggerWithPino(opts => {
     capturedFormatter = opts.formatters.level;
     return { child: () => ({ info() {}, warn() {}, error() {}, debug() {}, trace() {}, fatal() {} }) };
   });
-  assert.deepEqual(capturedFormatter('debug'), { level: 'DEBUG' });
+  expect(capturedFormatter('debug')).toEqual({ level: 'DEBUG' });
 });
 
-test('logger surfaces creation failures (coverage merged)', () => {
-  const getLogger = loadLoggerWithPino(() => ({ child: () => { throw new Error('child failed'); } }));
-  assert.throws(() => getLogger('broken'), /Failed to create logger instance/);
+test('should logger surfaces creation failures (coverage merged)', () => {
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const getLogger = loadLoggerWithPino(() => ({ child: () => { throw new Error('child failed'); } }));
+    expect(() => getLogger('broken')).toThrow(/Failed to create logger instance/);
+  } finally {
+    errorSpy.mockRestore();
+  }
 });

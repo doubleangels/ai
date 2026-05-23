@@ -1,0 +1,404 @@
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê encrypted .env [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.608Z","pid":19996,"hostname":"Zeus","label":"aiService.js","responseId":"r1","charCount":17,"tokensUsed":10,"msg":"Generated AI response successfully:."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ override existing { override: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.623Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":12,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.634Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":12,"model":"claude-sonnet-4-6","toolRounds":0,"msg":"Generated AI response successfully (Claude):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.645Z","pid":19996,"hostname":"Zeus","label":"aiService.js","responseId":"openai-1","charCount":13,"tokensUsed":10,"msg":"Generated AI response successfully:."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ suppress logs { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.674Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: service down\n    at Object.create (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:162:35)\n    at create (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:554:41)\n    at generateOpenAIResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:642:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:170:33)","message":"service down","model":"gpt-5.4-nano","statusCode":500,"msg":"API request failed."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîü auth for agents [www.vestauth.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.688Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: cachedcontent not found\n    at Object.generateContent (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:187:29)\n    at generateContent (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:302:35)\n    at generateGeminiResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:638:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:199:33)","message":"cachedcontent not found","model":"gemini-3-flash-preview","msg":"Gemini API request failed."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ custom filepath { path: '/custom/path/.env' }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.699Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Cannot generate AI response; empty conversation provided."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê encrypted .env [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.720Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"OpenAI API key not configured (OPENAI_API_KEY)."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ custom filepath { path: '/custom/path/.env' }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.730Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: api down\n    at Object.create (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:243:37)\n    at create (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:554:41)\n    at generateOpenAIResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:642:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:252:26)","message":"api down","model":"gpt-5.4-nano","statusCode":"unknown","msg":"API request failed."}
+{"level":"ERROR","time":"2026-05-23T03:46:51.730Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: api down\n    at Object.create (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:243:37)\n    at create (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:554:41)\n    at generateOpenAIResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:642:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:271:27)","message":"api down","model":"gpt-5.4-nano","statusCode":"unknown","msg":"API request failed."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.742Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: fatal\n    at Object.create (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:282:35)\n    at create (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:554:41)\n    at generateOpenAIResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:642:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:295:33)","message":"fatal","model":"gpt-5.4-nano","statusCode":500,"msg":"API request failed."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.752Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Gemini API key not configured (GEMINI_API_KEY)."}
+{"level":"ERROR","time":"2026-05-23T03:46:51.752Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Gemini API key not configured (GEMINI_API_KEY)."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"WARN","time":"2026-05-23T03:46:51.762Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"ENABLE_WEB_SEARCH and ENABLE_GOOGLE_MAPS are both on; Gemini allows only one per request. Using Google Search grounding only. Disable ENABLE_WEB_SEARCH to use Maps."}
+{"level":"INFO","time":"2026-05-23T03:46:51.762Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":9,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+{"level":"WARN","time":"2026-05-23T03:46:51.762Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"ENABLE_WEB_SEARCH and ENABLE_GOOGLE_MAPS are both on; Gemini allows only one per request. Using Google Search grounding only. Disable ENABLE_WEB_SEARCH to use Maps."}
+{"level":"INFO","time":"2026-05-23T03:46:51.762Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":9,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.775Z","pid":19996,"hostname":"Zeus","label":"aiService.js","responseId":"r1","charCount":2,"tokensUsed":1,"msg":"Generated AI response successfully:."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ suppress logs { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.785Z","pid":19996,"hostname":"Zeus","label":"aiService.js","responseId":"r1","charCount":2,"tokensUsed":1,"msg":"Generated AI response successfully:."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê encrypted .env [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.796Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":9,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+{"level":"INFO","time":"2026-05-23T03:46:51.796Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":9,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.806Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":2,"model":"claude-sonnet-4-6","toolRounds":0,"msg":"Generated AI response successfully (Claude):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.817Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":2,"model":"claude-sonnet-4-6","toolRounds":0,"msg":"Generated AI response successfully (Claude):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ enable debugging { debug: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.828Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":4,"model":"claude-sonnet-4-5","toolRounds":1,"msg":"Generated AI response successfully (Claude):."}
+{"level":"INFO","time":"2026-05-23T03:46:51.828Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":4,"model":"claude-sonnet-4-5","toolRounds":0,"msg":"Generated AI response successfully (Claude):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.838Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: generic gemini failure\n    at Object.generateContent (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:579:21)\n    at generateContent (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:302:35)\n    at C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:638:17","message":"generic gemini failure","model":"gemini-3-flash-preview","msg":"Gemini API request failed."}
+{"level":"ERROR","time":"2026-05-23T03:46:51.839Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: generic gemini failure\n    at Object.generateContent (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:579:21)\n    at generateContent (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:302:35)\n    at generateGeminiResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:638:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:607:27)","message":"generic gemini failure","model":"gemini-3-flash-preview","msg":"Gemini API request failed."}
+{"level":"ERROR","time":"2026-05-23T03:46:51.839Z","pid":19996,"hostname":"Zeus","label":"aiService.js","error":"Error: generic gemini failure\n    at Object.generateContent (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:579:21)\n    at generateContent (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:302:35)\n    at generateGeminiResponse (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:638:23)\n    at cb (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:38:73)\n    at Object.startSpan [as generateAIResponse] (C:\\Users\\mattv\\Github\\ai\\utils\\aiService.js:631:10)\n    at Object.generateAIResponse (C:\\Users\\mattv\\Github\\ai\\test\\aiService.test.js:618:29)","message":"generic gemini failure","model":"gemini-3-flash-preview","msg":"Gemini API request failed."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.849Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":2,"model":"claude-sonnet-4-6","toolRounds":0,"msg":"Generated AI response successfully (Claude):."}
+{"level":"INFO","time":"2026-05-23T03:46:51.849Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":2,"model":"claude-sonnet-4-6","toolRounds":0,"msg":"Generated AI response successfully (Claude):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ suppress logs { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.863Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":9,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.875Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":14,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê encrypted .env [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"WARN","time":"2026-05-23T03:46:51.886Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Gemini response is empty."}
+{"level":"WARN","time":"2026-05-23T03:46:51.886Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Gemini response is empty."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ override existing { override: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"WARN","time":"2026-05-23T03:46:51.897Z","pid":19996,"hostname":"Zeus","label":"aiService.js","message":"cachedcontent not found","msg":"Gemini cached content likely expired or invalid, retrying without cache."}
+{"level":"INFO","time":"2026-05-23T03:46:51.897Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":19,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini, retry without cache)."}
+{"level":"WARN","time":"2026-05-23T03:46:51.897Z","pid":19996,"hostname":"Zeus","label":"aiService.js","message":"cachedcontent not found","msg":"Gemini cached content likely expired or invalid, retrying without cache."}
+{"level":"INFO","time":"2026-05-23T03:46:51.897Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":19,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini, retry without cache)."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ multiple files { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"INFO","time":"2026-05-23T03:46:51.907Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":2,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+{"level":"INFO","time":"2026-05-23T03:46:51.907Z","pid":19996,"hostname":"Zeus","label":"aiService.js","charCount":2,"model":"gemini-3-flash-preview","msg":"Generated AI response successfully (Gemini):."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ custom filepath { path: '/custom/path/.env' }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"WARN","time":"2026-05-23T03:46:51.917Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Gemini cached content likely expired or invalid, retrying without cache."}
+{"level":"ERROR","time":"2026-05-23T03:46:51.917Z","pid":19996,"hostname":"Zeus","label":"aiService.js","model":"gemini-3-flash-preview","msg":"Gemini API retry without cache failed."}
+{"level":"WARN","time":"2026-05-23T03:46:51.917Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Gemini cached content likely expired or invalid, retrying without cache."}
+{"level":"ERROR","time":"2026-05-23T03:46:51.917Z","pid":19996,"hostname":"Zeus","label":"aiService.js","model":"gemini-3-flash-preview","msg":"Gemini API retry without cache failed."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γîÿ enable debugging { debug: true }
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"WARN","time":"2026-05-23T03:46:51.927Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"Claude response is empty."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê encrypted .env [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.938Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"OpenAI API key not configured (OPENAI_API_KEY)."}
+  console.log
+    Γùç injected env (0) from .env // tip: Γùê secrets for agents [www.dotenvx.com]
+
+      at _log (node_modules/dotenv/lib/main.js:131:11)
+
+{"level":"ERROR","time":"2026-05-23T03:46:51.954Z","pid":19996,"hostname":"Zeus","label":"aiService.js","msg":"OpenAI API key not configured (OPENAI_API_KEY)."}
+FAIL test/aiService.test.js
+  ΓêÜ should uses OpenAI when configured (81 ms)
+  ΓêÜ should uses Gemini when configured (13 ms)
+  ΓêÜ should uses Claude when configured (10 ms)
+  ΓêÜ should openAI request includes reasoning, verbosity, tools, and image prompt handling (12 ms)
+  ΓêÜ should openAI API failure results in empty reply (29 ms)
+  ΓêÜ should gemini retries without cache when cached content causes 404 (14 ms)
+  ΓêÜ should rejects empty conversation (10 ms)
+  ΓêÜ should rethrows when provider span callback fails (11 ms)
+  ΓêÜ should openAI returns empty when API key missing (10 ms)
+  ├ù should openAI handles API errors and incomplete responses (11 ms)
+  ΓêÜ should openAI outer catch returns empty string (10 ms)
+  ΓêÜ should gemini returns empty without API key or valid turns (10 ms)
+  ├ù should gemini uses cache, tools, safety settings, and handles failures (10 ms)
+  ΓêÜ should openAI prepends image analysis system prompt when missing (13 ms)
+  ΓêÜ should records errors when post-processing metrics fail (10 ms)
+  ΓêÜ should gemini reuses valid cache entries without recreating (11 ms)
+  ΓêÜ should claude uses plain system prompt when context cache is disabled (10 ms)
+  ΓêÜ should claude uses image analysis prompt without a system message (11 ms)
+  ├ù should claude handles tools, thinking, empty responses, and API failures (11 ms)
+  ├ù should gemini handles non-stale API failures, empty retries, and text property responses (11 ms)
+  ├ù should claude skips blank assistant turns and handles tool input defaults (11 ms)
+  ΓêÜ should gemini formatters handle invalid data URLs and non-string system content (13 ms)
+  ΓêÜ should gemini reads plain text property when response.text is not a function (11 ms)
+  ├ù should gemini handles missing response text and invalid image data URLs (12 ms)
+  ├ù should gemini retry path handles text() function responses after stale cache (11 ms)
+  ΓêÜ should provider formatters handle non-string message content branches (9 ms)
+  ├ù should gemini handles non-string API errors and retry text() responses (10 ms)
+  ΓêÜ should claude handles missing response content in tool rounds (10 ms)
+  ├ù should openAI outer catch tags unknown provider when config provider is empty (12 ms)
+  ├ù should captureError tags unknown provider on post-success failures (15 ms)
+
+  ΓùÅ should openAI handles API errors and incomplete responses
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "partial"
+    Received: ""
+
+      269 |   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
+      270 |
+    > 271 |   expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('partial');
+          |                                                                                  ^
+      272 |   expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi again' }])).toMatch(/couldn't generate a response/);
+      273 | });
+      274 |
+
+      at Object.toBe (test/aiService.test.js:271:82)
+
+  ΓùÅ should gemini uses cache, tools, safety settings, and handles failures
+
+    expect(received).toMatch(expected)
+
+    Expected pattern: /couldn't generate a response/
+    Received string:  "gemini ok"
+
+      359 |     }
+      360 |   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
+    > 361 |   expect(await emptyReply.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
+          |                                                                                  ^
+      362 |
+      363 |   const retryFail = await loadAiService({
+      364 |     genai: {
+
+      at Object.toMatch (test/aiService.test.js:361:82)
+
+  ΓùÅ should claude handles tools, thinking, empty responses, and API failures
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: ""
+    Received: "done"
+
+      539 |
+      540 |   const noKey = await loadAiService({}, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: undefined });
+    > 541 |   expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
+          |                                                                             ^
+      542 |
+      543 |   const emptyText = await loadAiService({
+      544 |     anthropic: function FakeAnthropic() {
+
+      at Object.toBe (test/aiService.test.js:541:77)
+
+  ΓùÅ should gemini handles non-stale API failures, empty retries, and text property responses
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "plain text property"
+    Received: ""
+
+      616 |     }
+      617 |   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
+    > 618 |   expect(await textProperty.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('plain text property');
+          |                                                                                    ^
+      619 | });
+      620 |
+      621 | test('should claude skips blank assistant turns and handles tool input defaults', async () => {
+
+      at Object.toBe (test/aiService.test.js:618:84)
+
+  ΓùÅ should claude skips blank assistant turns and handles tool input defaults
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "time sent"
+    Received: "ok"
+
+      648 |     }
+      649 |   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+    > 650 |   expect(await toolService.generateAIResponse([{ role: 'user', content: 'time?' }])).toBe('time sent');
+          |                                                                                      ^
+      651 | });
+      652 |
+      653 | test('should gemini formatters handle invalid data URLs and non-string system content', async () => {
+
+      at Object.toBe (test/aiService.test.js:650:86)
+
+  ΓùÅ should gemini handles missing response text and invalid image data URLs
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "ok"
+    Received: "I apologize, but I couldn't generate a response. Please try again."
+
+      719 |         ]
+      720 |       }
+    > 721 |     ])).toBe('ok');
+          |         ^
+      722 | });
+      723 |
+      724 | test('should gemini retry path handles text() function responses after stale cache', async () => {
+
+      at Object.toBe (test/aiService.test.js:721:9)
+
+  ΓùÅ should gemini retry path handles text() function responses after stale cache
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "retry plain property"
+    Received: "retry function text"
+
+      763 |     }
+      764 |   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
+    > 765 |   expect(await retryPlainProperty.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('retry plain property');
+          |                                                                                                                                         ^
+      766 |
+      767 |   const retryMissingText = await loadAiService({
+      768 |     genai: {
+
+      at Object.toBe (test/aiService.test.js:765:137)
+
+  ΓùÅ should gemini handles non-string API errors and retry text() responses
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "retry via function"
+    Received: ""
+
+      850 |     }
+      851 |   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
+    > 852 |   expect(await retryTextFn.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('retry via function');
+          |                                                                                                                                  ^
+      853 | });
+      854 |
+      855 | test('should claude handles missing response content in tool rounds', async () => {
+
+      at Object.toBe (test/aiService.test.js:852:130)
+
+  ΓùÅ should openAI outer catch tags unknown provider when config provider is empty
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: "unknown"
+    Received: undefined
+
+      915 |   const reply = await aiService.generateAIResponse(broken);
+      916 |   expect(reply).toBe('');
+    > 917 |   expect(capturedProvider).toBe('unknown');
+          |                            ^
+      918 | });
+      919 |
+      920 | test('should captureError tags unknown provider on post-success failures', async () => {
+
+      at Object.toBe (test/aiService.test.js:917:28)
+
+  ΓùÅ should captureError tags unknown provider on post-success failures
+
+    expect(received).rejects.toThrow()
+
+    Received promise resolved instead of rejected
+    Resolved to value: ""
+
+      967 |
+      968 |   const aiService = require(aiServicePath);
+    > 969 |   await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/metric failed/);
+          |         ^
+      970 | });
+      971 |
+
+      at expect (node_modules/expect/build/index.js:113:15)
+      at Object.expect (test/aiService.test.js:969:9)
+
+Test Suites: 1 failed, 1 total
+Tests:       10 failed, 20 passed, 30 total
+Snapshots:   0 total
+Time:        0.757 s, estimated 1 s
+Ran all test suites matching /test\\aiService.test.js/i.

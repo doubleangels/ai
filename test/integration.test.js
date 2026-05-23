@@ -1,7 +1,7 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const path = require('path');
 const { EventEmitter } = require('node:events');
+const { withEnv, loadAiService, setSdkStubs, instrumentPath: sharedInstrumentPath } = require('./loadHelpers.cjs');
+const { stubModule, reloadModule, DEFAULT_CONFIG, defaultInstrumentStub, clearStubRegistry, clearStubModuleCaches } = require('./testUtils.cjs');
 
 const indexPath = path.resolve(__dirname, '..', 'index.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
@@ -9,108 +9,101 @@ const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const messageCreatePath = path.resolve(__dirname, '..', 'events', 'messageCreate.js');
 const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
 const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
+const realAiUtils = require(aiUtilsPath);
 const replyChainTracerPath = path.resolve(__dirname, '..', 'utils', 'replyChainTracer.js');
 const deployPath = path.resolve(__dirname, '..', 'deploy-commands.js');
 const resetPath = path.resolve(__dirname, '..', 'commands', 'reset.js');
 const loggerPath = path.resolve(__dirname, '..', 'logger.js');
 const pinoPath = require.resolve('pino');
 
-function stubModule(modulePath, exportsObj) {
-  require.cache[modulePath] = {
-    id: modulePath,
-    filename: modulePath,
-    loaded: true,
-    exports: exportsObj
-  };
-}
-
-function withEnv(overrides, run) {
-  const keys = Object.keys(overrides);
-  const saved = new Map(keys.map(key => [key, process.env[key]]));
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-  return Promise.resolve()
-    .then(run)
-    .finally(() => {
-      for (const [key, value] of saved) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    });
-}
-
 function loadConfig(overrides) {
   return withEnv(overrides, () => {
-    delete require.cache[configPath];
-    return require(configPath);
+    jest.unmock(configPath);
+    return reloadModule(configPath);
   });
-}
-
-function loadAiService({ openai, genai, anthropic, instrument: instrumentOverrides = {} } = {}, env = {}) {
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: instrumentOverrides.captureError || (() => {}),
-    closeSentry: async () => {},
-    recordCount: instrumentOverrides.recordCount || (() => {}),
-    recordGauge: () => {},
-    recordDistribution: instrumentOverrides.recordDistribution || (() => {}),
-    startSpan: instrumentOverrides.startSpan || (async (_opts, cb) => cb())
-  });
-
-  if (openai) stubModule(require.resolve('openai'), openai);
-  if (genai) stubModule(require.resolve('@google/genai'), genai);
-  if (anthropic) stubModule(require.resolve('@anthropic-ai/sdk'), anthropic);
-
-  return withEnv(env, () => require(aiServicePath));
 }
 
 function loadMessageCreate(overrides = {}) {
-  delete require.cache[messageCreatePath];
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-  delete require.cache[aiUtilsPath];
+  jest.unmock(configPath);
+  jest.unmock(instrumentPath);
+  jest.unmock(aiServicePath);
+  jest.unmock(aiUtilsPath);
+  jest.unmock(replyChainTracerPath);
+  return reloadModule(messageCreatePath, () => {
+    global.__discordStub = {
+      Client: class {},
+      Collection: class extends Map {},
+      GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+      Events: { ClientReady: 'ready', MessageCreate: 'messageCreate' },
+      ActivityType: { Watching: 3 }
+    };
 
-  const discordPath = require.resolve('discord.js');
-  delete require.cache[discordPath];
-  const discord = require(discordPath);
-  stubModule(discordPath, {
-    ...discord,
-    Events: { ...discord.Events, MessageCreate: 'messageCreate' }
-  });
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      userCooldownMs: 0,
+      channelCooldownMs: 0,
+      allowedGuildIds: new Set(),
+      ...overrides.config
+    });
 
-  const baseConfig = require(configPath);
-  stubModule(configPath, {
-    ...baseConfig,
-    userCooldownMs: 0,
-    channelCooldownMs: 0,
-    allowedGuildIds: new Set(),
-    ...overrides.config
-  });
+    stubModule(aiServicePath, {
+      generateAIResponse: overrides.generateAIResponse || (async () => 'ok')
+    });
+    stubModule(instrumentPath, defaultInstrumentStub({
+      recordCount: overrides.recordCount
+    }));
 
-  stubModule(aiServicePath, {
-    generateAIResponse: overrides.generateAIResponse || (async () => 'ok')
-  });
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false, setConversationId: () => {} },
-    captureError: () => {},
-    recordCount: overrides.recordCount || (() => {}),
-    recordDistribution: () => {},
-    recordGauge: () => {},
-    startSpan: async (_opts, cb) => cb()
-  });
+    stubModule(aiUtilsPath, { ...realAiUtils, ...(overrides.aiUtils || {}) });
 
-  if (overrides.aiUtils) {
-    stubModule(aiUtilsPath, { ...require(aiUtilsPath), ...overrides.aiUtils });
+    if (overrides.replyChainTracer) {
+      stubModule(replyChainTracerPath, overrides.replyChainTracer);
+    }
+  });
+}
+
+function loadIndexHarness(recordCountImpl, configOverrides = {}, options = {}) {
+  class FakeClient {
+    constructor() {
+      FakeClient.instance = this;
+      this.commands = new Map();
+      this.handlers = new Map();
+      this.conversationHistory = new Map();
+      this.channelLocks = new Map();
+      this.user = { id: 'bot-123', tag: 'Bot#0001' };
+      this.guilds = { cache: new Map() };
+    }
+    on(event, handler) {
+      const list = this.handlers.get(event) || [];
+      list.push(handler);
+      this.handlers.set(event, list);
+    }
+    once(event, handler) { this.on(event, handler); }
+    login() { return Promise.resolve(); }
   }
 
-  return require(messageCreatePath);
+  const originalReaddir = require('fs').readdirSync;
+  reloadModule(indexPath, () => {
+    stubModule(configPath, { ...DEFAULT_CONFIG, ...configOverrides });
+    stubModule(instrumentPath, defaultInstrumentStub({
+      recordCount: options.recordCount || recordCountImpl
+    }));
+
+    global.__discordStub = {
+      Client: FakeClient,
+      Collection: Map,
+      GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+      Options: { cacheWithLimits: limits => limits, DefaultMakeCacheSettings: {} },
+      ActivityType: { Watching: 'Watching' }
+    };
+
+    require('fs').readdirSync = dir => {
+      if (String(dir).endsWith(`${path.sep}commands`) || String(dir).endsWith(`${path.sep}events`)) return [];
+      return originalReaddir(dir);
+    };
+  });
+
+  require('fs').readdirSync = originalReaddir;
+  return FakeClient.instance;
 }
 
 function createMessage(overrides = {}) {
@@ -157,97 +150,36 @@ function createMessage(overrides = {}) {
   };
 }
 
-function loadIndexHarness(recordCountImpl, configOverrides = {}, options = {}) {
-  delete require.cache[indexPath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-
-  stubModule(configPath, {
-    token: 'fake',
-    allowedGuildIds: new Set(),
-    logLevel: 'info',
-    ...configOverrides
-  });
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    closeSentry: async () => {},
-    recordCount: options.recordCount || recordCountImpl || (() => {}),
-    recordGauge: () => {},
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb()
-  });
-
-  class FakeClient {
-    constructor() {
-      FakeClient.instance = this;
-      this.commands = new Map();
-      this.handlers = new Map();
-      this.conversationHistory = new Map();
-      this.channelLocks = new Map();
-      this.user = { id: 'bot-123', tag: 'Bot#0001' };
-      this.guilds = { cache: new Map() };
-    }
-    on(event, handler) {
-      const list = this.handlers.get(event) || [];
-      list.push(handler);
-      this.handlers.set(event, list);
-    }
-    once(event, handler) { this.on(event, handler); }
-    login() { return Promise.resolve(); }
-  }
-
-  stubModule(require.resolve('discord.js'), {
-    Client: FakeClient,
-    Collection: Map,
-    GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
-    Options: { cacheWithLimits: limits => limits, DefaultMakeCacheSettings: {} },
-    ActivityType: { Watching: 'Watching' }
-  });
-
-  const fs = require('fs');
-  const originalReaddir = fs.readdirSync;
-  fs.readdirSync = dir => {
-    if (String(dir).endsWith(`${path.sep}commands`) || String(dir).endsWith(`${path.sep}events`)) return [];
-    return originalReaddir(dir);
-  };
-
-  require(indexPath);
-  const client = FakeClient.instance;
-  fs.readdirSync = originalReaddir;
-  return client;
-}
-
-test('config falls back to provider defaults when model env vars are blank', async () => {
+test('should falls back to provider defaults when model env vars are blank', async () => {
   const gemini = await loadConfig({
     AI_PROVIDER: 'gemini',
     GEMINI_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  assert.equal(gemini.modelName, 'gemini-3-flash-preview');
+  expect(gemini.modelName).toBe('gemini-3-flash-preview');
 
   const geminiTrimmed = await loadConfig({
     AI_PROVIDER: 'gemini',
     GEMINI_MODEL_NAME: '  gemini-3-flash-preview  ',
     OPENAI_MODEL_NAME: undefined
   });
-  assert.equal(geminiTrimmed.modelName, 'gemini-3-flash-preview');
+  expect(geminiTrimmed.modelName).toBe('gemini-3-flash-preview');
 
   const claude = await loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  assert.equal(claude.modelName, 'claude-sonnet-4-6');
+  expect(claude.modelName).toBe('claude-sonnet-4-6');
 
   const openai = await loadConfig({
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: '   '
   });
-  assert.equal(openai.modelName, 'gpt-5.4-nano');
+  expect(openai.modelName).toBe('gpt-5.4-nano');
 });
 
-test('index sends successful command error replies and swallows metric failures', async () => {
+test('should index sends successful command error replies and swallows metric failures', async () => {
   let commandReplyMetrics = 0;
   const client = loadIndexHarness((_name, _value, attrs) => {
     if (attrs?.location === 'index.command_reply') {
@@ -289,12 +221,12 @@ test('index sends successful command error replies and swallows metric failures'
     },
     followUp: async () => {}
   });
-  assert.equal(commandReplyMetrics, 2);
+  expect(commandReplyMetrics).toBe(2);
 
   delete require.cache[indexPath];
 });
 
-test('index swallows context menu reply metric failures', async () => {
+test('should index swallows context menu reply metric failures', async () => {
   let contextReplyMetrics = 0;
   const client = loadIndexHarness((_name, _value, attrs) => {
     if (attrs?.location === 'index.contextmenu_reply') {
@@ -322,7 +254,7 @@ test('index swallows context menu reply metric failures', async () => {
     },
     followUp: async () => {}
   });
-  assert.equal(contextReplyMetrics, 2);
+  expect(contextReplyMetrics).toBe(2);
 
   let commandStatusCodeMetrics = 0;
   const client2 = loadIndexHarness((_name, _value, attrs) => {
@@ -348,72 +280,81 @@ test('index swallows context menu reply metric failures', async () => {
       throw err;
     }
   });
-  assert.equal(commandStatusCodeMetrics, 1);
-
-  delete require.cache[indexPath];
+  expect(commandStatusCodeMetrics).toBe(1);
 });
 
-test('deploy-commands records failures using statusCode and swallows metric errors', async () => {
+test('should records failures using statusCode and swallows metric errors', async () => {
   let deployMetrics = 0;
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    recordCount: (_name, _value, attrs) => {
-      if (attrs?.location === 'deploy.register') {
-        deployMetrics += 1;
-        if (deployMetrics >= 2) throw new Error('metric failed');
-      }
-    },
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb(),
-    closeSentry: async () => {}
-  });
+  const deploy = reloadModule(deployPath, () => {
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: (_name, _value, attrs) => {
+        if (attrs?.location === 'deploy.register') {
+          deployMetrics += 1;
+          if (deployMetrics >= 2) throw new Error('metric failed');
+        }
+      },
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb(),
+      closeSentry: async () => {}
+    });
 
-  stubModule(require.resolve('discord.js'), {
-    SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
-    EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
-    ChannelType: { GuildText: 0 },
-    PermissionFlagsBits: { Administrator: 0 },
-    REST: class {
-      setToken() { return this; }
-      async put() {
-        const err = new Error('rate limited');
-        err.statusCode = 429;
-        throw err;
-      }
-    },
-    Routes: { applicationCommands: id => `/apps/${id}/cmds` }
+    stubModule(require.resolve('discord.js'), {
+      SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
+      ChannelType: { GuildText: 0 },
+      PermissionFlagsBits: { Administrator: 0 },
+      REST: class {
+        setToken() { return this; }
+        async put() {
+          const err = new Error('rate limited');
+          err.statusCode = 429;
+          throw err;
+        }
+      },
+      Routes: { applicationCommands: id => `/apps/${id}/cmds` }
+    });
   });
 
   process.env.DISCORD_CLIENT_ID = 'client-1';
-  delete require.cache[deployPath];
-  const deploy = require(deployPath);
-  await assert.rejects(async () => deploy());
-  assert.equal(deployMetrics, 2);
+  await expect(deploy()).rejects.toThrow();
+  expect(deployMetrics).toBe(2);
 
-  delete require.cache[deployPath];
-  stubModule(require.resolve('discord.js'), {
-    SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
-    EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
-    ChannelType: { GuildText: 0 },
-    PermissionFlagsBits: { Administrator: 0 },
-    REST: class {
-      setToken() { return this; }
-      async put() {
-        const err = new Error('forbidden');
-        err.httpStatus = 403;
-        throw err;
-      }
-    },
-    Routes: { applicationCommands: id => `/apps/${id}/cmds` }
+  deployMetrics = 0;
+  const deployHttp = reloadModule(deployPath, () => {
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: (_name, _value, attrs) => {
+        if (attrs?.location === 'deploy.register') deployMetrics += 1;
+      },
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb(),
+      closeSentry: async () => {}
+    });
+
+    stubModule(require.resolve('discord.js'), {
+      SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
+      ChannelType: { GuildText: 0 },
+      PermissionFlagsBits: { Administrator: 0 },
+      REST: class {
+        setToken() { return this; }
+        async put() {
+          const err = new Error('forbidden');
+          err.httpStatus = 403;
+          throw err;
+        }
+      },
+      Routes: { applicationCommands: id => `/apps/${id}/cmds` }
+    });
   });
-  const deployHttp = require(deployPath);
-  await assert.rejects(async () => deployHttp());
+  await expect(deployHttp()).rejects.toThrow();
 });
 
-test('reset handles missing guild metadata and all-channel error scope', async () => {
-  delete require.cache[resetPath];
-  const command = require(resetPath);
+test('should reset handles missing guild metadata and all-channel error scope', async () => {
+  const command = loadResetCommand();
 
   const interaction = {
     user: { id: 'admin-1', tag: 'Admin#0001' },
@@ -431,7 +372,7 @@ test('reset handles missing guild metadata and all-channel error scope', async (
     followUp: async () => {}
   };
 
-  await assert.doesNotReject(async () => command.execute(interaction));
+  await expect(command.execute(interaction)).resolves.not.toThrow();
 
   const errorInteraction = {
     user: { id: 'admin-1', tag: 'Admin#0001' },
@@ -452,83 +393,88 @@ test('reset handles missing guild metadata and all-channel error scope', async (
     followUp: async () => { throw new Error('followUp failed'); }
   };
 
-  await assert.doesNotReject(async () => command.execute(errorInteraction));
+  await expect(command.execute(errorInteraction)).resolves.not.toThrow();
 });
 
-test('logger uses default log level and forwards string-only messages to Sentry', () => {
-  delete require.cache[loggerPath];
-  delete require.cache[pinoPath];
-  delete require.cache[configPath];
-
-  stubModule(configPath, { logLevel: undefined });
+test('should logger uses default log level and forwards string-only messages to Sentry', () => {
   const sentryCalls = [];
-  stubModule(instrumentPath, {
-    Sentry: {
-      logger: {
-        info: message => sentryCalls.push(message)
-      },
-      captureException: () => {}
-    }
+  global.__pinoStub = Object.assign(
+    () => ({ child: () => ({ info() {}, warn() {}, error() {}, debug() {}, trace() {}, fatal() {} }) }),
+    { stdTimeFunctions: { isoTime: () => new Date().toISOString() } }
+  );
+
+  const getLogger = reloadModule(loggerPath, () => {
+    stubModule(configPath, { ...DEFAULT_CONFIG, logLevel: undefined });
+    stubModule(instrumentPath, defaultInstrumentStub({
+      Sentry: {
+        logger: {
+          info: message => sentryCalls.push(message)
+        }
+      }
+    }));
   });
 
-  require.cache[pinoPath] = {
-    id: pinoPath,
-    filename: pinoPath,
-    loaded: true,
-    exports: Object.assign(
-      opts => ({ child: () => ({ info() {}, warn() {}, error() {}, debug() {}, trace() {}, fatal() {} }) }),
-      { stdTimeFunctions: { isoTime: () => new Date().toISOString() } }
-    )
-  };
-
-  const getLogger = require(loggerPath);
   const logger = getLogger('coverage-default-level');
   logger.info('plain message');
-  assert.deepEqual(sentryCalls, ['plain message.']);
+  expect(sentryCalls).toEqual(['plain message.']);
+  clearStubRegistry();
 });
 
-test('instrument records metrics without attributes', () => {
-  delete require.cache[instrumentPath];
-  const instrument = require(instrumentPath);
+function reloadAiServiceWith(setup) {
+  jest.unmock(aiServicePath);
+  jest.unmock(configPath);
+  jest.unmock(instrumentPath);
+  jest.unmock(aiUtilsPath);
+  return reloadModule(aiServicePath, () => {
+    stubModule(instrumentPath, defaultInstrumentStub());
+    stubModule(configPath, { ...DEFAULT_CONFIG });
+    if (setup) setup();
+  });
+}
+
+function loadResetCommand() {
+  return reloadModule(resetPath);
+}
+
+test('should records metrics without attributes', () => {
   const metricCalls = [];
-  const original = {
-    isEnabled: instrument.Sentry.isEnabled,
-    metrics: instrument.Sentry.metrics
-  };
+  const instrument = reloadModule(instrumentPath, () => {
+    jest.doMock('@sentry/node', () => ({
+      init: () => {},
+      isEnabled: () => true,
+      metrics: {
+        count: (...args) => metricCalls.push(['count', ...args]),
+        gauge: (...args) => metricCalls.push(['gauge', ...args]),
+        distribution: (...args) => metricCalls.push(['distribution', ...args])
+      },
+      withScope: undefined,
+      captureException: () => {},
+      startSpan: undefined,
+      close: async () => {},
+      getGlobalScope: () => ({ setAttributes() {} })
+    }));
+  });
 
-  instrument.Sentry.isEnabled = () => true;
-  instrument.Sentry.metrics = {
-    count: (...args) => metricCalls.push(['count', ...args]),
-    gauge: (...args) => metricCalls.push(['gauge', ...args]),
-    distribution: (...args) => metricCalls.push(['distribution', ...args])
-  };
-
-  try {
-    instrument.recordCount('metric.no_attrs');
-    instrument.recordGauge('metric.no_attrs', 1);
-    instrument.recordDistribution('metric.no_attrs', 2);
-    assert.equal(metricCalls.length, 3);
-    assert.deepEqual(metricCalls[0][3], {});
-  } finally {
-    instrument.Sentry.isEnabled = original.isEnabled;
-    instrument.Sentry.metrics = original.metrics;
-  }
+  instrument.recordCount('metric.no_attrs');
+  instrument.recordGauge('metric.no_attrs', 1);
+  instrument.recordDistribution('metric.no_attrs', 2);
+  expect(metricCalls.length).toBe(3);
+  expect(metricCalls[0][3]).toEqual({});
 });
 
-test('aiUtils covers remaining helper branches', () => {
+test('should aiUtils covers remaining helper branches', () => {
   const aiUtils = require(aiUtilsPath);
-  assert.equal(aiUtils.estimateTokensFromText(''), 0);
-  assert.equal(aiUtils.hasImages([{ role: 'user', content: 'text only' }]), false);
-  assert.deepEqual(aiUtils.createMessageContent('', [{ type: 'input_image', image_url: 'data:image/png;base64,AA==' }]), [
+  expect(aiUtils.estimateTokensFromText('')).toBe(0);
+  expect(aiUtils.hasImages([{ role: 'user', content: 'text only' }])).toBe(false);
+  expect(aiUtils.createMessageContent('', [{ type: 'input_image', image_url: 'data:image/png;base64,AA==' }])).toEqual([
     { type: 'input_image', image_url: 'data:image/png;base64,AA==' }
   ]);
-  assert.equal(aiUtils.trimConversationHistory([], 5).length, 0);
-  assert.equal(aiUtils.trimConversationHistory(null, 5), null);
+  expect(aiUtils.trimConversationHistory([], 5).length).toBe(0);
+  expect(aiUtils.trimConversationHistory(null, 5)).toBe(null);
 });
 
-test('replyChainTracer uses Unknown author fallback', () => {
-  delete require.cache[replyChainTracerPath];
-  const tracer = require(replyChainTracerPath);
+test('should replyChainTracer uses Unknown author fallback', () => {
+  const tracer = reloadModule(replyChainTracerPath);
   const chain = [
     {
       id: 'm1',
@@ -543,17 +489,17 @@ test('replyChainTracer uses Unknown author fallback', () => {
       attachments: { size: 0 }
     }
   ];
-  assert.match(tracer.formatChainAsContext(chain), /Unknown: hello/);
+  expect(tracer.formatChainAsContext(chain)).toMatch(/Unknown: hello/);
 
   const shortChain = [
     { id: 'm1', content: 'short', author: { username: 'bob' }, attachments: { size: 0 } },
     { id: 'm2', content: 'current', author: { username: 'alice' }, attachments: { size: 0 } }
   ];
-  assert.match(tracer.formatChainAsContext(shortChain), /bob: short/);
-  assert.doesNotMatch(tracer.formatChainAsContext(shortChain), /\.\.\./);
+  expect(tracer.formatChainAsContext(shortChain)).toMatch(/bob: short/);
+  expect(tracer.formatChainAsContext(shortChain)).not.toMatch(/\.\.\./);
 });
 
-test('Gemini cache creation failure, stale cache retry success, and Claude empty turns', async () => {
+test('should gemini cache creation failure, stale cache retry success, and Claude empty turns', async () => {
   const cacheFail = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -568,10 +514,7 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
     GEMINI_API_KEY: 'fake',
     ENABLE_CONTEXT_CACHE: '1'
   });
-  assert.equal(
-    await cacheFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    'uncached ok'
-  );
+  expect(await cacheFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('uncached ok');
 
   let generateCalls = 0;
   const retrySuccess = await loadAiService({
@@ -598,11 +541,8 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
     GEMINI_API_KEY: 'fake',
     ENABLE_CONTEXT_CACHE: '1'
   });
-  assert.equal(
-    await retrySuccess.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    'retry ok'
-  );
-  assert.ok(generateCalls >= 2);
+  expect(await retrySuccess.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('retry ok');
+  expect(generateCalls >= 2).toBeTruthy();
 
   const regexStale = await loadAiService({
     genai: {
@@ -625,10 +565,7 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
     GEMINI_API_KEY: 'fake',
     ENABLE_CONTEXT_CACHE: '1'
   });
-  assert.equal(
-    await regexStale.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    'regex retry ok'
-  );
+  expect(await regexStale.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('regex retry ok');
 
   const retryFail = await loadAiService({
     genai: {
@@ -653,10 +590,7 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
     GEMINI_API_KEY: 'fake',
     ENABLE_CONTEXT_CACHE: '1'
   });
-  assert.equal(
-    await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    ''
-  );
+  expect(await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
 
   const imageOnlyGemini = await loadAiService({
     genai: {
@@ -669,12 +603,9 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(
-    await imageOnlyGemini.generateAIResponse([
+  expect(await imageOnlyGemini.generateAIResponse([
       { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
-    ]),
-    'image ok'
-  );
+    ])).toBe('image ok');
 
   const geminiAssistant = await loadAiService({
     genai: {
@@ -687,21 +618,18 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(
-    await geminiAssistant.generateAIResponse([
+  expect(await geminiAssistant.generateAIResponse([
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'prior reply' },
       { role: 'user', content: 'follow up' }
-    ]),
-    'assistant ok'
-  );
+    ])).toBe('assistant ok');
 
   const claudeEmpty = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = { create: async () => ({ content: [{ type: 'text', text: 'should not run' }] }) };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.equal(await claudeEmpty.generateAIResponse([{ role: 'system', content: 'sys only' }]), '');
+  expect(await claudeEmpty.generateAIResponse([{ role: 'system', content: 'sys only' }])).toBe('');
 
   const claudeAssistant = await loadAiService({
     anthropic: function FakeAnthropic() {
@@ -710,17 +638,14 @@ test('Gemini cache creation failure, stale cache retry success, and Claude empty
       };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.equal(
-    await claudeAssistant.generateAIResponse([
+  expect(await claudeAssistant.generateAIResponse([
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'earlier' },
       { role: 'user', content: 'again' }
-    ]),
-    'claude ok'
-  );
+    ])).toBe('claude ok');
 });
 
-test('messageCreate covers cooldown failures, bot reply fetch, and fallback reply metrics', async () => {
+test('should covers cooldown failures, bot reply fetch, and fallback reply metrics', async () => {
   const userCooldownMod = loadMessageCreate({
     config: { userCooldownMs: 60_000, channelCooldownMs: 0 },
     recordCount: () => {}
@@ -772,7 +697,7 @@ test('messageCreate covers cooldown failures, bot reply fetch, and fallback repl
       throw err;
     }
   }));
-  assert.equal(fallbackMetrics, 2);
+  expect(fallbackMetrics).toBe(2);
 
   const botReplyMod = loadMessageCreate();
   await botReplyMod.execute(createMessage({
@@ -846,7 +771,7 @@ test('messageCreate covers cooldown failures, bot reply fetch, and fallback repl
       return { edit: async () => {} };
     }
   }));
-  assert.equal(editThinkingMetrics, 2);
+  expect(editThinkingMetrics).toBe(2);
 
   const thinkingFailMod = loadMessageCreate();
   await thinkingFailMod.execute(createMessage({
@@ -857,7 +782,7 @@ test('messageCreate covers cooldown failures, bot reply fetch, and fallback repl
   }));
 });
 
-test('downloadImageAsBase64 rejects unknown mime types without content-type header', async () => {
+test('should rejects unknown mime types without content-type header', async () => {
   const aiUtils = require(aiUtilsPath);
   const https = require('node:https');
   const originalGet = https.get;
@@ -877,29 +802,26 @@ test('downloadImageAsBase64 rejects unknown mime types without content-type head
   };
 
   try {
-    await assert.rejects(
-      async () => aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png'),
-      /Unsupported content-type/
-    );
+    await expect(aiUtils.downloadImageAsBase64('https://cdn.discordapp.com/image.png')).rejects.toThrow(/Unsupported content-type/);
   } finally {
     https.get = originalGet;
   }
 });
 
-test('messageCreate initializes missing client state maps', async () => {
+test('should initializes missing client state maps', async () => {
   const mod = loadMessageCreate();
   const bareClient = {
     user: { id: 'bot-123' },
     conversationHistory: new Map()
   };
   await mod.execute(createMessage({ client: bareClient }));
-  assert.ok(bareClient.channelLocks instanceof Map);
-  assert.ok(bareClient.channelQueueDepth instanceof Map);
-  assert.ok(bareClient.userCooldowns instanceof Map);
-  assert.ok(bareClient.channelCooldowns instanceof Map);
+  expect(bareClient.channelLocks instanceof Map).toBeTruthy();
+  expect(bareClient.channelQueueDepth instanceof Map).toBeTruthy();
+  expect(bareClient.userCooldowns instanceof Map).toBeTruthy();
+  expect(bareClient.channelCooldowns instanceof Map).toBeTruthy();
 });
 
-test('messageCreate ignores bot authors and prefetch fetch failures', async () => {
+test('should ignores bot authors and prefetch fetch failures', async () => {
   const mod = loadMessageCreate();
   await mod.execute(createMessage({
     author: { bot: true, id: 'bot-2', tag: 'Bot#2', username: 'bot' }
@@ -916,10 +838,10 @@ test('messageCreate ignores bot authors and prefetch fetch failures', async () =
     },
     reply: async () => { replied = true; return { edit: async () => {} }; }
   }));
-  assert.equal(replied, false);
+  expect(replied).toBe(false);
 });
 
-test('messageCreate handles reply trigger and additional chunk rate limit metrics', async () => {
+test('should handles reply trigger and additional chunk rate limit metrics', async () => {
   let chunkMetrics = 0;
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'a'.repeat(4100),
@@ -975,10 +897,10 @@ test('messageCreate handles reply trigger and additional chunk rate limit metric
       throw err;
     }
   }));
-  assert.equal(chunkMetrics, 2);
+  expect(chunkMetrics).toBe(2);
 });
 
-test('index covers interaction handler guard branches and httpStatus fallbacks', async () => {
+test('should index covers interaction handler guard branches and httpStatus fallbacks', async () => {
   let contextBlockedReply = false;
   const client = loadIndexHarness((_name, _value, attrs) => {
     if (attrs?.location === 'index.contextmenu_reply' && attrs?.httpStatus === 418) {
@@ -1011,7 +933,6 @@ test('index covers interaction handler guard branches and httpStatus fallbacks',
     followUp: async () => {}
   });
 
-  delete require.cache[configPath];
   const blockedClient = loadIndexHarness(() => {}, { allowedGuildIds: new Set(['allowed-only']) });
   blockedClient.commands.set('ctx-boom', { execute: async () => {} });
   const blockedHandlers = blockedClient.handlers.get('interactionCreate') || [];
@@ -1025,7 +946,7 @@ test('index covers interaction handler guard branches and httpStatus fallbacks',
     reply: async () => { contextBlockedReply = true; throw new Error('blocked'); },
     followUp: async () => {}
   });
-  assert.equal(contextBlockedReply, true);
+  expect(contextBlockedReply).toBe(true);
 
   const httpClient = loadIndexHarness(() => {});
   httpClient.commands.set('cmd-boom', { execute: async () => { throw new Error('cmd failed'); } });
@@ -1063,23 +984,19 @@ test('index covers interaction handler guard branches and httpStatus fallbacks',
     },
     followUp: async () => {}
   });
-
-  delete require.cache[indexPath];
 });
 
-test('config resolves claude model from CLAUDE_MODEL_NAME', async () => {
+test('should resolves claude model from CLAUDE_MODEL_NAME', async () => {
   const config = await loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: 'claude-sonnet-4-6',
     OPENAI_MODEL_NAME: undefined
   });
-  assert.equal(config.modelName, 'claude-sonnet-4-6');
+  expect(config.modelName).toBe('claude-sonnet-4-6');
 });
 
-test('reset initializes missing channelLocks on the client', async () => {
-  delete require.cache[resetPath];
-  delete require.cache[require.resolve('discord.js')];
-  const command = require(resetPath);
+test('should reset initializes missing channelLocks on the client', async () => {
+  const command = loadResetCommand();
   const interaction = {
     user: { id: 'admin-1', tag: 'Admin#0001' },
     guildId: 'guild-1',
@@ -1095,88 +1012,38 @@ test('reset initializes missing channelLocks on the client', async () => {
     followUp: async () => {}
   };
 
-  await assert.doesNotReject(async () => command.execute(interaction));
-  assert.ok(interaction.client.channelLocks instanceof Map);
+  await expect(command.execute(interaction)).resolves.not.toThrow();
+  expect(interaction.client.channelLocks instanceof Map).toBeTruthy();
 });
 
-test('OpenAI and Claude branch coverage for optional request fields', async () => {
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    closeSentry: async () => {},
-    recordCount: () => {},
-    recordGauge: () => {},
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb()
-  });
-
-  stubModule(configPath, {
-    openaiApiKey: 'fake',
-    geminiApiKey: 'fake',
-    anthropicApiKey: 'fake',
-    modelName: 'gpt-5.4-nano',
-    getTemperature: () => 1,
-    reasoningEffort: 42,
-    responsesVerbosity: null,
-    aiProvider: 'openai',
-    enableWebSearch: false,
-    enableGoogleMaps: false,
-    enableContextCache: false,
-    geminiCacheTtlSeconds: 3600,
-    geminiSafetySettings: undefined,
-    maxOutputTokens: 1024,
-    claudeThinkingBudgetTokens: 0,
-    openaiTimeoutMs: 60000,
-    openaiMaxRetries: 2
-  });
-
-  stubModule(require.resolve('openai'), {
-    OpenAI: class {
-      constructor() {
-        this.responses = {
-          create: async () => ({
-            status: 'completed',
-            id: 'r1',
-            usage: { total_tokens: 1 }
-          })
-        };
+test('should openAI and Claude branch coverage for optional request fields', async () => {
+  setSdkStubs({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async () => ({
+              status: 'completed',
+              id: 'r1',
+              usage: { total_tokens: 1 }
+            })
+          };
+        }
       }
     }
   });
 
-  const openaiService = require(aiServicePath);
-  assert.match(
-    await openaiService.generateAIResponse([{ role: 'user', content: 'hi' }]),
-    /couldn't generate a response/
-  );
-
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  stubModule(configPath, {
-    openaiApiKey: 'fake',
-    anthropicApiKey: 'fake',
-    modelName: 'claude-sonnet-4-5',
-    getTemperature: () => 1,
-    reasoningEffort: 'none',
-    responsesVerbosity: 'low',
-    aiProvider: 'claude',
-    enableWebSearch: false,
-    enableGoogleMaps: false,
-    enableContextCache: false,
-    geminiCacheTtlSeconds: 3600,
-    geminiSafetySettings: undefined,
-    maxOutputTokens: 1024,
-    claudeThinkingBudgetTokens: 0,
-    openaiTimeoutMs: 60000,
-    openaiMaxRetries: 2
+  const openaiService = reloadAiServiceWith(() => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      reasoningEffort: 42,
+      responsesVerbosity: null
+    });
   });
+  expect(await openaiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
 
   let round = 0;
-  stubModule(require.resolve('@anthropic-ai/sdk'), function FakeAnthropic() {
+  global.__anthropicStub = function FakeAnthropic() {
     this.messages = {
       create: async () => {
         round += 1;
@@ -1191,33 +1058,28 @@ test('OpenAI and Claude branch coverage for optional request fields', async () =
         };
       }
     };
-  });
+  };
+  clearStubModuleCaches();
 
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    closeSentry: async () => {},
-    recordCount: () => {},
-    recordGauge: () => {},
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb()
+  const claudeService = reloadAiServiceWith(() => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      aiProvider: 'claude',
+      modelName: 'claude-sonnet-4-5'
+    });
   });
-
-  const claudeService = require(aiServicePath);
-  assert.equal(
-    await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }]),
-    'final after max rounds'
-  );
+  expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('final after max rounds');
+  clearStubRegistry();
 });
 
-test('Gemini maps-only grounding and invalid image data URLs', async () => {
+test('should gemini maps-only grounding and invalid image data URLs', async () => {
   const mapsOnly = await loadAiService({
     genai: {
       GoogleGenAI: class {
         constructor() {
           this.models = {
             generateContent: async ({ config }) => {
-              assert.deepEqual(config.tools, [{ googleMaps: {} }]);
+              expect(config.tools).toEqual([{ googleMaps: {} }]);
               return { text: 'maps ok' };
             }
           };
@@ -1230,7 +1092,7 @@ test('Gemini maps-only grounding and invalid image data URLs', async () => {
     ENABLE_WEB_SEARCH: '0',
     ENABLE_GOOGLE_MAPS: '1'
   });
-  assert.equal(await mapsOnly.generateAIResponse([{ role: 'user', content: 'where' }]), 'maps ok');
+  expect(await mapsOnly.generateAIResponse([{ role: 'user', content: 'where' }])).toBe('maps ok');
 
   const invalidImage = await loadAiService({
     genai: {
@@ -1243,51 +1105,41 @@ test('Gemini maps-only grounding and invalid image data URLs', async () => {
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(
-    await invalidImage.generateAIResponse([
+  expect(await invalidImage.generateAIResponse([
       { role: 'user', content: [{ type: 'input_image', image_url: 'not-a-data-url' }] }
-    ]),
-    ''
-  );
+    ])).toBe('');
 });
 
-test('aiUtils covers attachment and token helper branches', async () => {
+test('should aiUtils covers attachment and token helper branches', async () => {
   const aiUtils = require(aiUtilsPath);
-  assert.deepEqual(await aiUtils.processImageAttachments(null), []);
-  assert.deepEqual(
-    await aiUtils.processImageAttachments([{ contentType: 'text/plain', url: 'https://cdn.discordapp.com/x.txt' }]),
-    []
-  );
+  expect(await aiUtils.processImageAttachments(null)).toEqual([]);
+  expect(await aiUtils.processImageAttachments([{ contentType: 'text/plain', url: 'https://cdn.discordapp.com/x.txt' }])).toEqual([]);
 
   const processed = await aiUtils.processImageAttachments([
     { contentType: 'image/png', url: 'https://cdn.discordapp.com/a.png', name: 'named.png' }
   ]);
-  assert.equal(processed.length, 0);
+  expect(processed.length).toBe(0);
 
-  assert.equal(aiUtils.trimConversationHistory([{ role: 'system', content: 'sys' }], 0, 0).length, 1);
+  expect(aiUtils.trimConversationHistory([{ role: 'system', content: 'sys' }], 0, 0).length).toBe(1);
 
   const tokenHistory = [{ role: 'system', content: 'sys' }, { role: 'user', content: 123 }];
   aiUtils.trimConversationHistory(tokenHistory, 10, 5000);
-  assert.equal(tokenHistory.length, 2);
+  expect(tokenHistory.length).toBe(2);
 
-  delete require.cache[require.resolve('../utils/aiUtils.js')];
-  delete require.cache[require.resolve('../config.js')];
-  stubModule(require.resolve('../config.js'), {
-    imageDownloadTimeoutMs: 0,
-    maxImageBytes: 0,
-    maxOutputTokens: 1024
+  const utilsWithLimits = reloadModule(aiUtilsPath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      imageDownloadTimeoutMs: 0,
+      maxImageBytes: 0
+    });
   });
-  const utilsWithLimits = require(require.resolve('../utils/aiUtils.js'));
-  assert.equal((await utilsWithLimits.processImageAttachments([
+  expect((await utilsWithLimits.processImageAttachments([
     { contentType: 'image/png', filename: 'pic.png', url: 'https://cdn.discordapp.com/not-real.png' }
-  ])).length, 0);
-  delete require.cache[require.resolve('../utils/aiUtils.js')];
-  delete require.cache[require.resolve('../config.js')];
+  ])).length).toBe(0);
 });
 
-test('replyChainTracer returns partial chains and empty message metadata', async () => {
-  delete require.cache[replyChainTracerPath];
-  const tracer = require(replyChainTracerPath);
+test('should replyChainTracer returns partial chains and empty message metadata', async () => {
+  const tracer = reloadModule(replyChainTracerPath);
 
   const parent = {
     id: 'parent',
@@ -1316,7 +1168,7 @@ test('replyChainTracer returns partial chains and empty message metadata', async
   };
 
   const partial = await tracer.traceReplyChain(start, channel);
-  assert.deepEqual(partial.map(m => m.id), ['parent', 'start']);
+  expect(partial.map(m => m.id)).toEqual(['parent', 'start']);
 
   const emptyStart = {
     id: 'solo',
@@ -1329,7 +1181,7 @@ test('replyChainTracer returns partial chains and empty message metadata', async
     createdTimestamp: 3
   };
   const recovered = await tracer.traceReplyChain(emptyStart, channel);
-  assert.deepEqual(recovered.map(m => m.id), ['solo']);
+  expect(recovered.map(m => m.id)).toEqual(['solo']);
 
   const rows = await tracer.extractChainMessages([
     {
@@ -1340,10 +1192,10 @@ test('replyChainTracer returns partial chains and empty message metadata', async
       createdTimestamp: 1
     }
   ]);
-  assert.equal(rows[0].content, '');
+  expect(rows[0].content).toBe('');
 });
 
-test('messageCreate branch coverage for channel name, triggers, and reply paths', async () => {
+test('should branch coverage for channel name, triggers, and reply paths', async () => {
   const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
 
   await mod.execute(createMessage({
@@ -1472,10 +1324,10 @@ test('messageCreate branch coverage for channel name, triggers, and reply paths'
       throw err;
     }
   }));
-  assert.equal(chunkStatusCodeMetrics, 1);
+  expect(chunkStatusCodeMetrics).toBe(1);
 });
 
-test('index covers remaining reply error and rejection branches', async () => {
+test('should index covers remaining reply error and rejection branches', async () => {
   let contextHttpMetrics = 0;
   const client = loadIndexHarness(() => {}, {}, {
     recordCount: (_name, _value, attrs) => {
@@ -1500,14 +1352,12 @@ test('index covers remaining reply error and rejection branches', async () => {
     },
     followUp: async () => {}
   });
-  assert.equal(contextHttpMetrics, 1);
+  expect(contextHttpMetrics).toBe(1);
   delete require.cache[indexPath];
 });
 
-test('reset logs when error-path followUp succeeds after editReply fails', async () => {
-  delete require.cache[resetPath];
-  delete require.cache[require.resolve('discord.js')];
-  const command = require(resetPath);
+test('should reset logs when error-path followUp succeeds after editReply fails', async () => {
+  const command = loadResetCommand();
   const calls = [];
   const interaction = {
     user: { id: 'admin-1', tag: 'Admin#0001' },
@@ -1527,32 +1377,31 @@ test('reset logs when error-path followUp succeeds after editReply fails', async
     followUp: async payload => { calls.push(payload); }
   };
   await command.execute(interaction);
-  assert.equal(calls.length, 1);
+  expect(calls.length).toBe(1);
 });
 
-test('config and aiUtils cover remaining model and download branches', async () => {
+test('should and aiUtils cover remaining model and download branches', async () => {
   const geminiOpenaiOnly = await loadConfig({
     AI_PROVIDER: 'gemini',
     GEMINI_MODEL_NAME: undefined,
     OPENAI_MODEL_NAME: 'gemini-3-flash-preview'
   });
-  assert.equal(geminiOpenaiOnly.modelName, 'gemini-3-flash-preview');
+  expect(geminiOpenaiOnly.modelName).toBe('gemini-3-flash-preview');
 
   const aiUtilsLocal = require(aiUtilsPath);
-  assert.equal((await aiUtilsLocal.processImageAttachments(null)).length, 0);
+  expect((await aiUtilsLocal.processImageAttachments(null)).length).toBe(0);
 });
 
-test('replyChainTracer handles empty content in context formatting', () => {
-  delete require.cache[replyChainTracerPath];
-  const tracer = require(replyChainTracerPath);
+test('should replyChainTracer handles empty content in context formatting', () => {
+  const tracer = reloadModule(replyChainTracerPath);
   const chain = [
     { id: 'm1', content: null, author: { username: 'bob' }, attachments: { size: 0 } },
     { id: 'm2', content: 'current', author: { username: 'alice' }, attachments: { size: 0 } }
   ];
-  assert.match(tracer.formatChainAsContext(chain), /bob:/);
+  expect(tracer.formatChainAsContext(chain)).toMatch(/bob:/);
 });
 
-test('deploy-commands records rate limit metrics and swallows metric failures', async () => {
+test('should records rate limit metrics and swallows metric failures', async () => {
   let recordCalls = 0;
   stubModule(instrumentPath, {
     Sentry: { isEnabled: () => false },
@@ -1579,11 +1428,11 @@ test('deploy-commands records rate limit metrics and swallows metric failures', 
   process.env.DISCORD_CLIENT_ID = 'client-1';
   delete require.cache[deployPath];
   const deploy = require(deployPath);
-  await assert.rejects(async () => deploy());
+  await expect(deploy()).rejects.toThrow();
 });
 
 
-test('index context menu reply failures record rate limits and metric errors', async () => {
+test('should index context menu reply failures record rate limits and metric errors', async () => {
   delete require.cache[indexPath];
   delete require.cache[configPath];
   delete require.cache[instrumentPath];
@@ -1708,70 +1557,11 @@ test('index context menu reply failures record rate limits and metric errors', a
   process.exit = originalExit;
   process.on = originalOn;
   fs.readdirSync = originalReaddir;
-  delete require.cache[indexPath];
+  clearStubRegistry();
 });
 
 
-test('messageCreate covers thinking failures, chain tracing, and chain images', async () => {
-  const discordPath = require.resolve('discord.js');
-  delete require.cache[messageCreatePath];
-  delete require.cache[replyChainTracerPath];
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-  delete require.cache[aiUtilsPath];
-  delete require.cache[discordPath];
-
-  const discord = require(discordPath);
-  stubModule(discordPath, {
-    ...discord,
-    Events: { ...discord.Events, MessageCreate: 'messageCreate' }
-  });
-
-  stubModule(configPath, {
-    maxHistoryLength: 20,
-    maxHistoryTokens: 0,
-    modelName: 'gpt-5.4-nano',
-    aiProvider: 'openai',
-    userCooldownMs: 0,
-    channelCooldownMs: 0,
-    maxPendingPerChannel: 3,
-    allowedGuildIds: new Set()
-  });
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    recordCount: () => {},
-    recordDistribution: () => {},
-    recordGauge: () => {},
-    startSpan: async (_opts, cb) => cb()
-  });
-  stubModule(aiServicePath, { generateAIResponse: async () => 'chain ok' });
-  const aiUtils = require(aiUtilsPath);
-  stubModule(replyChainTracerPath, {
-    traceReplyChain: async (msg, channel) => {
-      if (msg.id === 'trace-fail') throw new Error('trace failed');
-      return [parentWithImage, msg];
-    },
-    formatChainAsContext: () => '',
-    extractChainMessages: async () => []
-  });
-  stubModule(aiUtilsPath, {
-    ...aiUtils,
-    processImageAttachments: async () => [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }],
-    splitMessage: text => [text],
-    createMessageContent: (text, images) => [{ type: 'input_text', text }, ...images],
-    trimConversationHistory: history => history,
-    createSystemMessage: () => ({ role: 'system', content: 'system' }),
-    SYSTEM_MESSAGES: {
-      IMAGE_ANALYSIS: 'image',
-      BASE: () => 'system',
-      BASE_GENERIC: 'system',
-      IMAGE_DESCRIPTION_PROMPT: 'describe'
-    }
-  });
-
-  const mod = require(messageCreatePath);
+test('should covers thinking failures, chain tracing, and chain images', async () => {
   const parentWithImage = {
     id: 'parent',
     author: { id: 'user-2', username: 'bob', bot: false },
@@ -1779,6 +1569,31 @@ test('messageCreate covers thinking failures, chain tracing, and chain images', 
     reference: null,
     attachments: { size: 1, values: () => [{ url: 'https://cdn.discordapp.com/a.png', contentType: 'image/png' }] }
   };
+
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'chain ok',
+    replyChainTracer: {
+      traceReplyChain: async (msg) => {
+        if (msg.id === 'trace-fail') throw new Error('trace failed');
+        return [parentWithImage, msg];
+      },
+      formatChainAsContext: () => '',
+      extractChainMessages: async () => []
+    },
+    aiUtils: {
+      processImageAttachments: async () => [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }],
+      splitMessage: text => [text],
+      createMessageContent: (text, images) => [{ type: 'input_text', text }, ...(images || [])],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: {
+        IMAGE_ANALYSIS: 'image',
+        BASE: () => 'system',
+        BASE_GENERIC: 'system',
+        IMAGE_DESCRIPTION_PROMPT: 'describe'
+      }
+    }
+  });
 
   const client = {
     user: { id: 'bot-123' },
@@ -1808,79 +1623,64 @@ test('messageCreate covers thinking failures, chain tracing, and chain images', 
 
   await mod.execute({ ...base, id: 'trace-fail', channelId: 'chan-2' });
   await mod.execute({ ...base, id: 'msg-1', channelId: 'chan-1' });
-  assert.ok(client.conversationHistory.has('chan-1'));
-  delete require.cache[aiUtilsPath];
-  delete require.cache[messageCreatePath];
+  expect(client.conversationHistory.has('chan-1')).toBeTruthy();
 });
 
 
-test('aiService and aiUtils remaining branches', async () => {
-  delete require.cache[aiUtilsPath];
-  const aiUtils = require(aiUtilsPath);
-  assert.throws(() => aiUtils.assertDiscordImageDownloadUrl('http://cdn.discordapp.com/a.png'), /HTTPS/);
+test('should aiService and aiUtils remaining branches', async () => {
+  const aiUtils = reloadModule(aiUtilsPath);
+  expect(() => aiUtils.assertDiscordImageDownloadUrl('http://cdn.discordapp.com/a.png')).toThrow(/HTTPS/);
 
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
+  const openaiService = await loadAiService({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async () => ({ status: 'incomplete', output_text: '   ', id: 'r1' })
+          };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
+  expect(await openaiService.generateAIResponse([
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
+  ])).toBe('');
 
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    recordCount: () => {},
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb(),
-    closeSentry: async () => {}
-  });
-
-  stubModule(require.resolve('openai'), {
-    OpenAI: class {
-      constructor() {
-        this.responses = {
-          create: async () => ({ status: 'incomplete', output_text: '   ', id: 'r1' })
-        };
+  setSdkStubs({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = { create: async () => ({ status: 'completed', id: 'r1' }) };
+        }
       }
     }
   });
-
-  stubModule(require.resolve('@anthropic-ai/sdk'), function FakeAnthropic() {
-    this.messages = {
-      create: async () => ({ content: [{ type: 'text', text: 'ok' }] })
-    };
+  const throwingService = reloadModule(aiServicePath, () => {
+    stubModule(instrumentPath, defaultInstrumentStub());
+    stubModule(configPath, { ...DEFAULT_CONFIG });
+    stubModule(aiUtilsPath, {
+      hasImages: () => { throw new Error('hasImages failed'); },
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image analysis' }
+    });
   });
+  expect(await throwingService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
 
-  process.env.AI_PROVIDER = 'openai';
-  process.env.OPENAI_API_KEY = 'fake';
-  const openaiService = require(aiServicePath);
-  assert.equal(await openaiService.generateAIResponse([
+  clearStubRegistry();
+  const claudeService = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async () => ({ content: [{ type: 'text', text: 'ok' }] })
+      };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  expect(await claudeService.generateAIResponse([
     { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
-  ]), '');
+  ])).toBe('ok');
 
-  delete require.cache[require.resolve('../utils/aiUtils.js')];
-  stubModule(require.resolve('../utils/aiUtils.js'), {
-    hasImages: () => { throw new Error('hasImages failed'); },
-    SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image analysis' }
+  const config = await loadConfig({
+    AI_PROVIDER: 'gemini',
+    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: undefined
   });
-  delete require.cache[aiServicePath];
-  const throwingService = require(aiServicePath);
-  assert.equal(await throwingService.generateAIResponse([{ role: 'user', content: 'hi' }]), '');
-
-  delete require.cache[require.resolve('../utils/aiUtils.js')];
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  process.env.AI_PROVIDER = 'claude';
-  process.env.ANTHROPIC_API_KEY = 'fake';
-  const claudeService = require(aiServicePath);
-  assert.equal(await claudeService.generateAIResponse([
-    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
-  ]), 'ok');
-
-  delete require.cache[configPath];
-  const config = (() => {
-    process.env.AI_PROVIDER = 'gemini';
-    process.env.GEMINI_MODEL_NAME = 'gemini-3-flash-preview';
-    delete process.env.OPENAI_MODEL_NAME;
-    delete require.cache[configPath];
-    return require(configPath);
-  })();
-  assert.equal(config.modelName, 'gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3-flash-preview');
 });

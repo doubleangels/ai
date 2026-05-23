@@ -1,5 +1,3 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const path = require('path');
 
 const tracerPath = path.resolve(__dirname, '..', 'utils', 'replyChainTracer.js');
@@ -20,12 +18,12 @@ function makeMessage({ id, content = 'msg', author = { id: 'u1', username: 'alic
   };
 }
 
-test.afterEach(() => {
+afterEach(() => {
   const tracer = loadTracer();
   tracer.clearCache();
 });
 
-test('clearCache empties the message cache', async () => {
+test('should empties the message cache', async () => {
   const tracer = loadTracer();
   const channel = {
     id: 'chan-1',
@@ -43,11 +41,11 @@ test('clearCache empties the message cache', async () => {
   };
 
   const msg = await tracer.fetchMessageCached(channel, 'm1');
-  assert.equal(fetchCount, 1);
-  assert.equal(msg.content, 'fresh');
+  expect(fetchCount).toBe(1);
+  expect(msg.content).toBe('fresh');
 });
 
-test('fetchMessageCached returns cached message on second call', async () => {
+test('should fetchMessageCached returns cached message on second call', async () => {
   const tracer = loadTracer();
   let fetchCount = 0;
   const channel = {
@@ -62,10 +60,10 @@ test('fetchMessageCached returns cached message on second call', async () => {
 
   await tracer.fetchMessageCached(channel, 'm1');
   await tracer.fetchMessageCached(channel, 'm1');
-  assert.equal(fetchCount, 1);
+  expect(fetchCount).toBe(1);
 });
 
-test('fetchMessageCached returns null when fetch fails', async () => {
+test('should fetchMessageCached returns null when fetch fails', async () => {
   const tracer = loadTracer();
   const channel = {
     id: 'chan-1',
@@ -77,20 +75,20 @@ test('fetchMessageCached returns null when fetch fails', async () => {
   };
 
   const result = await tracer.fetchMessageCached(channel, 'missing');
-  assert.equal(result, null);
+  expect(result).toBe(null);
 });
 
-test('traceReplyChain returns single message when no reference', async () => {
+test('should traceReplyChain returns single message when no reference', async () => {
   const tracer = loadTracer();
   const start = makeMessage({ id: 'm3', content: 'current' });
   const channel = { id: 'chan-1', messages: { fetch: async () => null } };
 
   const chain = await tracer.traceReplyChain(start, channel);
-  assert.equal(chain.length, 1);
-  assert.equal(chain[0].id, 'm3');
+  expect(chain.length).toBe(1);
+  expect(chain[0].id).toBe('m3');
 });
 
-test('traceReplyChain walks parent references oldest to newest', async () => {
+test('should traceReplyChain walks parent references oldest to newest', async () => {
   const tracer = loadTracer();
   const parent = makeMessage({ id: 'm1', content: 'oldest' });
   const middle = makeMessage({
@@ -116,10 +114,10 @@ test('traceReplyChain walks parent references oldest to newest', async () => {
   };
 
   const chain = await tracer.traceReplyChain(start, channel);
-  assert.deepEqual(chain.map(m => m.id), ['m1', 'm2', 'm3']);
+  expect(chain.map(m => m.id)).toEqual(['m1', 'm2', 'm3']);
 });
 
-test('traceReplyChain stops when parent fetch fails', async () => {
+test('should traceReplyChain stops when parent fetch fails', async () => {
   const tracer = loadTracer();
   const start = makeMessage({
     id: 'm2',
@@ -136,10 +134,10 @@ test('traceReplyChain stops when parent fetch fails', async () => {
   };
 
   const chain = await tracer.traceReplyChain(start, channel);
-  assert.deepEqual(chain.map(m => m.id), ['m2']);
+  expect(chain.map(m => m.id)).toEqual(['m2']);
 });
 
-test('traceReplyChain respects MAX_CHAIN_DEPTH', async () => {
+test('should traceReplyChain respects MAX_CHAIN_DEPTH', async () => {
   const tracer = loadTracer();
   let depth = 0;
   const channel = {
@@ -157,10 +155,10 @@ test('traceReplyChain respects MAX_CHAIN_DEPTH', async () => {
 
   const start = makeMessage({ id: 'start', reference: { messageId: 'p-0' } });
   const chain = await tracer.traceReplyChain(start, channel);
-  assert.ok(chain.length <= tracer.MAX_CHAIN_DEPTH + 1);
+  expect(chain.length <= tracer.MAX_CHAIN_DEPTH + 1).toBeTruthy();
 });
 
-test('traceReplyChain returns partial chain on unexpected error', async () => {
+test('should traceReplyChain returns partial chain on unexpected error', async () => {
   const tracer = loadTracer();
   const badMessage = {
     id: 'bad',
@@ -171,10 +169,10 @@ test('traceReplyChain returns partial chain on unexpected error', async () => {
   const channel = { id: 'chan-1', messages: { fetch: async () => null } };
 
   const chain = await tracer.traceReplyChain(badMessage, channel);
-  assert.deepEqual(chain.map(m => m.id), ['bad']);
+  expect(chain.map(m => m.id)).toEqual(['bad']);
 });
 
-test('traceReplyChain returns start message when traversal fails before building chain', async () => {
+test('should traceReplyChain returns start message when traversal fails before building chain', async () => {
   const tracer = loadTracer();
   const startMessage = makeMessage({ id: 'solo', content: 'solo' });
   const channel = { id: 'chan-1', messages: { fetch: async () => null } };
@@ -186,29 +184,29 @@ test('traceReplyChain returns start message when traversal fails before building
 
   try {
     const chain = await tracer.traceReplyChain(startMessage, channel);
-    assert.deepEqual(chain.map(m => m.id), ['solo']);
+    expect(chain.map(m => m.id)).toEqual(['solo']);
   } finally {
     Array.prototype.unshift = originalUnshift;
   }
 });
 
-test('formatChainAsContext returns empty for empty or single-message chains', () => {
+test('should formatChainAsContext returns empty for empty or single-message chains', () => {
   const tracer = loadTracer();
-  assert.equal(tracer.formatChainAsContext([]), '');
-  assert.equal(tracer.formatChainAsContext([makeMessage({ id: 'm1' })]), '');
+  expect(tracer.formatChainAsContext([])).toBe('');
+  expect(tracer.formatChainAsContext([makeMessage({ id: 'm1' })])).toBe('');
 });
 
-test('formatChainAsContext uses author tag when username is missing', () => {
+test('should formatChainAsContext uses author tag when username is missing', () => {
   const tracer = loadTracer();
   const chain = [
     makeMessage({ id: 'm1', content: 'hello', author: { tag: 'tagged#1' } }),
     makeMessage({ id: 'm2', content: 'current', author: { username: 'alice' } })
   ];
   const context = tracer.formatChainAsContext(chain);
-  assert.match(context, /tagged#1: hello/);
+  expect(context).toMatch(/tagged#1: hello/);
 });
 
-test('formatChainAsContext formats prior messages with truncation and mention cleanup', () => {
+test('should formatChainAsContext formats prior messages with truncation and mention cleanup', () => {
   const tracer = loadTracer();
   const longContent = 'x'.repeat(250);
   const chain = [
@@ -217,13 +215,13 @@ test('formatChainAsContext formats prior messages with truncation and mention cl
   ];
 
   const context = tracer.formatChainAsContext(chain);
-  assert.match(context, /\[Previous conversation context\]/);
-  assert.match(context, /bob: @user/);
-  assert.match(context, /\.\.\./);
-  assert.match(context, /\[End of context\]/);
+  expect(context).toMatch(/\[Previous conversation context\]/);
+  expect(context).toMatch(/bob: @user/);
+  expect(context).toMatch(/\.\.\./);
+  expect(context).toMatch(/\[End of context\]/);
 });
 
-test('extractChainMessages maps chain metadata', async () => {
+test('should extractChainMessages maps chain metadata', async () => {
   const tracer = loadTracer();
   const chain = [
     makeMessage({
@@ -235,10 +233,10 @@ test('extractChainMessages maps chain metadata', async () => {
   ];
 
   const rows = await tracer.extractChainMessages(chain);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].id, 'm1');
-  assert.equal(rows[0].content, 'hello');
-  assert.equal(rows[0].author.username, 'alice');
-  assert.equal(rows[0].attachments, 2);
-  assert.equal(rows[0].isBot, false);
+  expect(rows.length).toBe(1);
+  expect(rows[0].id).toBe('m1');
+  expect(rows[0].content).toBe('hello');
+  expect(rows[0].author.username).toBe('alice');
+  expect(rows[0].attachments).toBe(2);
+  expect(rows[0].isBot).toBe(false);
 });

@@ -1,56 +1,35 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const path = require('path');
+const { stubModule, reloadModule, DEFAULT_CONFIG, defaultInstrumentStub } = require('./testUtils.cjs');
 
 const messageCreatePath = path.resolve(__dirname, '..', 'events', 'messageCreate.js');
 const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
-
-function stubModule(modulePath, exportsObj) {
-  require.cache[modulePath] = {
-    id: modulePath,
-    filename: modulePath,
-    loaded: true,
-    exports: exportsObj
-  };
-}
+const realAiUtils = require(aiUtilsPath);
 
 function loadMessageCreate({ generateAIResponse, config = {}, instrument = {}, aiUtils = null } = {}) {
-  delete require.cache[messageCreatePath];
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-  delete require.cache[aiUtilsPath];
+  return reloadModule(messageCreatePath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      userCooldownMs: 0,
+      channelCooldownMs: 0,
+      allowedGuildIds: new Set(),
+      ...config
+    });
 
-  const baseConfig = require(configPath);
-  stubModule(configPath, {
-    ...baseConfig,
-    userCooldownMs: 0,
-    channelCooldownMs: 0,
-    allowedGuildIds: new Set(),
-    ...config
+    stubModule(aiServicePath, { generateAIResponse: generateAIResponse || (async () => 'ok') });
+    stubModule(instrumentPath, defaultInstrumentStub({
+      ...instrument,
+      Sentry: {
+        isEnabled: () => false,
+        setConversationId: instrument.setConversationId || (() => {}),
+        ...instrument.Sentry
+      }
+    }));
+
+    stubModule(aiUtilsPath, { ...realAiUtils, ...(aiUtils || {}) });
   });
-
-  stubModule(aiServicePath, { generateAIResponse: generateAIResponse || (async () => 'ok') });
-  stubModule(instrumentPath, {
-    Sentry: {
-      isEnabled: () => false,
-      setConversationId: instrument.setConversationId || (() => {})
-    },
-    captureError: instrument.captureError || (() => {}),
-    recordCount: instrument.recordCount || (() => {}),
-    recordDistribution: instrument.recordDistribution || (() => {}),
-    recordGauge: instrument.recordGauge || (() => {}),
-    startSpan: instrument.startSpan || (async (_opts, cb) => cb())
-  });
-
-  if (aiUtils) {
-    stubModule(aiUtilsPath, { ...require(aiUtilsPath), ...aiUtils });
-  }
-
-  return require(messageCreatePath);
 }
 
 function createBaseMessage(overrides = {}) {
@@ -109,7 +88,7 @@ function createBaseMessage(overrides = {}) {
   return message;
 }
 
-test('messageCreate ignores messages outside allowed guilds', async () => {
+test('should ignores messages outside allowed guilds', async () => {
   const mod = loadMessageCreate({ config: { allowedGuildIds: new Set(['other-guild']) } });
   let replied = false;
   const message = createBaseMessage({
@@ -118,10 +97,10 @@ test('messageCreate ignores messages outside allowed guilds', async () => {
   });
 
   await mod.execute(message);
-  assert.equal(replied, false);
+  expect(replied).toBe(false);
 });
 
-test('messageCreate handles backpressure and failed busy replies', async () => {
+test('should handles backpressure and failed busy replies', async () => {
   let recordCalls = 0;
   const mod = loadMessageCreate({
     config: { maxPendingPerChannel: 1 },
@@ -137,7 +116,7 @@ test('messageCreate handles backpressure and failed busy replies', async () => {
   message.client.channelQueueDepth.set('chan-1', 1);
 
   await mod.execute(message);
-  assert.ok(message.getReplyTexts().some(text => text.includes('busy')));
+  expect(message.getReplyTexts().some(text => text.includes('busy'))).toBeTruthy();
 
   recordCalls = 0;
   const failMessage = createBaseMessage({
@@ -149,10 +128,10 @@ test('messageCreate handles backpressure and failed busy replies', async () => {
   });
   failMessage.client.channelQueueDepth.set('chan-1', 1);
   await mod.execute(failMessage);
-  assert.equal(recordCalls >= 2, true);
+  expect(recordCalls >= 2).toBe(true);
 });
 
-test('messageCreate applies user and channel cooldowns', async () => {
+test('should applies user and channel cooldowns', async () => {
   const mod = loadMessageCreate({
     config: { userCooldownMs: 60_000, channelCooldownMs: 60_000 }
   });
@@ -162,10 +141,10 @@ test('messageCreate applies user and channel cooldowns', async () => {
   message.client.channelCooldowns.set('chan-1', Date.now());
 
   await mod.execute(message);
-  assert.ok(message.getReplyTexts().some(text => text.includes('wait') || text.includes('Give me')));
+  expect(message.getReplyTexts().some(text => text.includes('wait') || text.includes('Give me'))).toBeTruthy();
 });
 
-test('messageCreate logs when channel cooldown reply fails', async () => {
+test('should logs when channel cooldown reply fails', async () => {
   const mod = loadMessageCreate({
     config: { userCooldownMs: 0, channelCooldownMs: 60_000 }
   });
@@ -189,10 +168,10 @@ test('messageCreate logs when channel cooldown reply fails', async () => {
   });
 
   await mod.execute(message);
-  assert.equal(sawCooldownReply, true);
+  expect(sawCooldownReply).toBe(true);
 });
 
-test('messageCreate sends channel cooldown notice when reply succeeds', async () => {
+test('should sends channel cooldown notice when reply succeeds', async () => {
   const mod = loadMessageCreate({
     config: { userCooldownMs: 0, channelCooldownMs: 60_000 }
   });
@@ -213,10 +192,10 @@ test('messageCreate sends channel cooldown notice when reply succeeds', async ()
   });
 
   await mod.execute(message);
-  assert.ok(replies.some(text => typeof text === 'string' && text.includes('Give me')));
+  expect(replies.some(text => typeof text === 'string' && text.includes('Give me'))).toBeTruthy();
 });
 
-test('messageCreate traces reply chains and truncates quoted context', async () => {
+test('should traces reply chains and truncates quoted context', async () => {
   const mod = loadMessageCreate({ generateAIResponse: async () => 'done' });
   const parent = {
     id: 'parent-1',
@@ -242,10 +221,10 @@ test('messageCreate traces reply chains and truncates quoted context', async () 
   await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
   const userTurn = history.find(entry => entry.role === 'user');
-  assert.match(JSON.stringify(userTurn.content), /\[truncated\]/);
+  expect(JSON.stringify(userTurn.content)).toMatch(/\[truncated\]/);
 });
 
-test('messageCreate handles reply-to-bot prefetch without mention', async () => {
+test('should handles reply-to-bot prefetch without mention', async () => {
   const mod = loadMessageCreate({ generateAIResponse: async () => 'prefetched' });
   const message = createBaseMessage({
     content: 'reply only',
@@ -266,10 +245,10 @@ test('messageCreate handles reply-to-bot prefetch without mention', async () => 
   });
 
   await mod.execute(message);
-  assert.equal(message.client.conversationHistory.get('chan-1').at(-1).content, 'prefetched');
+  expect(message.client.conversationHistory.get('chan-1').at(-1).content).toBe('prefetched');
 });
 
-test('messageCreate handles multi-chunk replies, empty chunks, and chunk failures', async () => {
+test('should handles multi-chunk replies, empty chunks, and chunk failures', async () => {
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'a'.repeat(4100),
     aiUtils: {
@@ -296,7 +275,7 @@ test('messageCreate handles multi-chunk replies, empty chunks, and chunk failure
   });
 
   await mod.execute(message);
-  assert.equal(chunkReplies >= 1, true);
+  expect(chunkReplies >= 1).toBe(true);
 
   const emptyChunks = loadMessageCreate({
     generateAIResponse: async () => 'ok',
@@ -311,10 +290,10 @@ test('messageCreate handles multi-chunk replies, empty chunks, and chunk failure
   });
   const emptyMessage = createBaseMessage();
   await emptyChunks.execute(emptyMessage);
-  assert.ok(emptyMessage.getReplyTexts().some(text => text.includes('No response')));
+  expect(emptyMessage.getReplyTexts().some(text => text.includes('No response'))).toBeTruthy();
 });
 
-test('messageCreate strips prior image data and records conversation id', async () => {
+test('should strips prior image data and records conversation id', async () => {
   const conversationIdCalls = [];
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'ok',
@@ -335,21 +314,21 @@ test('messageCreate strips prior image data and records conversation id', async 
   await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
   const stripped = history[1].content[0];
-  assert.equal(stripped.type, 'input_text');
-  assert.equal(stripped.text, '[Previous Image Processed]');
-  assert.deepEqual(conversationIdCalls, ['chan-1', null]);
+  expect(stripped.type).toBe('input_text');
+  expect(stripped.text).toBe('[Previous Image Processed]');
+  expect(conversationIdCalls).toEqual(['chan-1', null]);
 });
 
-test('messageCreate handles processing errors', async () => {
+test('should handles processing errors', async () => {
   const mod = loadMessageCreate({
     generateAIResponse: async () => { throw new Error('ai failed'); }
   });
   const failMessage = createBaseMessage();
   await mod.execute(failMessage);
-  assert.ok(failMessage.getReplyTexts().some(text => text.includes('error occurred')));
+  expect(failMessage.getReplyTexts().some(text => text.includes('error occurred'))).toBeTruthy();
 });
 
-test('messageCreate uses image-only prompt and stops when primary chunk cannot be sent', async () => {
+test('should uses image-only prompt and stops when primary chunk cannot be sent', async () => {
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'ok',
     aiUtils: {
@@ -381,10 +360,10 @@ test('messageCreate uses image-only prompt and stops when primary chunk cannot b
   await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
   const userTurn = history.find(entry => entry.role === 'user');
-  assert.equal(userTurn.content[0].text, 'describe this image');
+  expect(userTurn.content[0].text).toBe('describe this image');
 });
 
-test('messageCreate records chunk metric failures and send errors', async () => {
+test('should records chunk metric failures and send errors', async () => {
   let metricCalls = 0;
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'a'.repeat(4100),
@@ -417,7 +396,7 @@ test('messageCreate records chunk metric failures and send errors', async () => 
     }
   });
 
-  await assert.doesNotReject(async () => mod.execute(message));
+  await expect(mod.execute(message)).resolves.not.toThrow();
 
   const sendErrorMod = loadMessageCreate({
     generateAIResponse: async () => 'hello',
@@ -430,10 +409,10 @@ test('messageCreate records chunk metric failures and send errors', async () => 
       SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
     }
   });
-  await assert.doesNotReject(async () => sendErrorMod.execute(createBaseMessage()));
+  await expect(sendErrorMod.execute(createBaseMessage())).resolves.not.toThrow();
 });
 
-test('messageCreate logs send errors when splitMessage throws after response', async () => {
+test('should logs send errors when splitMessage throws after response', async () => {
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'response text',
     aiUtils: {
@@ -445,10 +424,10 @@ test('messageCreate logs send errors when splitMessage throws after response', a
       SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
     }
   });
-  await assert.doesNotReject(async () => mod.execute(createBaseMessage()));
+  await expect(mod.execute(createBaseMessage())).resolves.not.toThrow();
 });
 
-test('messageCreate swallows metric failures in backpressure catch blocks', async () => {
+test('should swallows metric failures in backpressure catch blocks', async () => {
   let recordCalls = 0;
   const mod = loadMessageCreate({
     config: { maxPendingPerChannel: 1 },
@@ -468,10 +447,10 @@ test('messageCreate swallows metric failures in backpressure catch blocks', asyn
     err.status = 500;
     throw err;
   };
-  await assert.doesNotReject(async () => mod.execute(message));
+  await expect(mod.execute(message)).resolves.not.toThrow();
 });
 
-test('falls back to a normal reply when the thinking message cannot be edited', async () => {
+test('should falls back to a normal reply when the thinking message cannot be edited', async () => {
   const messageReplies = [];
   const mod = loadMessageCreate({ generateAIResponse: async () => 'final answer' });
   const message = createBaseMessage({
@@ -485,12 +464,12 @@ test('falls back to a normal reply when the thinking message cannot be edited', 
   });
 
   await mod.execute(message);
-  assert.equal(messageReplies[0], '*Thinking...*');
-  assert.equal(messageReplies[1], 'final answer');
-  assert.equal(message.client.conversationHistory.get('chan-1').at(-1).content, 'final answer');
+  expect(messageReplies[0]).toBe('*Thinking...*');
+  expect(messageReplies[1]).toBe('final answer');
+  expect(message.client.conversationHistory.get('chan-1').at(-1).content).toBe('final answer');
 });
 
-test('splits long replies into a primary chunk plus follow-up messages', async () => {
+test('should splits long replies into a primary chunk plus follow-up messages', async () => {
   const sentChunks = [];
   const mod = loadMessageCreate({ generateAIResponse: async () => 'a'.repeat(4100) });
   const message = createBaseMessage({
@@ -505,13 +484,13 @@ test('splits long replies into a primary chunk plus follow-up messages', async (
   });
 
   await mod.execute(message);
-  assert.equal(sentChunks[0], '*Thinking...*');
-  assert.equal(sentChunks[1].length, 2000);
-  assert.equal(sentChunks[2].length, 2000);
-  assert.equal(sentChunks[3].length, 100);
+  expect(sentChunks[0]).toBe('*Thinking...*');
+  expect(sentChunks[1].length).toBe(2000);
+  expect(sentChunks[2].length).toBe(2000);
+  expect(sentChunks[3].length).toBe(100);
 });
 
-test('replies with a clear error message when the AI service returns no content', async () => {
+test('should replies with a clear error message when the AI service returns no content', async () => {
   const responses = [];
   const mod = loadMessageCreate({ generateAIResponse: async () => '' });
   const message = createBaseMessage({
@@ -525,11 +504,11 @@ test('replies with a clear error message when the AI service returns no content'
   });
 
   await mod.execute(message);
-  assert.equal(responses[0], '*Thinking...*');
-  assert.equal(responses[1], "⚠️ I couldn't generate a response.");
+  expect(responses[0]).toBe('*Thinking...*');
+  expect(responses[1]).toBe("⚠️ I couldn't generate a response.");
 });
 
-test('does not reply to messages with only @here or @everyone mention', async () => {
+test('should does not reply to messages with only @here or @everyone mention', async () => {
   for (const content of ['@here check this out', '@everyone this is important']) {
     let replyCalled = false;
     const mod = loadMessageCreate({ generateAIResponse: async () => 'response' });
@@ -549,12 +528,12 @@ test('does not reply to messages with only @here or @everyone mention', async ()
     });
 
     await mod.execute(message);
-    assert.equal(replyCalled, false);
-    assert.equal(message.client.conversationHistory.has('chan-1'), false);
+    expect(replyCalled).toBe(false);
+    expect(message.client.conversationHistory.has('chan-1')).toBe(false);
   }
 });
 
-test('messageCreate ignores replies that are not to the bot', async () => {
+test('should ignores replies that are not to the bot', async () => {
   const mod = loadMessageCreate();
   const message = createBaseMessage({
     mentions: { has: () => false, users: { has: () => false }, everyone: false, size: 0, values: () => [] },
@@ -573,10 +552,10 @@ test('messageCreate ignores replies that are not to the bot', async () => {
     }
   });
   await mod.execute(message);
-  assert.equal(message.client.conversationHistory.has('chan-1'), false);
+  expect(message.client.conversationHistory.has('chan-1')).toBe(false);
 });
 
-test('messageCreate skips bot-authored quoted context and empty prior messages', async () => {
+test('should skips bot-authored quoted context and empty prior messages', async () => {
   const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
   const parentUser = {
     id: 'parent-user',
@@ -611,19 +590,19 @@ test('messageCreate skips bot-authored quoted context and empty prior messages',
   await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
   const userTurn = history.find(entry => entry.role === 'user');
-  assert.match(JSON.stringify(userTurn.content), /follow up/);
-  assert.doesNotMatch(JSON.stringify(userTurn.content), /bot said this/);
+  expect(JSON.stringify(userTurn.content)).toMatch(/follow up/);
+  expect(JSON.stringify(userTurn.content)).not.toMatch(/bot said this/);
 });
 
-test('messageCreate decrements queue depth when stored depth is zero', async () => {
+test('should decrements queue depth when stored depth is zero', async () => {
   const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
   const depthMap = new Map([['chan-1', -1]]);
   const message = createBaseMessage({ client: { ...createBaseMessage().client, channelQueueDepth: depthMap } });
   await mod.execute(message);
-  assert.equal(depthMap.get('chan-1'), 0);
+  expect(depthMap.get('chan-1')).toBe(0);
 });
 
-test('messageCreate logs reference fetch failures', async () => {
+test('should logs reference fetch failures', async () => {
   const mod = loadMessageCreate();
   const message = createBaseMessage({
     reference: { messageId: 'ref-missing' },
@@ -636,7 +615,7 @@ test('messageCreate logs reference fetch failures', async () => {
   await mod.execute(message);
 });
 
-test('messageCreate records queue depth gauge on successful mention', async () => {
+test('should records queue depth gauge on successful mention', async () => {
   const gaugeCalls = [];
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'ok',
@@ -645,5 +624,5 @@ test('messageCreate records queue depth gauge on successful mention', async () =
     }
   });
   await mod.execute(createBaseMessage());
-  assert.ok(gaugeCalls.some(call => call.name === 'discord.channel.queue_depth' && call.value >= 1));
+  expect(gaugeCalls.some(call => call.name === 'discord.channel.queue_depth' && call.value >= 1)).toBeTruthy();
 });

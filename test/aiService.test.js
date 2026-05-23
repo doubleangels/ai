@@ -1,60 +1,12 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
 const path = require('path');
+const { loadAiService } = require('./loadHelpers.cjs');
+const { stubModule, reloadModule, clearStubModuleCaches } = require('./testUtils.cjs');
 
 const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 
-function stubModule(modulePath, exportsObj) {
-  require.cache[modulePath] = {
-    id: modulePath,
-    filename: modulePath,
-    loaded: true,
-    exports: exportsObj
-  };
-}
-
-function withEnv(overrides, run) {
-  const keys = Object.keys(overrides);
-  const saved = new Map(keys.map(key => [key, process.env[key]]));
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-  return Promise.resolve()
-    .then(run)
-    .finally(() => {
-      for (const [key, value] of saved) {
-        if (value === undefined) delete process.env[key];
-        else process.env[key] = value;
-      }
-    });
-}
-
-function loadAiService({ openai, genai, anthropic, instrument: instrumentOverrides = {} } = {}, env = {}) {
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false, ...instrumentOverrides.Sentry },
-    captureError: instrumentOverrides.captureError || (() => {}),
-    closeSentry: async () => {},
-    recordCount: instrumentOverrides.recordCount || (() => {}),
-    recordGauge: () => {},
-    recordDistribution: instrumentOverrides.recordDistribution || (() => {}),
-    startSpan: instrumentOverrides.startSpan || (async (_opts, cb) => cb())
-  });
-
-  if (openai) stubModule(require.resolve('openai'), openai);
-  if (genai) stubModule(require.resolve('@google/genai'), genai);
-  if (anthropic) stubModule(require.resolve('@anthropic-ai/sdk'), anthropic);
-
-  return withEnv(env, () => require(aiServicePath));
-}
-
-test('generateAIResponse uses OpenAI when configured', async () => {
+test('should uses OpenAI when configured', async () => {
   const aiService = await loadAiService({
     openai: {
       OpenAI: class {
@@ -76,10 +28,10 @@ test('generateAIResponse uses OpenAI when configured', async () => {
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'hi' }
   ]);
-  assert.match(reply, /hello from openai/);
+  expect(reply).toMatch(/hello from openai/);
 });
 
-test('generateAIResponse uses Gemini when configured', async () => {
+test('should uses Gemini when configured', async () => {
   const aiService = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -94,10 +46,10 @@ test('generateAIResponse uses Gemini when configured', async () => {
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'hi' }
   ]);
-  assert.equal(reply, 'hello gemini');
+  expect(reply).toBe('hello gemini');
 });
 
-test('generateAIResponse uses Claude when configured', async () => {
+test('should uses Claude when configured', async () => {
   const aiService = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = {
@@ -110,10 +62,10 @@ test('generateAIResponse uses Claude when configured', async () => {
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'hi' }
   ]);
-  assert.equal(reply, 'hello claude');
+  expect(reply).toBe('hello claude');
 });
 
-test('OpenAI request includes reasoning, verbosity, tools, and image prompt handling', async () => {
+test('should openAI request includes reasoning, verbosity, tools, and image prompt handling', async () => {
   let capturedRequest;
   const aiService = await loadAiService({
     openai: {
@@ -153,15 +105,15 @@ test('OpenAI request includes reasoning, verbosity, tools, and image prompt hand
     }
   ]);
 
-  assert.equal(reply, 'openai result');
-  assert.equal(capturedRequest.model, 'gpt-5.4-nano');
-  assert.equal(capturedRequest.reasoning.effort, 'high');
-  assert.equal(capturedRequest.text.verbosity, 'medium');
-  assert.equal(capturedRequest.tools[0].type, 'web_search');
-  assert.match(capturedRequest.input[0].content, /When analyzing images/);
+  expect(reply).toBe('openai result');
+  expect(capturedRequest.model).toBe('gpt-5.4-nano');
+  expect(capturedRequest.reasoning.effort).toBe('high');
+  expect(capturedRequest.text.verbosity).toBe('medium');
+  expect(capturedRequest.tools[0].type).toBe('web_search');
+  expect(capturedRequest.input[0].content).toMatch(/When analyzing images/);
 });
 
-test('OpenAI API failure results in empty reply', async () => {
+test('should openAI API failure results in empty reply', async () => {
   const aiService = await loadAiService({
     openai: {
       OpenAI: class {
@@ -180,10 +132,10 @@ test('OpenAI API failure results in empty reply', async () => {
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'ping' }
   ]);
-  assert.equal(reply, '');
+  expect(reply).toBe('');
 });
 
-test('Gemini retries without cache when cached content causes 404', async () => {
+test('should gemini retries without cache when cached content causes 404', async () => {
   let callCount = 0;
   const aiService = await loadAiService({
     genai: {
@@ -209,19 +161,19 @@ test('Gemini retries without cache when cached content causes 404', async () => 
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'hello' }
   ]);
-  assert.equal(typeof reply, 'string');
+  expect(typeof reply).toBe('string');
 });
 
-test('generateAIResponse rejects empty conversation', async () => {
+test('should rejects empty conversation', async () => {
   const aiService = await loadAiService({
     openai: { OpenAI: class { constructor() { this.responses = { create: async () => ({}) }; } } }
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
   const reply = await aiService.generateAIResponse([]);
-  assert.equal(reply, '');
+  expect(reply).toBe('');
 });
 
-test('generateAIResponse rethrows when provider span callback fails', async () => {
+test('should rethrows when provider span callback fails', async () => {
   const aiService = await loadAiService({
     openai: { OpenAI: class { constructor() { this.responses = { create: async () => ({}) }; } } },
     instrument: {
@@ -231,19 +183,16 @@ test('generateAIResponse rethrows when provider span callback fails', async () =
     }
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
-  await assert.rejects(
-    async () => aiService.generateAIResponse([{ role: 'user', content: 'hi' }]),
-    /span failed/
-  );
+  await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/span failed/);
 });
 
-test('OpenAI returns empty when API key missing', async () => {
+test('should openAI returns empty when API key missing', async () => {
   const aiService = await loadAiService({}, { AI_PROVIDER: 'openai', OPENAI_API_KEY: undefined });
   const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
-  assert.equal(reply, '');
+  expect(reply).toBe('');
 });
 
-test('OpenAI handles API errors and incomplete responses', async () => {
+test('should openAI handles API errors and incomplete responses', async () => {
   let call = 0;
   const aiService = await loadAiService({
     openai: {
@@ -261,7 +210,7 @@ test('OpenAI handles API errors and incomplete responses', async () => {
     }
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
-  assert.equal(await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]), '');
+  expect(await aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
 
   call = 0;
   const aiService2 = await loadAiService({
@@ -280,14 +229,11 @@ test('OpenAI handles API errors and incomplete responses', async () => {
     }
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
-  assert.equal(await aiService2.generateAIResponse([{ role: 'user', content: 'hi' }]), 'partial');
-  assert.match(
-    await aiService2.generateAIResponse([{ role: 'user', content: 'hi again' }]),
-    /couldn't generate a response/
-  );
+  expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('partial');
+  expect(await aiService2.generateAIResponse([{ role: 'user', content: 'hi again' }])).toMatch(/couldn't generate a response/);
 });
 
-test('OpenAI outer catch returns empty string', async () => {
+test('should openAI outer catch returns empty string', async () => {
   const aiService = await loadAiService({
     openai: {
       OpenAI: class {
@@ -308,20 +254,20 @@ test('OpenAI outer catch returns empty string', async () => {
   });
 
   const reply = await aiService.generateAIResponse(brokenConversation);
-  assert.equal(reply, '');
+  expect(reply).toBe('');
 });
 
-test('Gemini returns empty without API key or valid turns', async () => {
+test('should gemini returns empty without API key or valid turns', async () => {
   const noKey = await loadAiService({}, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: undefined });
-  assert.equal(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }]), '');
+  expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
 
   const emptyTurns = await loadAiService({
     genai: { GoogleGenAI: class { constructor() { this.models = { generateContent: async () => ({ text: 'x' }) }; } } }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(await emptyTurns.generateAIResponse([{ role: 'system', content: 'only system' }]), '');
+  expect(await emptyTurns.generateAIResponse([{ role: 'system', content: 'only system' }])).toBe('');
 });
 
-test('Gemini uses cache, tools, safety settings, and handles failures', async () => {
+test('should gemini uses cache, tools, safety settings, and handles failures', async () => {
   let cacheCreates = 0;
   const aiService = await loadAiService({
     genai: {
@@ -362,7 +308,7 @@ test('Gemini uses cache, tools, safety settings, and handles failures', async ()
     { role: 'system', content: longSystem },
     { role: 'user', content: [{ type: 'input_text', text: 'hello' }, { type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
   ]);
-  assert.equal(reply, 'gemini ok');
+  expect(reply).toBe('gemini ok');
 
   const emptyReply = await loadAiService({
     genai: {
@@ -373,7 +319,7 @@ test('Gemini uses cache, tools, safety settings, and handles failures', async ()
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.match(await emptyReply.generateAIResponse([{ role: 'user', content: 'hi' }]), /couldn't generate a response/);
+  expect(await emptyReply.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
 
   const retryFail = await loadAiService({
     genai: {
@@ -391,21 +337,18 @@ test('Gemini uses cache, tools, safety settings, and handles failures', async ()
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(3000) }, { role: 'user', content: 'hi' }]),
-    ''
-  );
+  expect(await retryFail.generateAIResponse([{ role: 'system', content: 'x'.repeat(3000) }, { role: 'user', content: 'hi' }])).toBe('');
 });
 
-test('OpenAI prepends image analysis system prompt when missing', async () => {
+test('should openAI prepends image analysis system prompt when missing', async () => {
   const aiService = await loadAiService({
     openai: {
       OpenAI: class {
         constructor() {
           this.responses = {
             create: async request => {
-              assert.equal(request.input[0].role, 'system');
-              assert.match(request.input[0].content, /When analyzing images/);
+              expect(request.input[0].role).toBe('system');
+              expect(request.input[0].content).toMatch(/When analyzing images/);
               return { status: 'completed', output_text: 'ok', id: 'r1', usage: { total_tokens: 1 } };
             }
           };
@@ -420,10 +363,10 @@ test('OpenAI prepends image analysis system prompt when missing', async () => {
       content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }]
     }
   ]);
-  assert.equal(reply, 'ok');
+  expect(reply).toBe('ok');
 });
 
-test('generateAIResponse records errors when post-processing metrics fail', async () => {
+test('should records errors when post-processing metrics fail', async () => {
   const aiService = await loadAiService({
     openai: {
       OpenAI: class {
@@ -446,13 +389,10 @@ test('generateAIResponse records errors when post-processing metrics fail', asyn
     }
   }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
 
-  await assert.rejects(
-    async () => aiService.generateAIResponse([{ role: 'user', content: 'hi' }]),
-    /metric failed/
-  );
+  await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/metric failed/);
 });
 
-test('Gemini reuses valid cache entries without recreating', async () => {
+test('should gemini reuses valid cache entries without recreating', async () => {
   let createCalls = 0;
   const aiService = await loadAiService({
     genai: {
@@ -482,10 +422,10 @@ test('Gemini reuses valid cache entries without recreating', async () => {
   ];
   await aiService.generateAIResponse(conversation);
   await aiService.generateAIResponse(conversation);
-  assert.equal(createCalls, 1);
+  expect(createCalls).toBe(1);
 });
 
-test('Claude uses plain system prompt when context cache is disabled', async () => {
+test('should claude uses plain system prompt when context cache is disabled', async () => {
   let capturedSystem;
   const aiService = await loadAiService({
     anthropic: function FakeAnthropic() {
@@ -503,10 +443,10 @@ test('Claude uses plain system prompt when context cache is disabled', async () 
   });
 
   await aiService.generateAIResponse([{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }]);
-  assert.equal(capturedSystem, 'sys');
+  expect(capturedSystem).toBe('sys');
 });
 
-test('Claude uses image analysis prompt without a system message', async () => {
+test('should claude uses image analysis prompt without a system message', async () => {
   let capturedSystem;
   const aiService = await loadAiService({
     anthropic: function FakeAnthropic() {
@@ -522,10 +462,10 @@ test('Claude uses image analysis prompt without a system message', async () => {
   await aiService.generateAIResponse([
     { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
   ]);
-  assert.match(capturedSystem, /When analyzing images/);
+  expect(capturedSystem).toMatch(/When analyzing images/);
 });
 
-test('Claude handles tools, thinking, empty responses, and API failures', async () => {
+test('should claude handles tools, thinking, empty responses, and API failures', async () => {
   let round = 0;
   const aiService = await loadAiService({
     anthropic: function FakeAnthropic() {
@@ -556,17 +496,17 @@ test('Claude handles tools, thinking, empty responses, and API failures', async 
     { role: 'system', content: 'sys' },
     { role: 'user', content: [{ type: 'input_text', text: 'time?' }, { type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
   ]);
-  assert.equal(reply, 'done');
+  expect(reply).toBe('done');
 
   const noKey = await loadAiService({}, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: undefined });
-  assert.equal(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }]), '');
+  expect(await noKey.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
 
   const emptyText = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = { create: async () => ({ content: [{ type: 'text', text: '  ' }] }) };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.match(await emptyText.generateAIResponse([{ role: 'user', content: 'hi' }]), /couldn't generate a response/);
+  expect(await emptyText.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
 
   let toolRounds = 0;
   const maxRounds = await loadAiService({
@@ -579,17 +519,17 @@ test('Claude handles tools, thinking, empty responses, and API failures', async 
       };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.match(await maxRounds.generateAIResponse([{ role: 'user', content: 'hi' }]), /couldn't complete/);
+  expect(await maxRounds.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't complete/);
 
   const apiFail = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = { create: async () => { throw new Error('claude down'); } };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.equal(await apiFail.generateAIResponse([{ role: 'user', content: 'hi' }]), '');
+  expect(await apiFail.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('');
 });
 
-test('Gemini handles non-stale API failures, empty retries, and text property responses', async () => {
+test('should gemini handles non-stale API failures, empty retries, and text property responses', async () => {
   const notStale = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -604,10 +544,7 @@ test('Gemini handles non-stale API failures, empty retries, and text property re
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await notStale.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    ''
-  );
+  expect(await notStale.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
 
   const emptyRetry = await loadAiService({
     genai: {
@@ -628,10 +565,7 @@ test('Gemini handles non-stale API failures, empty retries, and text property re
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await emptyRetry.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    ''
-  );
+  expect(await emptyRetry.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
 
   const textProperty = await loadAiService({
     genai: {
@@ -642,10 +576,10 @@ test('Gemini handles non-stale API failures, empty retries, and text property re
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(await textProperty.generateAIResponse([{ role: 'user', content: 'hi' }]), 'plain text property');
+  expect(await textProperty.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('plain text property');
 });
 
-test('Claude skips blank assistant turns and handles tool input defaults', async () => {
+test('should claude skips blank assistant turns and handles tool input defaults', async () => {
   const claudeService = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = {
@@ -654,14 +588,11 @@ test('Claude skips blank assistant turns and handles tool input defaults', async
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
 
-  assert.equal(
-    await claudeService.generateAIResponse([
+  expect(await claudeService.generateAIResponse([
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: '   ' },
       { role: 'user', content: 'again' }
-    ]),
-    'ok'
-  );
+    ])).toBe('ok');
 
   let round = 0;
   const toolService = await loadAiService({
@@ -677,10 +608,10 @@ test('Claude skips blank assistant turns and handles tool input defaults', async
       };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.equal(await toolService.generateAIResponse([{ role: 'user', content: 'time?' }]), 'time sent');
+  expect(await toolService.generateAIResponse([{ role: 'user', content: 'time?' }])).toBe('time sent');
 });
 
-test('Gemini formatters handle invalid data URLs and non-string system content', async () => {
+test('should gemini formatters handle invalid data URLs and non-string system content', async () => {
   const geminiService = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -691,8 +622,7 @@ test('Gemini formatters handle invalid data URLs and non-string system content',
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
 
-  assert.equal(
-    await geminiService.generateAIResponse([
+  expect(await geminiService.generateAIResponse([
       { role: 'system', content: [{ type: 'text', text: 'ignored' }] },
       {
         role: 'user',
@@ -703,12 +633,10 @@ test('Gemini formatters handle invalid data URLs and non-string system content',
           { type: 'input_image', image_url: null }
         ]
       }
-    ]),
-    'parsed ok'
-  );
+    ])).toBe('parsed ok');
 });
 
-test('Gemini reads plain text property when response.text is not a function', async () => {
+test('should gemini reads plain text property when response.text is not a function', async () => {
   const geminiService = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -719,10 +647,10 @@ test('Gemini reads plain text property when response.text is not a function', as
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
 
-  assert.equal(await geminiService.generateAIResponse([{ role: 'user', content: 'hi' }]), 'plain property');
+  expect(await geminiService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('plain property');
 });
 
-test('Gemini handles missing response text and invalid image data URLs', async () => {
+test('should gemini handles missing response text and invalid image data URLs', async () => {
   const missingText = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -732,7 +660,7 @@ test('Gemini handles missing response text and invalid image data URLs', async (
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.match(await missingText.generateAIResponse([{ role: 'user', content: 'hi' }]), /couldn't generate a response/);
+  expect(await missingText.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
 
   const invalidImageUrl = await loadAiService({
     genai: {
@@ -743,8 +671,7 @@ test('Gemini handles missing response text and invalid image data URLs', async (
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(
-    await invalidImageUrl.generateAIResponse([
+  expect(await invalidImageUrl.generateAIResponse([
       {
         role: 'user',
         content: [
@@ -752,12 +679,10 @@ test('Gemini handles missing response text and invalid image data URLs', async (
           { type: 'input_image', image_url: 123 }
         ]
       }
-    ]),
-    'ok'
-  );
+    ])).toBe('ok');
 });
 
-test('Gemini retry path handles text() function responses after stale cache', async () => {
+test('should gemini retry path handles text() function responses after stale cache', async () => {
   const retryTextFn = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -777,10 +702,7 @@ test('Gemini retry path handles text() function responses after stale cache', as
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await retryTextFn.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    'retry function text'
-  );
+  expect(await retryTextFn.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('retry function text');
 
   const retryPlainProperty = await loadAiService({
     genai: {
@@ -801,10 +723,7 @@ test('Gemini retry path handles text() function responses after stale cache', as
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await retryPlainProperty.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    'retry plain property'
-  );
+  expect(await retryPlainProperty.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('retry plain property');
 
   const retryMissingText = await loadAiService({
     genai: {
@@ -825,13 +744,10 @@ test('Gemini retry path handles text() function responses after stale cache', as
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await retryMissingText.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    ''
-  );
+  expect(await retryMissingText.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
 });
 
-test('provider formatters handle non-string message content branches', async () => {
+test('should provider formatters handle non-string message content branches', async () => {
   const geminiNonStringAssistant = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -841,30 +757,24 @@ test('provider formatters handle non-string message content branches', async () 
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
-  assert.equal(
-    await geminiNonStringAssistant.generateAIResponse([
+  expect(await geminiNonStringAssistant.generateAIResponse([
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: [{ type: 'text', text: 'ignored' }] }
-    ]),
-    'ok'
-  );
+    ])).toBe('ok');
 
   const claudeNonString = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = { create: async () => ({ content: [{ type: 'text', text: 'ok' }] }) };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
-  assert.equal(
-    await claudeNonString.generateAIResponse([
+  expect(await claudeNonString.generateAIResponse([
       { role: 'system', content: [{ type: 'text', text: 'ignored' }] },
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: [{ type: 'text', text: 'ignored' }] }
-    ]),
-    'ok'
-  );
+    ])).toBe('ok');
 });
 
-test('Gemini handles non-string API errors and retry text() responses', async () => {
+test('should gemini handles non-string API errors and retry text() responses', async () => {
   const nonStringError = await loadAiService({
     genai: {
       GoogleGenAI: class {
@@ -879,10 +789,7 @@ test('Gemini handles non-string API errors and retry text() responses', async ()
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await nonStringError.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    ''
-  );
+  expect(await nonStringError.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('');
 
   const retryTextFn = await loadAiService({
     genai: {
@@ -903,13 +810,10 @@ test('Gemini handles non-string API errors and retry text() responses', async ()
       }
     }
   }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', ENABLE_CONTEXT_CACHE: '1' });
-  assert.equal(
-    await retryTextFn.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }]),
-    'retry via function'
-  );
+  expect(await retryTextFn.generateAIResponse([{ role: 'system', content: 'x'.repeat(9000) }, { role: 'user', content: 'hi' }])).toBe('retry via function');
 });
 
-test('Claude handles missing response content in tool rounds', async () => {
+test('should claude handles missing response content in tool rounds', async () => {
   const claudeService = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = {
@@ -918,50 +822,49 @@ test('Claude handles missing response content in tool rounds', async () => {
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
 
-  assert.match(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }]), /couldn't generate a response/);
+  expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/couldn't generate a response/);
 });
 
-test('OpenAI outer catch tags unknown provider when config provider is empty', async () => {
+test('should openAI outer catch tags unknown provider when config provider is empty', async () => {
   let capturedProvider;
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
 
-  stubModule(configPath, {
-    openaiApiKey: 'fake',
-    geminiApiKey: 'fake',
-    anthropicApiKey: 'fake',
-    modelName: 'gpt-5.4-nano',
-    getTemperature: () => 1,
-    reasoningEffort: 'none',
-    responsesVerbosity: 'low',
-    aiProvider: '',
-    enableWebSearch: false,
-    enableGoogleMaps: false,
-    enableContextCache: false,
-    geminiCacheTtlSeconds: 3600,
-    maxOutputTokens: 1024,
-    claudeThinkingBudgetTokens: 0,
-    openaiTimeoutMs: 60000,
-    openaiMaxRetries: 2
-  });
-  stubModule(require.resolve('openai'), {
-    OpenAI: class {
-      constructor() {
-        this.responses = { create: async () => ({ status: 'completed', output_text: 'ok', id: 'r1' }) };
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: '',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = { create: async () => ({ status: 'completed', output_text: 'ok', id: 'r1' }) };
+        }
       }
-    }
-  });
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: (_err, ctx) => { capturedProvider = ctx.provider; },
-    recordCount: () => {},
-    recordGauge: () => {},
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb()
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: (_err, ctx) => { capturedProvider = ctx.provider; },
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
   });
 
-  const aiService = require(aiServicePath);
   const broken = [{ role: 'user', content: 'hi' }];
   Object.defineProperty(broken, Symbol.iterator, {
     value() {
@@ -970,61 +873,56 @@ test('OpenAI outer catch tags unknown provider when config provider is empty', a
   });
 
   const reply = await aiService.generateAIResponse(broken);
-  assert.equal(reply, '');
-  assert.equal(capturedProvider, 'unknown');
+  expect(reply).toBe('');
+  expect(capturedProvider).toBe('unknown');
 });
 
-test('generateAIResponse captureError tags unknown provider on post-success failures', async () => {
-  delete require.cache[aiServicePath];
-  delete require.cache[configPath];
-  delete require.cache[instrumentPath];
-
-  stubModule(configPath, {
-    openaiApiKey: 'fake',
-    geminiApiKey: 'fake',
-    anthropicApiKey: 'fake',
-    modelName: 'gpt-5.4-nano',
-    getTemperature: () => 1,
-    reasoningEffort: 'none',
-    responsesVerbosity: 'low',
-    aiProvider: '',
-    enableWebSearch: false,
-    enableGoogleMaps: false,
-    enableContextCache: false,
-    geminiCacheTtlSeconds: 3600,
-    maxOutputTokens: 1024,
-    claudeThinkingBudgetTokens: 0,
-    openaiTimeoutMs: 60000,
-    openaiMaxRetries: 2
-  });
-  stubModule(require.resolve('openai'), {
-    OpenAI: class {
-      constructor() {
-        this.responses = {
-          create: async () => ({
-            status: 'completed',
-            output_text: 'ok',
-            id: 'r1',
-            usage: { total_tokens: 1 }
-          })
-        };
+test('should captureError tags unknown provider on post-success failures', async () => {
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: '',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async () => ({
+              status: 'completed',
+              output_text: 'ok',
+              id: 'r1',
+              usage: { total_tokens: 1 }
+            })
+          };
+        }
       }
-    }
-  });
-  stubModule(instrumentPath, {
-    Sentry: { isEnabled: () => false },
-    captureError: () => {},
-    recordCount: name => {
-      if (name === 'ai.generate.requests') throw new Error('metric failed');
-    },
-    recordGauge: () => {},
-    recordDistribution: () => {},
-    startSpan: async (_opts, cb) => cb()
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: name => {
+        if (name === 'ai.generate.requests') throw new Error('metric failed');
+      },
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
   });
 
-  const aiService = require(aiServicePath);
-  await assert.rejects(
-    async () => aiService.generateAIResponse([{ role: 'user', content: 'hi' }]),
-    /metric failed/
-  );
+  await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/metric failed/);
 });
