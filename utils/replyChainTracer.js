@@ -67,7 +67,7 @@ async function fetchMessageCached(channel, messageId) {
     setCachedMessage(cacheKey, message);
     return message;
   } catch (error) {
-    logger.debug('Failed to fetch message for chain traversal', {
+    logger.debug('Failed to fetch message for chain traversal.', {
       channelId: channel.id,
       messageId,
       error: error.message
@@ -107,7 +107,7 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
 
       if (!parentMessage) {
         // Can't fetch parent, stop here
-        logger.debug('Could not fetch parent message, stopping chain traversal', {
+        logger.debug('Could not fetch parent message; stopping chain traversal.', {
           channelId: channel.id,
           messageId: currentMessage.reference.messageId,
           chainDepth: depth
@@ -120,13 +120,13 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
     }
 
     if (depth >= maxDepth) {
-      logger.warn('Reply chain depth limit reached', {
+      logger.warn('Reply chain depth limit reached.', {
         channelId: channel.id,
         depth: maxDepth
       });
     }
 
-    logger.debug('Reply chain traced', {
+    logger.debug('Reply chain traced.', {
       channelId: channel.id,
       chainLength: chain.length,
       depth
@@ -134,7 +134,7 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
 
     return chain;
   } catch (error) {
-    logger.error('Error tracing reply chain', {
+    logger.error('Error occurred while tracing reply chain.', {
       error: error.message,
       channelId: channel.id,
       chainLength: chain.length

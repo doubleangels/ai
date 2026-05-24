@@ -76,9 +76,7 @@ if (!supportedList.includes(resolvedModel)) {
     handler: 'modelValidation',
     provider: resolvedProvider
   });
-  console.error(
-    `Unsupported ${resolvedProvider} model "${resolvedModel}". Supported: ${supportedList.join(', ')}.`
-  );
+  console.error(`Unsupported ${resolvedProvider} model "${resolvedModel}". Supported models are ${supportedList.join(', ')}.`);
   process.exit(1);
 }
 

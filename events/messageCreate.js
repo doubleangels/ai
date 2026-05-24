@@ -231,14 +231,14 @@ module.exports = {
       if (prefetchedReferencedMessage) {
         botReferencedMessage = prefetchedReferencedMessage;
         isReplyToBot = true;
-        logger.debug(`Message ${message.id} is a reply to bot's message: ${botReferencedMessage.id}.`);
+        logger.debug(`Message ${message.id} is a reply to the bot's message ${botReferencedMessage.id}.`);
       } else if (message.reference && message.reference.messageId) {
         try {
           const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
           isReplyToBot = referencedMessage.author.id === client.user.id;
           if (isReplyToBot) {
             botReferencedMessage = referencedMessage;
-            logger.debug(`Message ${message.id} is a reply to bot's message: ${botReferencedMessage.id}.`);
+            logger.debug(`Message ${message.id} is a reply to the bot's message ${botReferencedMessage.id}.`);
           }
         } catch (error) {
           logger.error(`Failed to fetch referenced message ${message.reference.messageId}.`, {
@@ -303,7 +303,7 @@ module.exports = {
         attachmentCount: message.attachments?.size || 0,
         isReplyToBot: isReplyToBot
       });
-      logger.debug(`Processing message from ${message.author.tag} in ${channelName}`);
+      logger.debug(`Processing message from ${message.author.tag} in ${channelName}.`);
       recordCount('discord.message.received', 1, {
         provider: aiProvider,
         trigger: hasBotPing ? 'mention' : 'reply'
@@ -339,11 +339,11 @@ module.exports = {
       let replyChain = [message];
       if (hasReference) {
         try {
-          logger.debug('Tracing reply chain for context', { channelId, messageId: message.id });
+          logger.debug('Tracing reply chain for context.', { channelId, messageId: message.id });
           replyChain = await traceReplyChain(message, message.channel, maxReplyChainDepth);
-          logger.debug(`Reply chain traced: ${replyChain.length} messages`, { channelId });
+          logger.debug('Reply chain was traced.', { messageCount: replyChain.length, channelId });
         } catch (error) {
-          logger.warn('Error tracing reply chain', { channelId, error: error.message });
+          logger.warn('Error occurred while tracing reply chain.', { channelId, error: error.message });
           replyChain = [message];
         }
       }
@@ -370,9 +370,9 @@ module.exports = {
       // Process image attachments from current message only
       let imageContents = [];
       if (message.attachments && message.attachments.size > 0) {
-        logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}`);
+        logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}.`);
         imageContents = await processImageAttachments(Array.from(message.attachments.values()));
-        logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
+        logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}.`);
       }
 
       // Add bot's previous response if replying to bot (use fetched parent, not the current user message).
@@ -407,7 +407,7 @@ module.exports = {
       });
 
       trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTokens);
-      logger.debug(`Updated conversation history for channel ${channelId}`);
+      logger.debug(`Updated conversation history for channel ${channelId}.`);
 
       try {
         logger.info(`Generating AI response for message ${message.id} from ${message.author.tag}.`);
@@ -501,7 +501,7 @@ module.exports = {
           });
         }
 
-        logger.info(`Reply sent successfully to ${message.author.tag} in channel: ${channelName}`);
+        logger.info(`Reply sent successfully to ${message.author.tag} in channel ${channelName}.`);
         recordCount('discord.message.responded', 1, {
           provider: aiProvider,
           outcome: replyIsError ? 'error' : 'success'
@@ -530,7 +530,7 @@ module.exports = {
           provider: aiProvider,
           outcome: 'error'
         });
-        logger.error('Error processing message:', {
+        logger.error('Error occurred while processing message.', {
           error: error.stack,
           message: error.message,
           userId,

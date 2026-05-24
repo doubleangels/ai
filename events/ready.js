@@ -28,20 +28,20 @@ module.exports = {
         op: 'discord.ready',
         name: 'Client ready'
       }, () => {
-        logger.info(`Bot is online: ${client.user.tag}`);
-        logger.info(`Using AI model: ${modelName}`);
+        logger.info(`Bot is online as ${client.user.tag}.`);
+        logger.info(`Using AI model ${modelName}.`);
 
         client.user.setPresence({
           activities: [{ name: 'for mentions! 📢', type: ActivityType.Watching }],
           status: 'online',
         });
-        logger.info(`Bot activity set to: for mentions! 📢`);
+        logger.info('Bot activity was set to watching for mentions.');
 
         const guilds = client.guilds.cache;
         const guildList = Array.from(guilds.values())
           .map(guild => `${guild.name} (ID: ${guild.id})`)
           .join(', ');
-        logger.info(`Bot is in ${guilds.size} guilds: ${guildList}`);
+        logger.info(`Bot is in ${guilds.size} guild(s).`, { guildList });
         recordCount('discord.ready', 1, { outcome: 'success' });
         recordDistribution('discord.ready.duration_ms', Date.now() - startedAt, {
           unit: 'millisecond',
@@ -56,7 +56,7 @@ module.exports = {
         unit: 'millisecond',
         attributes: { outcome: 'error' }
       });
-      logger.error('Error getting guilds:', {
+      logger.error('Error occurred while getting guild information.', {
         error: error.stack,
         message: error.message
       });

@@ -95,7 +95,7 @@ function getLogger(label) {
     if (Sentry && typeof Sentry.captureException === 'function') {
       Sentry.captureException(error, { tags: { source: 'logger', handler: 'createLogger' } });
     }
-    console.error('Failed to create logger:', error);
+    console.error('Failed to create logger.', error);
     throw new Error('Failed to create logger instance.');
   }
 }
