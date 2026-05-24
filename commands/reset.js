@@ -43,9 +43,12 @@ module.exports = {
       guildId: interaction.guildId
     });
 
+    let resetOutcome = 'success';
+
     try {
       const targetChannel = interaction.options.getChannel('channel');
       const channelLocks = client.channelLocks || (client.channelLocks = new Map());
+      const channelLastActivity = client.channelLastActivity;
 
       const settleReply = async (embed) => {
         try {
@@ -92,6 +95,7 @@ module.exports = {
 
         await runUnderChannelLocks([channelId], async () => {
           if (!client.conversationHistory.has(channelId)) {
+            resetOutcome = 'no_history';
             logger.debug(`Reset command failed - no conversation history found for channel ${channelId}.`);
             recordCount('discord.reset.executed', 1, {
               scope: 'channel',
@@ -109,7 +113,8 @@ module.exports = {
           const currentLength = channelHistory.length;
 
           client.conversationHistory.delete(channelId);
-          
+          channelLastActivity?.delete(channelId);
+
           logger.info(`Conversation history deleted for channel ${channelId} (#${channelName}).`, {
             previousLength: currentLength
           });
@@ -136,6 +141,7 @@ module.exports = {
             .reduce((total, history) => total + history.length, 0);
 
           if (totalChannels === 0) {
+            resetOutcome = 'no_history';
             logger.debug(`Reset command failed - no conversation history found in any channel.`);
             recordCount('discord.reset.executed', 1, {
               scope: 'all',
@@ -150,7 +156,8 @@ module.exports = {
           }
 
           client.conversationHistory.clear();
-          
+          channelLastActivity?.clear();
+
           logger.info(`All conversation history cleared across ${totalChannels} channels.`, {
             totalChannels,
             totalMessages
@@ -172,10 +179,11 @@ module.exports = {
         unit: 'millisecond',
         attributes: {
           scope: targetChannel ? 'channel' : 'all',
-          outcome: 'success'
+          outcome: resetOutcome
         }
       });
     } catch (error) {
+      resetOutcome = 'error';
       captureError(error, { command: 'reset', handler: 'execute' });
       recordCount('discord.reset.executed', 1, {
         scope: interaction.options.getChannel('channel') ? 'channel' : 'all',

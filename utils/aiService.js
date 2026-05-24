@@ -89,7 +89,7 @@ const CLAUDE_TOOLS = [
   {
     name: 'get_current_time',
     description: 'Returns the current date and time in ISO 8601 format (UTC). Use when the user asks for the current time, date, or "now".',
-    input_schema: { type: 'object', properties: {}, additional_properties: false }
+    input_schema: { type: 'object', properties: {}, additionalProperties: false }
   }
 ];
 
@@ -106,7 +106,7 @@ function executeClaudeTool(name, input) {
   return JSON.stringify({ error: `Unknown tool: ${name}` });
 }
 
-const TIME_QUERY_PATTERN = /\b(what time|what('s| is) the time|current time|what day|what date|today'?s date|what time is it|right now|\bnow\b|\bdate\b|\btime\b)\b/i;
+const TIME_QUERY_PATTERN = /\b(?:what(?:'s| is) the time|what time is it|current time|what(?:'s| is) the date|today'?s date|what day is (?:it|today)|tell me the (?:time|date))\b/i;
 
 /**
  * Extract plain text from the last user message in a conversation.

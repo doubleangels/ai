@@ -101,7 +101,10 @@ const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
   allowedGuildIds,
   logLevel: process.env.LOG_LEVEL || 'info',
-  maxHistoryLength: (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) ? 20 : parsedHistoryLength,
+  maxHistoryLength: (() => {
+    if (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) return 20;
+    return Math.max(1, parsedHistoryLength);
+  })(),
   // Rough, token-estimated cap for stored history (in addition to maxHistoryLength).
   // If unset/invalid, token trimming is effectively disabled.
   maxHistoryTokens: parseInt(process.env.MAX_HISTORY_TOKENS, 10) || 0,
@@ -147,6 +150,9 @@ const config = {
   // OpenAI client: request timeout (ms) and max retries for transient failures.
   openaiTimeoutMs: Math.max(5000, Math.min(300000, parseInt(process.env.OPENAI_TIMEOUT_MS, 10) || 60000)),
   openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) || 2)),
+  // In-memory conversation store bounds (per process).
+  conversationHistoryMaxChannels: Math.max(0, Math.min(10000, parseInt(process.env.CONVERSATION_HISTORY_MAX_CHANNELS, 10) || 500)),
+  conversationHistoryIdleMs: Math.max(0, Math.min(86_400_000 * 7, parseInt(process.env.CONVERSATION_HISTORY_IDLE_MS, 10) || 86_400_000)),
   token: process.env.DISCORD_BOT_TOKEN,
 };
 

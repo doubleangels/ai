@@ -39,6 +39,8 @@ const DEFAULT_CONFIG = {
   maxImageBytes: 6_000_000,
   openaiTimeoutMs: 60000,
   openaiMaxRetries: 2,
+  conversationHistoryMaxChannels: 500,
+  conversationHistoryIdleMs: 86_400_000,
   getTemperature: () => 1
 };
 

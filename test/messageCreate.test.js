@@ -236,7 +236,7 @@ test('should handles reply-to-bot prefetch without mention', async () => {
         fetch: async () => ({
           id: 'bot-msg',
           author: { id: 'bot-123' },
-          content: 'previous',
+          content: 'previous bot answer',
           reference: null,
           attachments: { size: 0, values: () => [] }
         })
@@ -245,7 +245,12 @@ test('should handles reply-to-bot prefetch without mention', async () => {
   });
 
   await mod.execute(message);
-  expect(message.client.conversationHistory.get('chan-1').at(-1).content).toBe('prefetched');
+  const history = message.client.conversationHistory.get('chan-1');
+  const assistantBeforeUser = history.find(
+    (entry, idx) => entry.role === 'assistant' && history[idx + 1]?.role === 'user'
+  );
+  expect(assistantBeforeUser?.content).toBe('previous bot answer');
+  expect(history.at(-1).content).toBe('prefetched');
 });
 
 test('should handles multi-chunk replies, empty chunks, and chunk failures', async () => {

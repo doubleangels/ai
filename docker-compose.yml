@@ -14,7 +14,7 @@ services:
     read_only: true
     environment:
       - DOPPLER_TOKEN=${DOPPLER_TOKEN}
-      - NODE_OPTIONS=--max-old-space-size=192
+      - NODE_OPTIONS=--max-old-space-size=256
     tmpfs:
       - /tmp
 

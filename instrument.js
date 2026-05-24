@@ -49,7 +49,7 @@ if (typeof nodeProfilingIntegration === 'function') {
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
-  sendDefaultPii: true,
+  sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true' || process.env.SENTRY_SEND_DEFAULT_PII === '1',
   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
   enableLogs: process.env.SENTRY_ENABLE_LOGS !== 'false',
   enableMetrics: process.env.SENTRY_ENABLE_METRICS !== 'false',

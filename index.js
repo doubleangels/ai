@@ -328,6 +328,7 @@ process.on('unhandledRejection', (reason, promise) => {
     error: error.stack,
     message: error.message
   });
+  closeSentry().finally(() => process.exit(1));
 });
 
 process.on('SIGINT', async () => {
