@@ -4,6 +4,7 @@
   <h1>AI Discord Bot</h1>
   <p><b>A multi-provider AI Discord assistant powered by OpenAI, Google Gemini, and Anthropic Claude.</b></p>
 
+  [![DeepScan grade](https://deepscan.io/api/teams/29402/projects/31349/branches/1015181/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=29402&pid=31349&bid=1015181)
   [![Node.js](https://img.shields.io/badge/node.js-24.x-brightgreen.svg?style=flat-square&logo=nodedotjs)](https://nodejs.org/)
   [![Discord.js](https://img.shields.io/badge/discord.js-14.x-blue.svg?style=flat-square&logo=discord)](https://discord.js.org/)
   [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?style=flat-square&logo=docker)](https://www.docker.com/)
@@ -18,25 +19,26 @@
 - [Features](#features)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
-- [Observability](#observability)
 - [Usage](#usage)
+- [Observability](#observability)
 - [Development](#development)
-- [Documentation](#documentation)
+- [CI and Docker](#ci-and-docker)
+- [Project layout](#project-layout)
 
 ---
 
 ## Features
 
-- **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via configuration.
-- **Vision** — Attach images; the bot analyzes charts, photos, and screenshots.
+- **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via `AI_PROVIDER`.
+- **Vision** — Attach images; the bot analyzes charts, photos, and screenshots (current message only).
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
-- **Reply-chain context** — Traces Discord reply chains for context on new threads; reuses channel history when a conversation already exists.
-- **Web search & maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
-- **Prompt caching** — Reduces cost and latency for long conversations.
-- **Anti-spam** — Per-user and per-channel cooldowns, queue backpressure, safe mention defaults.
-- **Memory optimized** — Bounded reply-chain cache, current-message vision only, cooldown pruning, and aggressive Discord.js cache limits for container deployments.
+- **Reply-chain context** — Traces Discord reply chains on new threads; reuses channel history when a conversation already exists.
+- **Web search and maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
+- **Prompt caching** — Optional context caching to reduce cost and latency for long conversations.
+- **Anti-spam** — Per-user and per-channel cooldowns, per-channel queue backpressure, safe mention defaults.
+- **Memory optimized** — Bounded reply-chain cache, vision on the current message only, cooldown pruning, and aggressive Discord.js cache limits for container deployments.
 - **Production observability** — Sentry errors, traces, profiling, logs, and custom metrics via Pino.
-- **Secure secrets** — Doppler injects environment variables at runtime.
+- **Secure secrets** — Doppler injects environment variables at runtime in Docker; local dev uses the Doppler CLI.
 
 ---
 
@@ -44,28 +46,32 @@
 
 ### Prerequisites
 
-- [Discord Developer Portal](https://discord.com/developers/applications) — bot token and client ID
-- API key from [OpenAI](https://platform.openai.com/), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com/)
-- [Doppler](https://www.doppler.com/) for secrets
-- Docker and Docker Compose
+- [Discord Developer Portal](https://discord.com/developers/applications) — bot token and application (client) ID
+- API key for your chosen provider: [OpenAI](https://platform.openai.com/), [Gemini](https://aistudio.google.com/apikey), or [Anthropic](https://console.anthropic.com/)
+- [Doppler](https://www.doppler.com/) for secrets (recommended)
+- Docker and Docker Compose for production deployment
 
-### Configure Doppler
+### Required secrets (Doppler)
 
-Add these secrets to your Doppler config (e.g. `prd` or `dev`):
+| Secret | Purpose |
+| :--- | :--- |
+| `DISCORD_BOT_TOKEN` | Bot token |
+| `DISCORD_CLIENT_ID` | Application ID (slash command registration) |
+| `OPENAI_API_KEY` | When `AI_PROVIDER=openai` |
+| `GEMINI_API_KEY` | When `AI_PROVIDER=gemini` |
+| `ANTHROPIC_API_KEY` | When `AI_PROVIDER=claude` |
 
-- `DISCORD_BOT_TOKEN`
-- `DISCORD_CLIENT_ID`
-- `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY` (matching your provider)
-
-Generate a service token for the config you deploy.
+Generate a Doppler service token for the config you deploy (e.g. `prd`).
 
 ### Deploy with Docker Compose
+
+The repository includes [`docker-compose.yml`](docker-compose.yml):
 
 ```yaml
 services:
   ai:
     image: ghcr.io/doubleangels/ai:latest
-    container_name: ai-discord-bot
+    container_name: ai
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -88,23 +94,33 @@ export DOPPLER_TOKEN="dp.st.config.your_token_here"
 docker compose up -d
 ```
 
-Production images exclude tests, coverage config, and dev dependencies. See [Development](./docs/development.md#docker).
+The production image is built from the multi-stage [`Dockerfile`](Dockerfile). The entrypoint runs `doppler run -- node index.js` as an unprivileged user. Set `DOPPLER_TOKEN` at runtime; secrets are not baked into the image.
 
 ---
 
 ## Configuration
 
-Add optional keys to Doppler to customize behavior.
+Set variables in Doppler (or `.env` for local experiments). Invalid model names cause the process to exit at startup with a logged error.
+
+### Discord and logging
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `DISCORD_BOT_TOKEN` | Bot token | *required* |
+| `DISCORD_CLIENT_ID` | Application ID | *required for deploy* |
+| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs (empty = all guilds; DMs ignored) | *all servers* |
+| `LOG_LEVEL` | Pino log level | `info` |
 
 ### AI provider and models
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `AI_PROVIDER` | `openai`, `gemini`, or `claude` | `openai` |
-| `OPENAI_MODEL_NAME` | OpenAI model | `gpt-5.4-nano` |
+| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-5.4-nano` |
 | `GEMINI_MODEL_NAME` | Gemini model | `gemini-3-flash-preview` |
 | `CLAUDE_MODEL_NAME` | Claude model | `claude-sonnet-4-6` |
-| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs (empty = all) | *All servers* |
+
+Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process.
 
 ### Advanced AI settings
 
@@ -112,57 +128,43 @@ Add optional keys to Doppler to customize behavior.
 | :--- | :--- | :--- |
 | `ENABLE_WEB_SEARCH` | Live internet search (OpenAI/Gemini) | `false` |
 | `ENABLE_GOOGLE_MAPS` | Google Maps grounding (Gemini) | `false` |
-| `ENABLE_CONTEXT_CACHE` | Long-context caching | `false` |
-| `REASONING_EFFORT` | OpenAI reasoning: `low`, `medium`, `high` | `none` |
-| `RESPONSES_VERBOSITY` | Response verbosity | `low` |
-| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking (0 = off) | `0` |
+| `ENABLE_CONTEXT_CACHE` | Provider context / prompt caching | `false` |
+| `GEMINI_CACHE_TTL_SECONDS` | Gemini cache TTL (60–86400) | `3600` |
+| `GEMINI_SAFETY_SETTINGS` | JSON array of `{ category, threshold }` safety settings | *API defaults* |
+| `REASONING_EFFORT` | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh` | `none` |
+| `RESPONSES_VERBOSITY` | OpenAI text verbosity: `low`, `medium`, `high` | `low` |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking budget (`0` = off, max 32000) | `0` |
+| `OPENAI_TIMEOUT_MS` | OpenAI client timeout (5000–300000) | `60000` |
+| `OPENAI_MAX_RETRIES` | OpenAI client retries (0–5) | `2` |
 
 ### Conversation and cost limits
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `MAX_OUTPUT_TOKENS` | Response token cap (256–65536) | `1024` |
-| `MAX_HISTORY_TOKENS` | Channel history cap (0 = off) | `0` |
+| `MAX_HISTORY_TOKENS` | Channel history token cap (`0` = disabled) | `0` |
+| `MAX_HISTORY_LENGTH` | Max messages per channel (plus system); minimum `1` | `20` |
 | `USER_COOLDOWN_MS` | Per-user cooldown | `4000` |
 | `CHANNEL_COOLDOWN_MS` | Per-channel cooldown | `1500` |
-| `MAX_PENDING_PER_CHANNEL` | Queue depth before "busy" reply | `3` |
-| `MAX_HISTORY_LENGTH` | Max messages kept per channel (plus system); minimum `1` | `20` |
-| `CONVERSATION_HISTORY_MAX_CHANNELS` | Max in-memory channel histories (LRU by last activity; `0` = no cap) | `500` |
-| `CONVERSATION_HISTORY_IDLE_MS` | Drop channel history after this idle period (`0` = disabled) | `86400000` (24h) |
+| `MAX_PENDING_PER_CHANNEL` | Queue depth before a “busy” reply | `3` |
+| `CONVERSATION_HISTORY_MAX_CHANNELS` | Max in-memory channel histories (LRU; `0` = no cap) | `500` |
+| `CONVERSATION_HISTORY_IDLE_MS` | Drop idle channel history (`0` = disabled) | `86400000` (24h) |
 
 ### Performance and memory
 
-These settings control reply-chain traversal and in-process caching before each AI call. Lower values reduce memory use and pre-API latency; higher values preserve more Discord thread context on brand-new conversations.
-
-| Variable | Description | Default | Valid range |
+| Variable | Description | Default | Range |
 | :--- | :--- | :--- | :--- |
-| `MAX_REPLY_CHAIN_DEPTH` | How many parent messages to fetch when tracing a reply chain | `15` | 1–50 |
-| `MESSAGE_CACHE_MAX_SIZE` | Max Discord messages cached for reply-chain fetches (LRU eviction) | `500` | 10–10000 |
-| `MESSAGE_CACHE_TTL_MS` | How long cached Discord messages stay valid (milliseconds) | `1800000` (30 min) | 60000–86400000 |
+| `MAX_REPLY_CHAIN_DEPTH` | Parent messages to fetch when tracing a reply chain | `15` | 1–50 |
+| `MESSAGE_CACHE_MAX_SIZE` | LRU cache size for reply-chain message fetches | `500` | 10–10000 |
+| `MESSAGE_CACHE_TTL_MS` | Message cache TTL (ms) | `1800000` (30 min) | 60000–86400000 |
+| `IMAGE_DOWNLOAD_TIMEOUT_MS` | Vision image download timeout | `8000` | — |
+| `MAX_IMAGE_BYTES` | Max bytes per downloaded image | `6000000` | — |
 
 **Behavior notes:**
 
-- Reply-chain **text** is injected only when the channel has no prior turns beyond the system message. Ongoing threads rely on `conversationHistory` instead.
-- **Images** are downloaded and sent to the model only for the current message, not for every message in the reply chain.
-- Setting `MAX_HISTORY_TOKENS` (see table above) is recommended for long threads to cap API payload size.
-
----
-
-## Observability
-
-Set `SENTRY_DSN` in Doppler to enable Sentry. The bot reports errors, performance traces, structured logs, custom metrics, and optional profiling.
-
-| Variable | Default | Purpose |
-| :--- | :--- | :--- |
-| `SENTRY_DSN` | *unset* | Enable reporting |
-| `SENTRY_TRACES_SAMPLE_RATE` | `1.0` | Performance traces |
-| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `1.0` | Code profiling |
-| `SENTRY_PROFILE_LIFECYCLE` | `trace` | Profile lifecycle |
-| `SENTRY_ENABLE_LOGS` | `true` | Pino → Sentry logs |
-| `SENTRY_ENABLE_METRICS` | `true` | Custom metrics |
-| `SENTRY_SEND_DEFAULT_PII` | `false` | Send default PII to Sentry (user IDs, etc.) |
-
-Full metric and span reference: [docs/observability.md](./docs/observability.md).
+- Reply-chain **text** is injected only when the channel has no prior turns beyond the system message. Ongoing threads use `conversationHistory`.
+- **Images** are sent to the model for the **current** message only, not every message in the reply chain.
+- Set `MAX_HISTORY_TOKENS` for long threads to cap API payload size.
 
 ---
 
@@ -171,40 +173,217 @@ Full metric and span reference: [docs/observability.md](./docs/observability.md)
 ### Interacting with the bot
 
 - **Mention:** `@AI What is the capital of France?`
-- **Reply:** Use Discord's reply feature on a bot message to continue a thread.
-- The bot ignores `@here` and `@everyone`.
+- **Reply:** Use Discord’s reply feature on a bot message to continue a thread.
+- The bot ignores `@here` and `@everyone` unless it is also mentioned.
 
 ### Images
 
-Attach an image with a caption like `@AI describe this chart` for multi-modal analysis.
+Attach an image with a caption such as `@AI describe this chart` for multimodal analysis.
 
-### Admin commands
+### Slash commands
 
-- `/reset` — Clear conversation history (channel or server scope). Requires **Administrator**.
+| Command | Description | Permission |
+| :--- | :--- | :--- |
+| `/reset` | Clear conversation history for a channel or the whole server | Administrator |
+
+Deploy or refresh slash commands after changes:
+
+```bash
+pnpm commands:deploy
+```
+
+Context menu commands are supported by the client handler when command modules are added under `commands/`.
+
+---
+
+## Observability
+
+Set `SENTRY_DSN` in Doppler to enable Sentry. [`instrument.js`](instrument.js) loads **before** other application modules.
+
+### Sentry environment variables
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `SENTRY_DSN` | *unset* | Enable reporting |
+| `SENTRY_TRACES_SAMPLE_RATE` | `1.0` | Performance traces (`0.0`–`1.0`) |
+| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `1.0` | Code profiling sample rate |
+| `SENTRY_PROFILE_LIFECYCLE` | `trace` | Profile lifecycle (e.g. `trace`, `manual`) |
+| `SENTRY_ENABLE_LOGS` | `true` | Forward Pino logs to Sentry |
+| `SENTRY_ENABLE_METRICS` | `true` | Emit custom metrics |
+| `SENTRY_SEND_DEFAULT_PII` | `false` | Send default PII (user IDs, etc.) |
+| `NODE_ENV` | `production` | Sentry environment tag |
+
+Sample rates are clamped to `[0, 1]`. Invalid values fall back to `1.0`.
+
+### Errors
+
+`captureError(error, tags)` from `instrument.js` attaches stringified tags and calls `captureException`. Used in `index.js`, `config.js`, `deploy-commands.js`, `aiService.js`, `messageCreate.js`, `ready.js`, and `reset.js`.
+
+### Performance spans
+
+`startSpan(options, callback)` wraps async work. If `Sentry.startSpan` is unavailable, the callback runs directly.
+
+| Span | Module | Purpose |
+| :--- | :--- | :--- |
+| Client ready / login | `index.js` | Bot lifecycle |
+| Slash and context menu handlers | `index.js` | Command execution |
+| Message AI response | `messageCreate.js` | End-to-end message handling |
+| AI provider call | `aiService.js` | OpenAI / Gemini / Claude request |
+| Command deploy | `deploy-commands.js` | Slash command registration |
+| Client ready setup | `ready.js` | Post-login setup |
+
+Profiling uses `@sentry/profiling-node` when available; if the integration fails to load, the bot continues without profiling.
+
+### Logs
+
+[`logger.js`](logger.js) wraps Pino and forwards `info`, `warn`, `error`, `debug`, `trace`, and `fatal` to `Sentry.logger` when logs are enabled. Forwarding failures are swallowed and logged locally at debug level.
+
+### Custom metrics
+
+Metrics are no-ops when Sentry is disabled or metrics are turned off. Attributes are normalized (objects JSON-stringified; `null`/`undefined` dropped).
+
+**Counters (`recordCount`)**
+
+| Metric | Attributes | Source |
+| :--- | :--- | :--- |
+| `ai.generate.requests` | `provider`, `outcome` | `aiService.js` |
+| `discord.message.received` | `provider`, `trigger` | `messageCreate.js` |
+| `discord.message.responded` | `provider`, `outcome` | `messageCreate.js` |
+| `discord.message.rejected` | `reason` | `messageCreate.js` |
+| `discord.command.executed` | `command`, `outcome` | `index.js` |
+| `discord.context_menu.executed` | `command`, `outcome` | `index.js` |
+| `discord.api.failure` | `location`, `httpStatus`, … | multiple |
+| `discord.api.rate_limit` | `location`, … | multiple |
+| `discord.login` | — | `index.js` |
+| `discord.ready` | `outcome` | `ready.js` |
+| `discord.deploy_commands` | `outcome` | `deploy-commands.js` |
+| `discord.reset.executed` | `scope`, `outcome` | `reset.js` |
+
+**Gauges (`recordGauge`)**
+
+| Metric | Attributes | Source |
+| :--- | :--- | :--- |
+| `discord.channel.queue_depth` | `provider` | `messageCreate.js` |
+
+**Distributions (`recordDistribution`)**
+
+| Metric | Unit | Source |
+| :--- | :--- | :--- |
+| `ai.generate.duration_ms` | ms | `aiService.js` |
+| `discord.message.processing_ms` | ms | `messageCreate.js` |
+| `discord.message.response_chars` | — | `messageCreate.js` |
+| `discord.command.duration_ms` | ms | `index.js` |
+| `discord.context_menu.duration_ms` | ms | `index.js` |
+| `discord.deploy_commands.duration_ms` | ms | `deploy-commands.js` |
+| `discord.reset.duration_ms` | ms | `reset.js` |
+| `discord.ready.duration_ms` | ms | `ready.js` |
+
+### Graceful shutdown
+
+`closeSentry()` calls `Sentry.close(2000)` on process shutdown (see `index.js` signal handlers) to flush pending events.
+
+### Validating in Sentry
+
+After deploying with `SENTRY_DSN` set:
+
+1. **Issues** — trigger a handled error or exercise error paths (e.g. `/reset` without permission).
+2. **Performance** — mention the bot and inspect spans for message handling and `ai.generate`.
+3. **Logs** — confirm structured lines when `SENTRY_ENABLE_LOGS` is true.
+4. **Metrics** — filter by names above (e.g. `discord.message.received`).
 
 ---
 
 ## Development
 
+### Prerequisites
+
+- **Node.js 24.x** (matches CI and the Docker image)
+- **pnpm 10.28** via [Corepack](https://nodejs.org/api/corepack.html)
+- Optional: [Doppler CLI](https://docs.doppler.com/docs/cli) for local secrets
+
+### Install and run
+
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
-pnpm test                      # CI runs this
-pnpm test:coverage:check   # local 100% coverage gate
 ```
 
-See [docs/development.md](./docs/development.md) for local setup, Docker build notes, and project layout.
+With Doppler:
+
+```bash
+pnpm dev                 # nodemon + Doppler
+pnpm start               # node index.js + Doppler
+pnpm commands:deploy     # register slash commands
+pnpm predeploy           # test + deploy commands
+```
+
+### Testing
+
+```bash
+pnpm test                      # full Jest suite (CI runs this)
+pnpm test:coverage             # coverage report in coverage/
+pnpm test:coverage:check       # 100% coverage gate (local / maintainer)
+```
+
+- Tests live under [`test/`](test/) with shared setup in [`test/jest.setup.cjs`](test/jest.setup.cjs) and [`test/jest.afterEnv.cjs`](test/jest.afterEnv.cjs), which stub Discord, AI SDKs, and Sentry.
+- Coverage thresholds (lines, branches, functions, statements) are **100%** in [`jest.config.cjs`](jest.config.cjs).
+- **CI does not upload coverage** — only `pnpm test` runs in GitHub Actions.
+- On Windows, run coverage commands directly in PowerShell without piping output; piping can cause Jest to hang.
+
+### Maintainer scripts
+
+| Script | Command | Purpose |
+| :--- | :--- | :--- |
+| `audit:logs` | `pnpm audit:logs` | Enforce log message style (no stray colons; terminal punctuation) |
+
+### Static analysis
+
+The project is monitored on [DeepScan](https://deepscan.io/dashboard#view=project&tid=29402&pid=31349&bid=1015181) (badge above).
 
 ---
 
-## Documentation
+## CI and Docker
 
-| Guide | Description |
-|-------|-------------|
-| [Development](./docs/development.md) | Testing, coverage, Docker exclusions |
-| [Observability](./docs/observability.md) | Sentry errors, traces, logs, metrics |
+### GitHub Actions
+
+| Workflow | Branch | Actions |
+| :--- | :--- | :--- |
+| [`build-docker.yml`](.github/workflows/build-docker.yml) | `main` | `pnpm test`, `pnpm audit`, Trivy FS + image scan, build and push `ghcr.io/<owner>/ai` |
+| [`build-dev-docker.yml`](.github/workflows/build-dev-docker.yml) | `dev` | Same pipeline for the dev branch image |
+
+Images are published to **GitHub Container Registry** as `ghcr.io/doubleangels/ai:latest` on the default branch.
+
+### Docker image contents
+
+[`.dockerignore`](.dockerignore) excludes from the build context:
+
+- `test/`, `jest.config.cjs`, `coverage/`, `*.lcov`, `.nyc_output/`
+- Documentation, CI configs, and dev tooling
+
+The runtime stage contains application code and production dependencies only (`pnpm install --prod --frozen-lockfile` in the builder). The image runs as user `discordbot` (UID 1001), includes `dumb-init` and the Doppler CLI, and exposes a health check on the Node process.
+
+---
+
+## Project layout
+
+| Path | Purpose |
+| :--- | :--- |
+| `index.js` | Discord client bootstrap, interaction handlers, shutdown |
+| `config.js` | Environment-driven configuration and model validation |
+| `instrument.js` | Sentry initialization, spans, metrics, `captureError` |
+| `logger.js` | Pino logging with optional Sentry log forwarding |
+| `deploy-commands.js` | Slash command registration with Discord REST API |
+| `events/` | Discord event handlers (`messageCreate`, `ready`) |
+| `commands/` | Slash commands (`reset`) |
+| `utils/aiService.js` | OpenAI, Gemini, and Claude response generation |
+| `utils/aiUtils.js` | Message splitting, vision download, history trimming, error classification |
+| `utils/replyChainTracer.js` | Reply-chain traversal and message LRU cache |
+| `scripts/audit-log-messages.js` | Log message style audit (maintainer) |
+| `test/` | Jest suite (not shipped in Docker images) |
+| `Dockerfile` | Multi-stage production image (Node 24 Alpine) |
+| `docker-compose.yml` | Example production compose stack |
 
 <br>
 <div align="center">
-  <sub>Built with Node.js and Discord.js</sub>
+  <sub>Built with Node.js 24 and Discord.js 14</sub>
 </div>
