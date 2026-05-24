@@ -405,6 +405,67 @@ test('should uses default reply char budget when maxOutputTokens is invalid', ()
   expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-5.4-nano')).toMatch(/1900 characters/);
 });
 
+test('should pruneConversationHistories evicts idle channels and enforces max channel count', () => {
+  const history = new Map([
+    ['chan-old', [{ role: 'system', content: 's' }]],
+    ['chan-mid', [{ role: 'system', content: 's' }]],
+    ['chan-new', [{ role: 'system', content: 's' }]]
+  ]);
+  const activity = new Map([
+    ['chan-old', Date.now() - 100_000],
+    ['chan-mid', Date.now() - 50_000],
+    ['chan-new', Date.now()]
+  ]);
+
+  aiUtils.pruneConversationHistories(history, activity, 0, 60_000);
+  expect(history.has('chan-old')).toBe(false);
+  expect(history.has('chan-mid')).toBe(true);
+  expect(history.has('chan-new')).toBe(true);
+
+  aiUtils.pruneConversationHistories(history, activity, 1, 0);
+  expect(history.size).toBe(1);
+  expect(history.has('chan-new')).toBe(true);
+
+  aiUtils.pruneConversationHistories(null, activity, 10, 0);
+
+  const orphanHistory = new Map([['orphan', [{ role: 'system', content: 's' }]]]);
+  const sparseActivity = new Map();
+  aiUtils.pruneConversationHistories(orphanHistory, sparseActivity, 0, 1000);
+  expect(orphanHistory.has('orphan')).toBe(false);
+
+  const stuckHistory = new Map([['stuck', []]]);
+  stuckHistory.keys = function keys() {
+    return [][Symbol.iterator]();
+  };
+  Object.defineProperty(stuckHistory, 'size', { value: 2, configurable: true });
+  const stuckActivity = new Map([['stuck', 1]]);
+  aiUtils.pruneConversationHistories(stuckHistory, stuckActivity, 1, 0);
+  expect(stuckHistory.size).toBe(2);
+
+  const capHistory = new Map([
+    ['a', []],
+    ['b', []]
+  ]);
+  const capActivity = new Map([
+    ['a', 100],
+    ['b', 200]
+  ]);
+  aiUtils.pruneConversationHistories(capHistory, capActivity, 1, 0);
+  expect(capHistory.has('a')).toBe(false);
+  expect(capHistory.has('b')).toBe(true);
+
+  aiUtils.pruneConversationHistories(capHistory, null, 10, 0);
+
+  const partialActivityHistory = new Map([
+    ['tracked', []],
+    ['untracked', []]
+  ]);
+  const partialActivity = new Map([['tracked', 500]]);
+  aiUtils.pruneConversationHistories(partialActivityHistory, partialActivity, 1, 0);
+  expect(partialActivityHistory.has('untracked')).toBe(false);
+  expect(partialActivityHistory.has('tracked')).toBe(true);
+});
+
 test('should pruneStaleMapEntries removes expired timestamps and ignores invalid input', () => {
   const map = new Map([
     ['old', Date.now() - 10_000],

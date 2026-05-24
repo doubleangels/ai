@@ -126,7 +126,9 @@ Add optional keys to Doppler to customize behavior.
 | `USER_COOLDOWN_MS` | Per-user cooldown | `4000` |
 | `CHANNEL_COOLDOWN_MS` | Per-channel cooldown | `1500` |
 | `MAX_PENDING_PER_CHANNEL` | Queue depth before "busy" reply | `3` |
-| `MAX_HISTORY_LENGTH` | Max messages kept per channel (plus system) | `20` |
+| `MAX_HISTORY_LENGTH` | Max messages kept per channel (plus system); minimum `1` | `20` |
+| `CONVERSATION_HISTORY_MAX_CHANNELS` | Max in-memory channel histories (LRU by last activity; `0` = no cap) | `500` |
+| `CONVERSATION_HISTORY_IDLE_MS` | Drop channel history after this idle period (`0` = disabled) | `86400000` (24h) |
 
 ### Performance and memory
 
@@ -158,6 +160,7 @@ Set `SENTRY_DSN` in Doppler to enable Sentry. The bot reports errors, performanc
 | `SENTRY_PROFILE_LIFECYCLE` | `trace` | Profile lifecycle |
 | `SENTRY_ENABLE_LOGS` | `true` | Pino → Sentry logs |
 | `SENTRY_ENABLE_METRICS` | `true` | Custom metrics |
+| `SENTRY_SEND_DEFAULT_PII` | `false` | Send default PII to Sentry (user IDs, etc.) |
 
 Full metric and span reference: [docs/observability.md](./docs/observability.md).
 

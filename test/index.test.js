@@ -91,6 +91,8 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
       maxImageBytes: 6_000_000,
       openaiTimeoutMs: 60000,
       openaiMaxRetries: 2,
+      conversationHistoryMaxChannels: 500,
+      conversationHistoryIdleMs: 86_400_000,
       getTemperature: () => 1,
       ...configOverrides
     });
@@ -610,7 +612,7 @@ test('should index registers process handlers and handles shutdown failures', as
     processHandlers.SIGINT();
     processHandlers.SIGTERM();
     await new Promise(resolve => setImmediate(resolve));
-    expect(exitCodes).toEqual([1, 0, 0]);
+    expect(exitCodes).toEqual([1, 1, 1, 0, 0]);
   } finally {
     process.exit = originalExit;
     restore();

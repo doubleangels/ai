@@ -8,6 +8,7 @@ const {
   createSystemMessage,
   SYSTEM_MESSAGES,
   pruneStaleMapEntries,
+  pruneConversationHistories,
   stripImagesFromHistory,
   formatAIUserMessage,
   isAIUserErrorMessage
@@ -25,7 +26,9 @@ const {
   channelCooldownMs,
   maxPendingPerChannel,
   maxReplyChainDepth,
-  allowedGuildIds
+  allowedGuildIds,
+  conversationHistoryMaxChannels,
+  conversationHistoryIdleMs
 } = require('../config');
 
 const SAFE_ALLOWED_MENTIONS = { parse: [] };
@@ -223,19 +226,19 @@ module.exports = {
       };
 
       let isReplyToBot = false;
-      let referencedMessage = null;
+      let botReferencedMessage = null;
 
       if (prefetchedReferencedMessage) {
-        referencedMessage = prefetchedReferencedMessage;
+        botReferencedMessage = prefetchedReferencedMessage;
         isReplyToBot = true;
-        logger.debug(`Message ${message.id} is a reply to bot's message: ${referencedMessage.id}.`);
+        logger.debug(`Message ${message.id} is a reply to bot's message: ${botReferencedMessage.id}.`);
       } else if (message.reference && message.reference.messageId) {
         try {
-          referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+          const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
           isReplyToBot = referencedMessage.author.id === client.user.id;
-
           if (isReplyToBot) {
-            logger.debug(`Message ${message.id} is a reply to bot's message: ${referencedMessage.id}.`);
+            botReferencedMessage = referencedMessage;
+            logger.debug(`Message ${message.id} is a reply to bot's message: ${botReferencedMessage.id}.`);
           }
         } catch (error) {
           logger.error(`Failed to fetch referenced message ${message.reference.messageId}.`, {
@@ -311,6 +314,17 @@ module.exports = {
 
       let userText = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
+      if (!client.channelLastActivity) {
+        client.channelLastActivity = new Map();
+      }
+      client.channelLastActivity.set(channelId, Date.now());
+      pruneConversationHistories(
+        client.conversationHistory,
+        client.channelLastActivity,
+        conversationHistoryMaxChannels,
+        conversationHistoryIdleMs
+      );
+
       if (!client.conversationHistory.has(channelId)) {
         logger.debug(`No conversation history found for channel ${channelId}.`);
         const systemMessage = createSystemMessage(modelName, aiProvider === 'openai');
@@ -361,19 +375,14 @@ module.exports = {
         logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}`);
       }
 
-      // Add bot's previous response if replying to bot
-      referencedMessage = null;
-      if (isReplyToBot && replyChain.length > 0) {
-        referencedMessage = replyChain[replyChain.length - 1];
-      }
-
-      if (isReplyToBot && referencedMessage) {
+      // Add bot's previous response if replying to bot (use fetched parent, not the current user message).
+      if (isReplyToBot && botReferencedMessage) {
         const lastAssistant = [...channelHistory].reverse().find(m => m.role === 'assistant');
-        if (!lastAssistant || lastAssistant.content !== referencedMessage.content) {
+        if (!lastAssistant || lastAssistant.content !== botReferencedMessage.content) {
           logger.debug(`Adding bot's previous response to conversation history for channel ${channelId}.`);
           channelHistory.push({
             role: 'assistant',
-            content: referencedMessage.content
+            content: botReferencedMessage.content
           });
         }
       }

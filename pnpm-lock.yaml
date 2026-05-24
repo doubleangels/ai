@@ -18,7 +18,7 @@ importers:
         specifier: ^2.6.0
         version: 2.6.0
       '@sentry/node':
-        specifier: ^10.32.0
+        specifier: ^10.53.1
         version: 10.53.1
       '@sentry/profiling-node':
         specifier: ^10.53.1

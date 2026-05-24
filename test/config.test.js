@@ -122,6 +122,26 @@ test('should ignores invalid GEMINI_SAFETY_SETTINGS JSON', () => {
   expect(config.geminiSafetySettings).toBe(undefined);
 });
 
+test('should clamps MAX_HISTORY_LENGTH to at least 1', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    MAX_HISTORY_LENGTH: '0'
+  });
+  expect(config.maxHistoryLength).toBe(1);
+});
+
+test('should resolves conversation history memory bounds from env', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    CONVERSATION_HISTORY_MAX_CHANNELS: '99999',
+    CONVERSATION_HISTORY_IDLE_MS: '999999999'
+  });
+  expect(config.conversationHistoryMaxChannels).toBe(10000);
+  expect(config.conversationHistoryIdleMs).toBe(604800000);
+});
+
 test('should resolves performance tuning env vars with clamping', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',

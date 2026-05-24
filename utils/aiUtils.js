@@ -474,6 +474,45 @@ function pruneStaleMapEntries(map, maxAgeMs) {
 }
 
 /**
+ * Prunes idle channel histories and enforces a max channel count (LRU by last activity).
+ * @param {Map<string, Array>} conversationHistory
+ * @param {Map<string, number>} channelLastActivity - channelId → last activity timestamp
+ * @param {number} maxChannels - Max channels to retain (0 = no cap)
+ * @param {number} idleMs - Drop histories idle longer than this (0 = disabled)
+ */
+function pruneConversationHistories(conversationHistory, channelLastActivity, maxChannels, idleMs) {
+  if (!conversationHistory) return;
+
+  const now = Date.now();
+  if (typeof idleMs === 'number' && idleMs > 0 && channelLastActivity) {
+    for (const channelId of [...conversationHistory.keys()]) {
+      const lastActive = channelLastActivity.get(channelId) ?? 0;
+      if (now - lastActive > idleMs) {
+        conversationHistory.delete(channelId);
+        channelLastActivity.delete(channelId);
+      }
+    }
+  }
+
+  if (typeof maxChannels !== 'number' || maxChannels <= 0 || !channelLastActivity) return;
+
+  while (conversationHistory.size > maxChannels) {
+    let oldestChannelId = null;
+    let oldestActivity = Infinity;
+    for (const channelId of conversationHistory.keys()) {
+      const lastActive = channelLastActivity.get(channelId) ?? 0;
+      if (lastActive < oldestActivity) {
+        oldestActivity = lastActive;
+        oldestChannelId = channelId;
+      }
+    }
+    if (!oldestChannelId) break;
+    conversationHistory.delete(oldestChannelId);
+    channelLastActivity.delete(oldestChannelId);
+  }
+}
+
+/**
  * Replaces base64 image parts in prior user turns with a lightweight placeholder.
  * @param {Array} channelHistory - Conversation history array
  */
@@ -938,6 +977,7 @@ module.exports = {
   estimateTokensFromText,
   trimConversationHistory,
   pruneStaleMapEntries,
+  pruneConversationHistories,
   stripImagesFromHistory,
   createSystemMessage,
   classifyAIError,

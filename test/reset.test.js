@@ -47,6 +47,7 @@ test('should waits for the existing channel lock before clearing channel history
   const { interaction } = createInteraction({
     channelOption: { id: 'chan-1', name: 'general' }
   });
+  interaction.client.channelLastActivity = new Map([['chan-1', Date.now()]]);
   interaction.client.channelLocks.set('chan-1', gate.promise);
 
   let resetCompleted = false;
@@ -62,6 +63,7 @@ test('should waits for the existing channel lock before clearing channel history
   await execution;
 
   expect(interaction.client.conversationHistory.has('chan-1')).toBe(false);
+  expect(interaction.client.channelLastActivity.has('chan-1')).toBe(false);
 });
 
 test('should clears all histories only after existing locks settle', async () => {
@@ -72,6 +74,10 @@ test('should clears all histories only after existing locks settle', async () =>
   });
 
   const { interaction } = createInteraction();
+  interaction.client.channelLastActivity = new Map([
+    ['chan-1', Date.now()],
+    ['chan-2', Date.now()]
+  ]);
   interaction.client.channelLocks.set('chan-1', gate.promise);
   interaction.client.conversationHistory.set('chan-2', [{ role: 'system', content: 'sys' }, { role: 'user', content: 'other' }]);
 
@@ -88,6 +94,7 @@ test('should clears all histories only after existing locks settle', async () =>
   await execution;
 
   expect(interaction.client.conversationHistory.size).toBe(0);
+  expect(interaction.client.channelLastActivity.size).toBe(0);
 });
 
 // --- appended from test/reset.coverage.test.js ---

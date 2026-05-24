@@ -5,7 +5,7 @@
 FROM node:24-alpine AS base
 
 ENV NODE_ENV=production
-ENV NODE_OPTIONS="--max-old-space-size=128"
+ENV NODE_OPTIONS="--max-old-space-size=256"
 
 WORKDIR /app
 
