@@ -327,7 +327,7 @@ async function generateGeminiResponse(conversation) {
     config.safetySettings = geminiSafetySettings;
   }
 
-  logger.debug(`Sending conversation to Gemini API using model: ${modelName}.`, {
+  logger.debug(`Sending conversation to Gemini API using model ${modelName}.`, {
     messageCount: conversation.length,
     model: modelName,
     contentsLength: contents.length,
@@ -352,7 +352,7 @@ async function generateGeminiResponse(conversation) {
       return formatAIUserMessage({ reason: 'empty_response' });
     }
 
-    logger.info('Generated AI response successfully (Gemini):', {
+    logger.info('Generated AI response successfully (Gemini).', {
       charCount: text.length,
       model: modelName
     });
@@ -453,7 +453,7 @@ async function generateClaudeResponse(conversation) {
     params.tools = CLAUDE_TOOLS;
   }
 
-  logger.debug(`Sending conversation to Claude API using model: ${modelName}.`, {
+  logger.debug(`Sending conversation to Claude API using model ${modelName}.`, {
     messageCount: conversation.length,
     model: modelName,
     messagesLength: messages.length,
@@ -479,7 +479,7 @@ async function generateClaudeResponse(conversation) {
           logger.warn('Claude response is empty.');
           return formatAIUserMessage({ reason: 'empty_response' });
         }
-        logger.info('Generated AI response successfully (Claude):', {
+        logger.info('Generated AI response successfully (Claude).', {
           charCount: text.length,
           model: modelName,
           toolRounds: round
@@ -583,7 +583,7 @@ async function generateOpenAIResponse(conversation) {
       temperatureValue = temperature;
     }
 
-    logger.debug(`Sending conversation to OpenAI API using model: ${modelName}.`, {
+    logger.debug(`Sending conversation to OpenAI API using model ${modelName}.`, {
       messageCount: conversation.length,
       model: modelName,
       temperature: temperatureValue,
@@ -607,7 +607,7 @@ async function generateOpenAIResponse(conversation) {
       return formatAIUserMessage({ error: apiError, provider: 'openai' });
     }
 
-    logger.debug('Received response from OpenAI API:', {
+    logger.debug('Received response from OpenAI API.', {
       responseId: response.id,
       status: response.status,
       totalTokens: response.usage?.total_tokens
@@ -616,7 +616,7 @@ async function generateOpenAIResponse(conversation) {
     const reply = response.output_text || '';
 
     if (response.status !== 'completed') {
-      logger.warn('OpenAI API response not completed:', {
+      logger.warn('OpenAI API response was not completed.', {
         model: modelName,
         responseStatus: response.status,
         responseId: response.id,
@@ -633,7 +633,7 @@ async function generateOpenAIResponse(conversation) {
       return formatAIUserMessage({ reason: 'empty_response' });
     }
 
-    logger.info('Generated AI response successfully:', {
+    logger.info('Generated AI response successfully.', {
       responseId: response.id,
       charCount: reply.length,
       tokensUsed: response.usage?.total_tokens
@@ -642,7 +642,7 @@ async function generateOpenAIResponse(conversation) {
     return reply;
   } catch (error) {
     captureError(error, { provider: aiProvider || 'unknown' });
-    logger.error('Error generating AI response:', {
+    logger.error('Error occurred while generating AI response.', {
       error: error?.stack,
       message: error?.message,
       model: modelName,

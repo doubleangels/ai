@@ -28,10 +28,10 @@ async function deployCommands() {
       try {
         const command = require(`./commands/${file}`);
         commands.push(command.data.toJSON());
-        logger.debug(`Loaded command: ${file}`);
+        logger.debug(`Loaded command ${file}.`);
       } catch (err) {
         captureError(err, { source: 'deployCommands', handler: 'commandLoad', file });
-        logger.error(`Failed to load command file: ${file}, skipping.`, {
+        logger.error(`Failed to load command file ${file}; skipping.`, {
           error: err?.stack,
           message: err?.message
         });
@@ -46,7 +46,7 @@ async function deployCommands() {
   const rest = new REST({ version: '10' }).setToken(config.token);
   
   const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
-  logger.info(`Deploying commands for application ID: ${clientId}`);
+  logger.info(`Deploying commands for application ID ${clientId}.`);
   
   try {    
     await rest.put(

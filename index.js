@@ -54,9 +54,9 @@ for (const file of commandFiles) {
   try {
     const command = require(path.join(commandsPath, file));
     client.commands.set(command.data.name, command);
-    logger.info(`Loaded command: ${command.data.name}`);
+    logger.info(`Loaded command ${command.data.name}.`);
   } catch (error) {
-    logger.error(`Error loading command file: ${file}.`, {
+    logger.error(`Error occurred while loading command file ${file}.`, {
       error: error.stack,
       message: error.message
     });
@@ -71,12 +71,12 @@ for (const file of eventFiles) {
     const event = require(path.join(eventsPath, file));
     if (event.once) {
       client.once(event.name, (...args) => {
-        logger.debug(`Executing event: ${event.name}`);
+        logger.debug(`Executing ${event.name} event.`);
         Promise.resolve()
           .then(() => event.execute(...args, client))
           .catch(error => {
             captureError(error, { event: event.name, source: 'eventExecute' });
-            logger.error(`Error executing once event: ${event.name}.`, {
+            logger.error(`Error executing once event ${event.name}.`, {
               error: error.stack,
               message: error.message
             });
@@ -84,21 +84,21 @@ for (const file of eventFiles) {
       });
     } else {
       client.on(event.name, (...args) => {
-        logger.debug(`Executing event: ${event.name}`);
+        logger.debug(`Executing ${event.name} event.`);
         Promise.resolve()
           .then(() => event.execute(...args, client))
           .catch(error => {
             captureError(error, { event: event.name, source: 'eventExecute' });
-            logger.error(`Error executing event: ${event.name}.`, {
+            logger.error(`Error executing event ${event.name}.`, {
               error: error.stack,
               message: error.message
             });
           });
       });
     }
-    logger.info(`Loaded event: ${event.name}`);
+    logger.info(`Loaded event ${event.name}.`);
   } catch (error) {
-    logger.error(`Error loading event file: ${file}.`, {
+    logger.error(`Error occurred while loading event file ${file}.`, {
       error: error.stack,
       message: error.message
     });
@@ -123,7 +123,7 @@ client.on('interactionCreate', async interaction => {
   const startedAt = Date.now();
 
   try {
-    logger.debug(`Executing command: ${interaction.commandName}`, { 
+    logger.debug(`Executing command ${interaction.commandName}.`, { 
       user: interaction.user.tag,
       userId: interaction.user.id,
       guildId: interaction.guildId
@@ -158,7 +158,7 @@ client.on('interactionCreate', async interaction => {
         outcome: 'error'
       }
     });
-    logger.error(`Error executing command: ${interaction.commandName}.`, {
+    logger.error(`Error executing command ${interaction.commandName}.`, {
       error: error.stack,
       message: error.message,
       user: interaction.user.tag
@@ -204,7 +204,7 @@ client.on('interactionCreate', async interaction => {
 
   const command = client.commands.get(interaction.commandName);
   if (!command) {
-    logger.warn(`Unknown context menu command: ${interaction.commandName}`);
+    logger.warn(`Unknown context menu command ${interaction.commandName}.`);
     return;
   }
 
@@ -217,7 +217,7 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  logger.debug(`Executing context menu command: ${interaction.commandName}`, { 
+  logger.debug(`Executing context menu command ${interaction.commandName}.`, { 
     user: interaction.user.tag,
     userId: interaction.user.id,
     guildId: interaction.guildId
@@ -242,7 +242,7 @@ client.on('interactionCreate', async interaction => {
         outcome: 'success'
       }
     });
-    logger.debug(`Context menu command executed successfully: ${interaction.commandName}`);
+    logger.debug(`Context menu command ${interaction.commandName} executed successfully.`);
   } catch (error) {
     captureError(error, { source: 'contextMenuExecute', command: interaction.commandName });
     recordCount('discord.context_menu.executed', 1, {
@@ -256,7 +256,7 @@ client.on('interactionCreate', async interaction => {
         outcome: 'error'
       }
     });
-    logger.error(`Error executing context menu command: ${interaction.commandName}.`, { 
+    logger.error(`Error executing context menu command ${interaction.commandName}.`, { 
       error: error.stack,
       message: error.message,
       user: interaction.user.tag

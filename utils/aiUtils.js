@@ -348,9 +348,9 @@ async function processImageAttachments(attachments) {
 
       const attachmentLabel = attachment.name || attachment.filename || attachment.url || 'unknown';
       try {
-        logger.debug(`Processing image attachment: ${attachmentLabel} (${attachment.contentType})`);
+        logger.debug(`Processing image attachment ${attachmentLabel}.`, { contentType: attachment.contentType });
         const base64Image = await downloadImageAsBase64(attachment.url);
-        logger.debug(`Successfully processed image: ${attachmentLabel}`);
+        logger.debug(`Successfully processed image ${attachmentLabel}.`);
         return {
           index,
           item: {
@@ -359,7 +359,7 @@ async function processImageAttachments(attachments) {
           }
         };
       } catch (error) {
-        logger.error(`Failed to process image attachment: ${attachmentLabel}`, {
+        logger.error(`Failed to process image attachment ${attachmentLabel}.`, {
           error: error.stack,
           message: error.message
         });
@@ -428,7 +428,7 @@ function trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTok
   if (!Array.isArray(channelHistory) || channelHistory.length === 0) return channelHistory;
 
   if (channelHistory.length > maxHistoryLength + 1) {
-    logger.debug(`Trimming conversation history (current: ${channelHistory.length}, max: ${maxHistoryLength + 1}).`);
+    logger.debug('Trimming conversation history.', { current: channelHistory.length, max: maxHistoryLength + 1 });
     const systemMessage = channelHistory[0];
     channelHistory.splice(1, channelHistory.length - maxHistoryLength - 1);
     channelHistory[0] = systemMessage;
