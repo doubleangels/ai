@@ -86,7 +86,7 @@ const MESSAGE_CONFIG = {
  * @param {number} [limit=2000] - Maximum length for each chunk
  * @returns {string[]} Array of message chunks
  */
-function splitMessage(text, limit = 2000) {
+function splitMessage(text, limit = MESSAGE_CONFIG.defaultLimit) {
   try {
     if (!text) {
       logger.debug('Empty text provided to splitMessage, returning empty array.');
@@ -138,7 +138,7 @@ function splitMessage(text, limit = 2000) {
       message: error.message,
       textLength: text?.length
     });
-    return ['Error splitting message'];
+    return [MESSAGE_CONFIG.errorMessage];
   }
 }
 
@@ -657,7 +657,7 @@ function getErrorStatus(error) {
 function getErrorMessageText(error) {
   if (!error) return '';
   if (typeof error === 'string') return error;
-  if (typeof error === 'object' && error !== null) {
+  if (typeof error === 'object') {
     const nested = error.error;
     if (nested && typeof nested === 'object' && typeof nested.message === 'string') {
       return nested.message;

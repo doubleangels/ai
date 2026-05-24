@@ -171,8 +171,8 @@ client.on('interactionCreate', async interaction => {
       }
     } catch (replyError) {
       logger.error('Error sending error response.', {
-        error: replyError.stack,
-        message: replyError.message,
+        error: replyError?.stack,
+        message: replyError?.message,
         originalError: error.message
       });
       try {
@@ -182,7 +182,7 @@ client.on('interactionCreate', async interaction => {
           command: interaction.commandName,
           userId: interaction.user.id,
           guildId: interaction.guildId,
-          errorMessage: replyError.message,
+          errorMessage: replyError?.message,
           httpStatus
         });
         if (httpStatus === 429) {
@@ -270,8 +270,8 @@ client.on('interactionCreate', async interaction => {
       }
     } catch (replyError) {
       logger.error('Error sending error response.', {
-        error: replyError.stack,
-        message: replyError.message,
+        error: replyError?.stack,
+        message: replyError?.message,
         originalError: error.message
       });
       try {
@@ -281,7 +281,7 @@ client.on('interactionCreate', async interaction => {
           command: interaction.commandName,
           userId: interaction.user.id,
           guildId: interaction.guildId,
-          errorMessage: replyError.message,
+          errorMessage: replyError?.message,
           httpStatus
         });
         if (httpStatus === 429) {
