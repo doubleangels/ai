@@ -126,16 +126,17 @@ module.exports = {
           allowedMentions: SAFE_ALLOWED_MENTIONS
         });
       } catch (err) {
+        const errorMessage = err?.message;
+        const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
         logger.warn('Failed to send busy/backpressure message.', {
           channelId,
-          errorMessage: err.message
+          errorMessage
         });
         try {
-          const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
           recordCount('discord.api.failure', 1, {
             location: 'messageCreate.backpressure_reply',
             channelId,
-            errorMessage: err.message,
+            errorMessage,
             httpStatus
           });
           if (httpStatus === 429) {
@@ -145,7 +146,7 @@ module.exports = {
             });
           }
         } catch (metricErr) {
-          logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+          logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr?.message });
         }
       }
       return;
@@ -161,18 +162,19 @@ module.exports = {
             });
             return true;
           } catch (err) {
+            const errorMessage = err?.message;
+            const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
             logger.warn('Failed to edit thinking message; falling back to a normal reply.', {
               channelId,
               messageId: message.id,
-              errorMessage: err.message
+              errorMessage
             });
             try {
-              const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
               recordCount('discord.api.failure', 1, {
                 location: 'messageCreate.edit_thinking',
                 channelId,
                 messageId: message.id,
-                errorMessage: err.message,
+                errorMessage,
                 httpStatus
               });
               if (httpStatus === 429) {
@@ -183,7 +185,7 @@ module.exports = {
                 });
               }
             } catch (metricErr) {
-              logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+              logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr?.message });
             }
             thinkingMessage = null;
           }
@@ -196,19 +198,20 @@ module.exports = {
           });
           return true;
         } catch (err) {
+          const errorMessage = err?.message;
+          const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
           logger.error('Failed to send fallback reply.', {
             channelId,
             messageId: message.id,
-            error: err.stack,
-            errorMessage: err.message
+            error: err?.stack,
+            errorMessage
           });
           try {
-            const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
             recordCount('discord.api.failure', 1, {
               location: 'messageCreate.reply_fallback',
               channelId,
               messageId: message.id,
-              errorMessage: err.message,
+              errorMessage,
               httpStatus
             });
             if (httpStatus === 429) {
@@ -219,7 +222,7 @@ module.exports = {
               });
             }
           } catch (metricErr) {
-            logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+            logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr?.message });
           }
           return false;
         }
@@ -249,8 +252,6 @@ module.exports = {
         }
       }
 
-      const hasBotMention = hasBotPing;
-
       // Basic cooldowns to reduce spam/cost.
       const now = Date.now();
       const lastUser = client.userCooldowns.get(userId) || 0;
@@ -262,7 +263,7 @@ module.exports = {
             allowedMentions: SAFE_ALLOWED_MENTIONS
           });
         } catch (err) {
-          logger.warn('Failed to send cooldown reply.', { userId, channelId, errorMessage: err.message });
+          logger.warn('Failed to send cooldown reply.', { userId, channelId, errorMessage: err?.message });
         }
         return;
       }
@@ -276,7 +277,7 @@ module.exports = {
             allowedMentions: SAFE_ALLOWED_MENTIONS
           });
         } catch (err) {
-          logger.warn('Failed to send channel cooldown reply.', { channelId, errorMessage: err.message });
+          logger.warn('Failed to send channel cooldown reply.', { channelId, errorMessage: err?.message });
         }
         return;
       }
@@ -289,7 +290,7 @@ module.exports = {
         });
       } catch (err) {
         logger.warn(`Failed to send thinking message in channel ${channelId}.`, {
-          errorMessage: err.message,
+          errorMessage: err?.message,
           channelId
         });
       }
@@ -460,21 +461,22 @@ module.exports = {
                 allowedMentions: SAFE_ALLOWED_MENTIONS
               });
             } catch (err) {
+              const errorMessage = err?.message;
+              const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
               logger.error('Failed to send additional response chunk.', {
                 channelId,
                 messageId: message.id,
                 chunkIndex: i,
-                error: err.stack,
-                errorMessage: err.message
+                error: err?.stack,
+                errorMessage
               });
               try {
-                const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
                 recordCount('discord.api.failure', 1, {
                   location: 'messageCreate.additional_chunk',
                   channelId,
                   messageId: message.id,
                   chunkIndex: i,
-                  errorMessage: err.message,
+                  errorMessage,
                   httpStatus
                 });
                 if (httpStatus === 429) {
@@ -486,7 +488,7 @@ module.exports = {
                   });
                 }
               } catch (metricErr) {
-                logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr.message });
+                logger.debug('Failed to record discord.api.failure metric.', { errorMessage: metricErr?.message });
               }
               break;
             }

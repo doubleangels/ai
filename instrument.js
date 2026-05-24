@@ -82,7 +82,7 @@ function captureError(error, tags = {}) {
       }
       Sentry.captureException(error);
     });
-  } else {
+  } else if (Sentry && typeof Sentry.captureException === 'function') {
     Sentry.captureException(error, { tags });
   }
   return error;

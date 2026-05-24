@@ -90,7 +90,7 @@ function findFirstArgString(content, callStart) {
 function isHelpContext(relPath, msg, raw) {
   const trimmed = msg.trim();
   const line = raw || '';
-  if (!trimmed || trimmed === 'n' || trimmed === '') return true;
+  if (!trimmed || trimmed === 'n') return true;
   if (/^Usage:|^Key format:|^Examples:|^namespace:|^section:|^\s*-\s/.test(trimmed)) return true;
   if (/^Error: Key cannot|^Error: Value cannot/.test(trimmed)) return true;
   if (/^  \d\.|^     (gosu|chmod|node )/.test(line)) return true;

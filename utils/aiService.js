@@ -35,17 +35,6 @@ const {
 const GEMINI_MIN_CACHE_TOKENS = 2048;
 
 /**
- * Determines if the model supports custom temperature values.
- * All models support custom temperature in the Responses API.
- *
- * @param {string} model - The model name
- * @returns {boolean} True if the model supports custom temperature
- */
-function supportsCustomTemperature(model) {
-  return true;
-}
-
-/**
  * OpenAI client instance configured with API key, timeout, and retries (used when aiProvider === 'openai').
  * @type {OpenAI}
  */
@@ -96,10 +85,10 @@ const CLAUDE_TOOLS = [
 /**
  * Executes a Claude tool by name and returns the result string.
  * @param {string} name - Tool name
- * @param {Object} input - Tool input
+ * @param {Object} _input - Tool input
  * @returns {string} Result to send back to Claude
  */
-function executeClaudeTool(name, input) {
+function executeClaudeTool(name, _input) {
   if (name === 'get_current_time') {
     return new Date().toISOString();
   }
@@ -528,8 +517,6 @@ async function generateOpenAIResponse(conversation) {
   }
 
   try {
-    const supportsTemp = supportsCustomTemperature(modelName);
-
     // Keep system and static content first for OpenAI automatic prompt caching (≥1024 tokens; cache-friendly order).
     let messages = [...conversation];
     if (hasImages(conversation)) {
@@ -576,12 +563,9 @@ async function generateOpenAIResponse(conversation) {
       requestParams.tools = [{ type: 'web_search' }];
     }
 
-    let temperatureValue = null;
-    if (supportsCustomTemperature(modelName)) {
-      const temperature = getTemperature();
-      requestParams.temperature = temperature;
-      temperatureValue = temperature;
-    }
+    const temperature = getTemperature();
+    requestParams.temperature = temperature;
+    const temperatureValue = temperature;
 
     logger.debug(`Sending conversation to OpenAI API using model ${modelName}.`, {
       messageCount: conversation.length,

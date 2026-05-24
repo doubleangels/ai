@@ -404,7 +404,7 @@ test('should ignores reply-chain parent attachments and prunes stale cooldown en
     channel: {
       name: 'general',
       messages: {
-        fetch: async messageId => (messageId === 'parent-1' ? parent : parent)
+        fetch: async () => parent
       }
     }
   });
