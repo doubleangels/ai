@@ -47,6 +47,9 @@ if (typeof nodeProfilingIntegration === 'function') {
   }
 }
 
+const environment = process.env.NODE_ENV || 'production';
+const isProduction = environment === 'production';
+
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true' || process.env.SENTRY_SEND_DEFAULT_PII === '1',
@@ -55,8 +58,8 @@ Sentry.init({
   enableMetrics: process.env.SENTRY_ENABLE_METRICS !== 'false',
   profileSessionSampleRate: parseSampleRate(process.env.SENTRY_PROFILE_SESSION_SAMPLE_RATE, 1.0),
   profileLifecycle: process.env.SENTRY_PROFILE_LIFECYCLE || 'trace',
-  includeLocalVariables: true,
-  environment: process.env.NODE_ENV || 'production',
+  includeLocalVariables: !isProduction,
+  environment,
   release: `${pkg.name}@${pkg.version}`,
   integrations
 });

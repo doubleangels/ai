@@ -211,9 +211,11 @@ Set `SENTRY_DSN` in Doppler to enable Sentry. [`instrument.js`](instrument.js) l
 | `SENTRY_ENABLE_LOGS` | `true` | Forward Pino logs to Sentry |
 | `SENTRY_ENABLE_METRICS` | `true` | Emit custom metrics |
 | `SENTRY_SEND_DEFAULT_PII` | `false` | Send default PII (user IDs, etc.) |
-| `NODE_ENV` | `production` | Sentry environment tag |
+| `NODE_ENV` | `production` | Sentry environment tag; local variable capture is enabled only when not `production` |
 
 Sample rates are clamped to `[0, 1]`. Invalid values fall back to `1.0`.
+
+Local variables on errors (`includeLocalVariables`) follow nova: enabled in non-production environments only. In Docker with `NODE_ENV=production` (the default), Sentry does not open the Node inspector, so container logs stay free of “Debugger listening on ws://…”.
 
 ### Errors
 
