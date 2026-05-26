@@ -334,7 +334,6 @@ module.exports = {
       }
 
       const channelHistory = client.conversationHistory.get(channelId);
-      const hasPriorTurns = channelHistory.length > 1;
 
       // Trace full reply chain for complete context
       let replyChain = [message];
@@ -349,23 +348,24 @@ module.exports = {
         }
       }
 
-      // Extract text from reply chain only when history has no prior turns (avoids duplicate context).
-      if (!hasPriorTurns) {
-        const quotedTextParts = [];
-        for (let i = 0; i < replyChain.length - 1; i++) {
-          const msg = replyChain[i];
-          if (msg.author.id === client.user.id) continue;
-          const text = (msg.content || '').trim();
-          if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
-        }
+      // Include referenced reply-chain text so new requests don't accidentally reuse
+      // stale translations from earlier turns in the same channel.
+      const quotedTextParts = [];
+      for (let i = 0; i < replyChain.length - 1; i++) {
+        const msg = replyChain[i];
+        if (msg.author.id === client.user.id) continue;
+        const text = (msg.content || '').trim();
+        if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
+      }
 
-        if (quotedTextParts.length > 0) {
-          let quotedBlock = quotedTextParts.join('\n');
-          if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
-            quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
-          }
-          userText = userText ? `[Previous conversation:\n${quotedBlock}]\n\n${userText}` : `[Previous conversation:\n${quotedBlock}]`;
+      if (quotedTextParts.length > 0) {
+        let quotedBlock = quotedTextParts.join('\n');
+        if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
+          quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
         }
+        userText = userText
+          ? `[Previous conversation:\n${quotedBlock}]\n\n${userText}`
+          : `[Previous conversation:\n${quotedBlock}]`;
       }
 
       // Process image attachments from current message only

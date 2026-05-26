@@ -342,7 +342,7 @@ test('should handles processing errors and strips prior images from history', as
   expect(history[1].content[0].text).toBe('[Previous Image Processed]');
 });
 
-test('should skips reply-chain text when channel history already has turns', async () => {
+test('should includes reply-chain text when channel history already has turns', async () => {
   const mod = loadMessageCreate({ generateAIResponse: async () => 'done' });
   const parent = {
     id: 'parent-1',
@@ -373,7 +373,93 @@ test('should skips reply-chain text when channel history already has turns', asy
   await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
   const lastUser = [...history].reverse().find(entry => entry.role === 'user');
-  expect(JSON.stringify(lastUser.content)).not.toMatch(/\[Previous conversation:/);
+  const contentStr = JSON.stringify(lastUser.content);
+  expect(contentStr).toMatch(/\[Previous conversation:/);
+  expect(contentStr).toMatch(/prior thread text/);
+});
+
+test('should not reuse stale translations for a new user', async () => {
+  // Goal: user-2 should ground the translation request with the message they replied to,
+  // even when the channel already has conversation history from user-1.
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'translated' });
+
+  const parent1 = {
+    id: 'parent-1',
+    author: { id: 'user-1', username: 'alice', bot: false },
+    content: 'text from user-1',
+    reference: null,
+    attachments: { size: 0, values: () => [] }
+  };
+
+  const parent2 = {
+    id: 'parent-2',
+    author: { id: 'user-2', username: 'carol', bot: false },
+    content: 'text from user-2',
+    reference: null,
+    attachments: { size: 0, values: () => [] }
+  };
+
+  const sharedClient = {
+    user: { id: 'bot-123', tag: 'AI#0001' },
+    channelLocks: new Map(),
+    channelQueueDepth: new Map(),
+    userCooldowns: new Map(),
+    channelCooldowns: new Map(),
+    conversationHistory: new Map(),
+    guilds: { cache: new Map() }
+  };
+
+  const baseFetch = async messageId => {
+    if (messageId === 'parent-1') return parent1;
+    if (messageId === 'parent-2') return parent2;
+    return { author: { id: 'bot-123' }, content: 'bot', reference: null, attachments: { size: 0, values: () => [] } };
+  };
+
+  const message1 = createBaseMessage({
+    id: 'msg-1',
+    author: { bot: false, id: 'user-1', tag: 'User#0001', username: 'user1' },
+    content: '<@123> translate',
+    reference: { messageId: 'parent-1' },
+    client: sharedClient,
+    channel: { name: 'general', messages: { fetch: baseFetch } }
+  });
+
+  // Ensure bot mention is detected for the trigger.
+  message1.mentions = {
+    has: () => true,
+    users: { has: () => true },
+    everyone: false,
+    size: 1,
+    values: () => [{ id: '123' }]
+  };
+
+  await mod.execute(message1);
+
+  const message2 = createBaseMessage({
+    id: 'msg-2',
+    author: { bot: false, id: 'user-2', tag: 'User#0002', username: 'user2' },
+    content: '<@123> translate',
+    reference: { messageId: 'parent-2' },
+    client: sharedClient,
+    channel: { name: 'general', messages: { fetch: baseFetch } }
+  });
+
+  message2.mentions = {
+    has: () => true,
+    users: { has: () => true },
+    everyone: false,
+    size: 1,
+    values: () => [{ id: '123' }]
+  };
+
+  await mod.execute(message2);
+
+  const history = sharedClient.conversationHistory.get('chan-1');
+  const lastUser = [...history].reverse().find(entry => entry.role === 'user');
+  const contentStr = JSON.stringify(lastUser.content);
+  expect(contentStr).toMatch(/\[Previous conversation:/);
+  expect(contentStr).toMatch(/text from user-2/);
+  expect(contentStr).not.toMatch(/text from user-1/);
 });
 
 test('should ignores reply-chain parent attachments and prunes stale cooldown entries', async () => {
