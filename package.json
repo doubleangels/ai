@@ -43,7 +43,7 @@
     "ip-address": ">=10.1.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.98.1",
+    "@anthropic-ai/sdk": "^0.100.1",
     "@discordjs/rest": "^2.6.1",
     "@google/genai": "^2.7.0",
     "@sentry/node": "^10.55.0",
