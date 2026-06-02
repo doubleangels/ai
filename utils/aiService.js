@@ -60,6 +60,7 @@ const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) :
 
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
+let geminiCacheCreating = false;
 
 /** Claude model IDs that support extended thinking (4.x family). */
 const CLAUDE_EXTENDED_THINKING_MODELS = [
@@ -274,7 +275,8 @@ async function generateGeminiResponse(conversation) {
     if (geminiCacheEntry && geminiCacheEntry.systemInstruction === systemWithImageHint && geminiCacheEntry.expiresAt > now) {
       config.cachedContent = geminiCacheEntry.name;
       useCachedContent = true;
-    } else {
+    } else if (!geminiCacheCreating) {
+      geminiCacheCreating = true;
       try {
         const cache = await genAI.caches.create({
           model: modelName,
@@ -294,6 +296,8 @@ async function generateGeminiResponse(conversation) {
           message: cacheErr?.message
         });
         config.systemInstruction = systemWithImageHint;
+      } finally {
+        geminiCacheCreating = false;
       }
     }
   }
@@ -434,7 +438,7 @@ async function generateClaudeResponse(conversation) {
     }
   }
 
-  if (claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(modelName)) {
+  if (claudeThinkingBudgetTokens > 0 && claudeThinkingBudgetTokens < maxOutputTokens && claudeSupportsExtendedThinking(modelName)) {
     params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
   }
 
@@ -565,12 +569,11 @@ async function generateOpenAIResponse(conversation) {
 
     const temperature = getTemperature();
     requestParams.temperature = temperature;
-    const temperatureValue = temperature;
 
     logger.debug(`Sending conversation to OpenAI API using model ${modelName}.`, {
       messageCount: conversation.length,
       model: modelName,
-      temperature: temperatureValue,
+      temperature,
       reasoningEffort: normalizedReasoningEffort || undefined,
       verbosity: normalizedVerbosity || undefined,
       webSearch: enableWebSearch,

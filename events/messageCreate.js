@@ -378,8 +378,11 @@ module.exports = {
 
       // Add bot's previous response if replying to bot (use fetched parent, not the current user message).
       if (isReplyToBot && botReferencedMessage) {
-        const lastAssistant = [...channelHistory].reverse().find(m => m.role === 'assistant');
-        if (!lastAssistant || lastAssistant.content !== botReferencedMessage.content) {
+        const lastAssistant = channelHistory.findLast(m => m.role === 'assistant');
+        if (!lastAssistant || (
+          lastAssistant.content !== botReferencedMessage.content &&
+          !lastAssistant.content.startsWith(botReferencedMessage.content)
+        )) {
           logger.debug(`Adding bot's previous response to conversation history for channel ${channelId}.`);
           channelHistory.push({
             role: 'assistant',

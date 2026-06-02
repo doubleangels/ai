@@ -8,6 +8,9 @@ const DEFAULT_MAX_CHAIN_DEPTH = 15;
 /** Cache for fetched messages to avoid duplicate API calls. */
 const MESSAGE_CACHE = new Map();
 
+/** Timestamp of last full TTL-expiry scan (rate-limits the O(n) walk). */
+let messageCacheLastTrimAt = 0;
+
 /**
  * Clear the message cache (useful for testing or manual cache clearing)
  */
@@ -17,18 +20,21 @@ function clearCache() {
 
 /**
  * Remove expired entries and enforce LRU capacity.
+ * TTL scan is rate-limited to at most once every 30 s to avoid O(n) work on every write.
+ * Size cap is always enforced.
  */
 function trimMessageCache() {
   const now = Date.now();
-  for (const [key, entry] of MESSAGE_CACHE) {
-    if (entry.expiresAt <= now) {
-      MESSAGE_CACHE.delete(key);
+  if (now - messageCacheLastTrimAt >= 30_000) {
+    messageCacheLastTrimAt = now;
+    for (const [key, entry] of MESSAGE_CACHE) {
+      if (entry.expiresAt <= now) {
+        MESSAGE_CACHE.delete(key);
+      }
     }
   }
-
   while (MESSAGE_CACHE.size > messageCacheMaxSize) {
-    const oldestKey = MESSAGE_CACHE.keys().next().value;
-    MESSAGE_CACHE.delete(oldestKey);
+    MESSAGE_CACHE.delete(MESSAGE_CACHE.keys().next().value);
   }
 }
 
@@ -57,6 +63,8 @@ async function fetchMessageCached(channel, messageId) {
   const cached = MESSAGE_CACHE.get(cacheKey);
   if (cached) {
     if (cached.expiresAt > Date.now()) {
+      MESSAGE_CACHE.delete(cacheKey);
+      MESSAGE_CACHE.set(cacheKey, cached);
       return cached.message;
     }
     MESSAGE_CACHE.delete(cacheKey);

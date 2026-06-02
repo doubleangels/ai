@@ -61,10 +61,10 @@ let defaultForProvider;
 // Use whatever model is set for the selected provider (env or default).
 if (resolvedProvider === 'gemini') {
   defaultForProvider = DEFAULT_GEMINI_MODEL;
-  resolvedModel = envGeminiModel || envOpenaiModel || defaultForProvider;
+  resolvedModel = envGeminiModel || defaultForProvider;
 } else if (resolvedProvider === 'claude') {
   defaultForProvider = DEFAULT_CLAUDE_MODEL;
-  resolvedModel = envClaudeModel || envOpenaiModel || defaultForProvider;
+  resolvedModel = envClaudeModel || defaultForProvider;
 } else {
   resolvedModel = envOpenaiModel || DEFAULT_MODEL;
 }

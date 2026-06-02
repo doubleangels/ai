@@ -196,20 +196,7 @@ function findBestSplitPoint(text, limit) {
  * @returns {number} The position of the last occurrence, or -1 if not found
  */
 function findLastOccurrence(text, searchStr, maxPos) {
-  const searchLength = searchStr.length;
-  let lastPos = -1;
-  let pos = 0;
-  
-  while (pos < maxPos) {
-    const foundPos = text.indexOf(searchStr, pos);
-    if (foundPos === -1 || foundPos >= maxPos) {
-      break;
-    }
-    lastPos = foundPos;
-    pos = foundPos + searchLength;
-  }
-  
-  return lastPos;
+  return text.lastIndexOf(searchStr, maxPos - 1);
 }
 
 /**
@@ -496,19 +483,14 @@ function pruneConversationHistories(conversationHistory, channelLastActivity, ma
 
   if (typeof maxChannels !== 'number' || maxChannels <= 0 || !channelLastActivity) return;
 
-  while (conversationHistory.size > maxChannels) {
-    let oldestChannelId = null;
-    let oldestActivity = Infinity;
-    for (const channelId of conversationHistory.keys()) {
-      const lastActive = channelLastActivity.get(channelId) ?? 0;
-      if (lastActive < oldestActivity) {
-        oldestActivity = lastActive;
-        oldestChannelId = channelId;
-      }
+  if (conversationHistory.size > maxChannels) {
+    const overflow = conversationHistory.size - maxChannels;
+    const sorted = [...conversationHistory.keys()]
+      .sort((a, b) => (channelLastActivity.get(a) ?? 0) - (channelLastActivity.get(b) ?? 0));
+    for (let i = 0; i < overflow; i++) {
+      conversationHistory.delete(sorted[i]);
+      channelLastActivity.delete(sorted[i]);
     }
-    if (!oldestChannelId) break;
-    conversationHistory.delete(oldestChannelId);
-    channelLastActivity.delete(oldestChannelId);
   }
 }
 
