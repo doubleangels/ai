@@ -3,6 +3,7 @@ const { generateAIResponse } = require('../utils/aiService');
 const {
   splitMessage,
   processImageAttachments,
+  collectReplyChainMedia,
   createMessageContent,
   trimConversationHistory,
   createSystemMessage,
@@ -26,6 +27,7 @@ const {
   channelCooldownMs,
   maxPendingPerChannel,
   maxReplyChainDepth,
+  maxReplyChainImages,
   allowedGuildIds,
   conversationHistoryMaxChannels,
   conversationHistoryIdleMs
@@ -368,12 +370,31 @@ module.exports = {
           : `[Previous conversation:\n${quotedBlock}]`;
       }
 
-      // Process image attachments from current message only
+      const {
+        attachments: chainAttachments,
+        truncated: replyChainImagesTruncated,
+        attachmentSources,
+        embedSources
+      } = collectReplyChainMedia(replyChain, client.user.id, { maxImages: maxReplyChainImages });
+
       let imageContents = [];
-      if (message.attachments && message.attachments.size > 0) {
-        logger.debug(`Processing ${message.attachments.size} attachment(s) from message ${message.id}.`);
-        imageContents = await processImageAttachments(Array.from(message.attachments.values()));
-        logger.info(`Processed ${imageContents.length} image(s) from message ${message.id}.`);
+      if (chainAttachments.length > 0) {
+        logger.debug('Processing reply-chain image media.', {
+          channelId,
+          messageId: message.id,
+          candidateCount: chainAttachments.length,
+          attachmentSources,
+          embedSources,
+          truncated: replyChainImagesTruncated
+        });
+        imageContents = await processImageAttachments(chainAttachments);
+        logger.info('Processed reply-chain images.', {
+          channelId,
+          messageId: message.id,
+          processedCount: imageContents.length,
+          replyChainImageCount: chainAttachments.length,
+          truncated: replyChainImagesTruncated
+        });
       }
 
       // Add bot's previous response if replying to bot (use fetched parent, not the current user message).

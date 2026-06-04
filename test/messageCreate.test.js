@@ -462,7 +462,7 @@ test('should not reuse stale translations for a new user', async () => {
   expect(contentStr).not.toMatch(/text from user-1/);
 });
 
-test('should ignores reply-chain parent attachments and prunes stale cooldown entries', async () => {
+test('should includes reply-chain parent attachments and prunes stale cooldown entries', async () => {
   let imageCalls = 0;
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'ok',
@@ -498,9 +498,45 @@ test('should ignores reply-chain parent attachments and prunes stale cooldown en
   message.client.channelCooldowns.set('stale-channel', Date.now() - 999_999);
 
   await mod.execute(message);
-  expect(imageCalls).toBe(1);
+  expect(imageCalls).toBe(2);
   expect(message.client.userCooldowns.has('stale-user')).toBe(false);
   expect(message.client.channelCooldowns.has('stale-channel')).toBe(false);
+});
+
+test('should includes embed GIF from reply-chain parent', async () => {
+  let imageCalls = 0;
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    aiUtils: {
+      ...realAiUtils,
+      processImageAttachments: async attachments => {
+        imageCalls += attachments.length;
+        return attachments.map(() => ({ type: 'input_image', image_url: 'data:image/gif;base64,QUFB' }));
+      }
+    }
+  });
+
+  const parent = {
+    id: 'parent-embed',
+    author: { id: 'user-2', username: 'bob', bot: false },
+    content: '',
+    reference: null,
+    attachments: { size: 0, values: () => [] },
+    embeds: [{ image: { url: 'https://cdn.discordapp.com/attachments/1/2/emoji.gif' } }]
+  };
+  const message = createBaseMessage({
+    content: '<@123> what is this gif?',
+    reference: { messageId: 'parent-embed' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => parent
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(imageCalls).toBe(1);
 });
 
 test('should uses image-only prompt and stops when primary chunk cannot be sent', async () => {

@@ -402,7 +402,13 @@ test('should uses default reply char budget when maxOutputTokens is invalid', ()
     });
   });
 
-  expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-5.4-nano')).toMatch(/1900 characters/);
+  expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-5.4-nano')).toMatch(/800 characters/);
+});
+
+test('should SYSTEM_MESSAGES BASE includes TLDR format guidance', () => {
+  const prompt = aiUtils.SYSTEM_MESSAGES.BASE('gpt-5.4-nano');
+  expect(prompt).toMatch(/TLDR/i);
+  expect(prompt).toMatch(/1–3 short sentences/);
 });
 
 test('should pruneConversationHistories evicts idle channels and enforces max channel count', () => {
@@ -492,4 +498,185 @@ test('should stripImagesFromHistory replaces prior image parts', () => {
   expect(history[1].content[0]).toEqual({ type: 'input_text', text: '[Previous Image Processed]' });
   expect(history[2].content[0].type).toBe('input_image');
   aiUtils.stripImagesFromHistory(null);
+});
+
+test('should collectReplyChainMedia gathers chain attachments in order and skips bot messages', () => {
+  const chain = [
+    {
+      author: { id: 'user-1' },
+      attachments: {
+        size: 1,
+        values: () => [{ url: 'https://cdn.discordapp.com/one.png', contentType: 'image/png' }]
+      },
+      embeds: []
+    },
+    {
+      author: { id: 'bot-123' },
+      attachments: {
+        size: 1,
+        values: () => [{ url: 'https://cdn.discordapp.com/bot.png', contentType: 'image/png' }]
+      },
+      embeds: []
+    },
+    {
+      author: { id: 'user-2' },
+      attachments: {
+        size: 1,
+        values: () => [{ url: 'https://cdn.discordapp.com/two.png', contentType: 'image/png' }]
+      },
+      embeds: []
+    }
+  ];
+
+  const { attachments, truncated, attachmentSources, embedSources } = aiUtils.collectReplyChainMedia(
+    chain,
+    'bot-123',
+    { maxImages: 10 }
+  );
+  expect(attachments.map(a => a.url)).toEqual([
+    'https://cdn.discordapp.com/one.png',
+    'https://cdn.discordapp.com/two.png'
+  ]);
+  expect(truncated).toBe(false);
+  expect(attachmentSources).toBe(2);
+  expect(embedSources).toBe(0);
+});
+
+test('should collectReplyChainMedia dedupes URLs and respects maxImages cap', () => {
+  const shared = { url: 'https://cdn.discordapp.com/same.png', contentType: 'image/png' };
+  const chain = [
+    {
+      author: { id: 'user-1' },
+      attachments: { size: 1, values: () => [shared] },
+      embeds: [{ image: { url: 'https://cdn.discordapp.com/same.png' } }]
+    },
+    {
+      author: { id: 'user-2' },
+      attachments: { size: 1, values: () => [{ url: 'https://cdn.discordapp.com/other.png', contentType: 'image/png' }] },
+      embeds: []
+    }
+  ];
+
+  const capped = aiUtils.collectReplyChainMedia(chain, 'bot-123', { maxImages: 1 });
+  expect(capped.attachments).toHaveLength(1);
+  expect(capped.truncated).toBe(true);
+
+  const empty = aiUtils.collectReplyChainMedia(null, 'bot-123');
+  expect(empty.attachments).toEqual([]);
+});
+
+test('should collectReplyChainMedia extracts embed image previews', () => {
+  const chain = [
+    {
+      author: { id: 'user-1' },
+      attachments: { size: 0, values: () => [] },
+      embeds: [{ image: { url: 'https://cdn.discordapp.com/attachments/a/b/preview.gif' } }]
+    }
+  ];
+
+  const { attachments, embedSources } = aiUtils.collectReplyChainMedia(chain, 'bot-123');
+  expect(attachments).toHaveLength(1);
+  expect(attachments[0].contentType).toBe('image/gif');
+  expect(embedSources).toBe(1);
+});
+
+test('should collectReplyChainMedia skips non-Discord and non-image attachments', () => {
+  const chain = [
+    {
+      author: { id: 'user-1' },
+      attachments: {
+        size: 2,
+        values: () => [
+          { url: 'https://evil.example/x.png', contentType: 'image/png' },
+          { url: 'https://cdn.discordapp.com/doc.pdf', contentType: 'application/pdf' }
+        ]
+      },
+      embeds: [{ image: { url: 'https://tenor.com/view.gif' } }]
+    }
+  ];
+
+  const { attachments } = aiUtils.collectReplyChainMedia(chain, 'bot-123');
+  expect(attachments).toEqual([]);
+});
+
+test('should normalizeMediaUrl and inferImageContentTypeFromUrl handle edge cases', () => {
+  expect(aiUtils.normalizeMediaUrl(null)).toBeUndefined();
+  expect(aiUtils.normalizeMediaUrl({ proxyURL: 'https://cdn.discordapp.com/p.png' })).toBe(
+    'https://cdn.discordapp.com/p.png'
+  );
+  expect(aiUtils.normalizeMediaUrl({ proxyUrl: 'https://cdn.discordapp.com/q.png' })).toBe(
+    'https://cdn.discordapp.com/q.png'
+  );
+
+  expect(aiUtils.inferImageContentTypeFromUrl('https://cdn.discordapp.com/a.webp')).toBe('image/webp');
+  expect(aiUtils.inferImageContentTypeFromUrl('https://cdn.discordapp.com/a.png')).toBe('image/png');
+  expect(aiUtils.inferImageContentTypeFromUrl('https://cdn.discordapp.com/a.jpg')).toBe('image/jpeg');
+  expect(aiUtils.inferImageContentTypeFromUrl('https://cdn.discordapp.com/a.jpeg')).toBe('image/jpeg');
+  expect(aiUtils.inferImageContentTypeFromUrl('https://cdn.discordapp.com/noext')).toBe('image/png');
+});
+
+test('should collectReplyChainMedia handles thumbnail embeds and attachment map without values()', () => {
+  const thumbOnly = aiUtils.collectReplyChainMedia(
+    [{
+      author: { id: 'user-1' },
+      attachments: { size: 0, values: () => [] },
+      embeds: [{ thumbnail: { url: 'https://cdn.discordapp.com/thumb.webp' } }]
+    }],
+    'bot-123'
+  );
+  expect(thumbOnly.attachments).toHaveLength(1);
+  expect(thumbOnly.attachments[0].contentType).toBe('image/webp');
+  expect(thumbOnly.embedSources).toBe(1);
+
+  const noValuesFn = aiUtils.collectReplyChainMedia(
+    [{
+      author: { id: 'user-1' },
+      attachments: { size: 1 },
+      embeds: []
+    }],
+    'bot-123'
+  );
+  expect(noValuesFn.attachments).toEqual([]);
+});
+
+test('should collectReplyChainMedia truncates across embed urls and chain messages', () => {
+  const embedCap = aiUtils.collectReplyChainMedia(
+    [{
+      author: { id: 'user-1' },
+      attachments: { size: 0, values: () => [] },
+      embeds: [{
+        image: { url: 'https://cdn.discordapp.com/first.png' },
+        thumbnail: { url: 'https://cdn.discordapp.com/second.jpg' }
+      }]
+    }],
+    'bot-123',
+    { maxImages: 1 }
+  );
+  expect(embedCap.attachments).toHaveLength(1);
+  expect(embedCap.truncated).toBe(true);
+
+  const chainCap = aiUtils.collectReplyChainMedia(
+    [
+      {
+        author: { id: 'user-1' },
+        attachments: {
+          size: 1,
+          values: () => [{ url: 'https://cdn.discordapp.com/m1.png', contentType: 'image/png' }]
+        },
+        embeds: []
+      },
+      {
+        author: { id: 'user-2' },
+        attachments: {
+          size: 1,
+          values: () => [{ url: 'https://cdn.discordapp.com/m2.png', contentType: 'image/png' }]
+        },
+        embeds: []
+      }
+    ],
+    'bot-123',
+    { maxImages: 1 }
+  );
+  expect(chainCap.attachments).toHaveLength(1);
+  expect(chainCap.truncated).toBe(true);
 });

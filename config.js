@@ -145,6 +145,8 @@ const config = {
   // Image download safety limits
   imageDownloadTimeoutMs: parseInt(process.env.IMAGE_DOWNLOAD_TIMEOUT_MS, 10) || 8000,
   maxImageBytes: parseInt(process.env.MAX_IMAGE_BYTES, 10) || 6_000_000,
+  // Max images (attachments + embed previews) collected from a reply chain per request.
+  maxReplyChainImages: Math.max(1, Math.min(10, parseInt(process.env.MAX_REPLY_CHAIN_IMAGES, 10) || 4)),
   // OpenAI client: request timeout (ms) and max retries for transient failures.
   openaiTimeoutMs: Math.max(5000, Math.min(300000, parseInt(process.env.OPENAI_TIMEOUT_MS, 10) || 60000)),
   openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) || 2)),

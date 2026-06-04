@@ -1561,7 +1561,7 @@ test('should index context menu reply failures record rate limits and metric err
 });
 
 
-test('should covers thinking failures, chain tracing, and current-message images only', async () => {
+test('should covers thinking failures, chain tracing, and reply-chain images', async () => {
   let imageCallCount = 0;
   const parentWithImage = {
     id: 'parent',
@@ -1628,7 +1628,7 @@ test('should covers thinking failures, chain tracing, and current-message images
   await mod.execute({ ...base, id: 'trace-fail', channelId: 'chan-2' });
   await mod.execute({ ...base, id: 'msg-1', channelId: 'chan-1' });
   expect(client.conversationHistory.has('chan-1')).toBeTruthy();
-  expect(imageCallCount).toBe(0);
+  expect(imageCallCount).toBe(1);
 });
 
 

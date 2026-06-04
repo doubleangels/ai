@@ -37,6 +37,7 @@ const DEFAULT_CONFIG = {
   messageCacheTtlMs: 1_800_000,
   imageDownloadTimeoutMs: 8000,
   maxImageBytes: 6_000_000,
+  maxReplyChainImages: 4,
   openaiTimeoutMs: 60000,
   openaiMaxRetries: 2,
   conversationHistoryMaxChannels: 500,

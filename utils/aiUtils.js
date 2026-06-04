@@ -40,21 +40,21 @@ const ESTIMATED_TOKENS_PER_IMAGE = 768;
  */
 function getApproxMaxReplyChars() {
   const max = typeof maxOutputTokens === 'number' && maxOutputTokens > 0 ? maxOutputTokens : 1024;
-  return Math.min(1900, Math.max(600, Math.floor(max * 2.5)));
+  return Math.min(800, Math.max(200, Math.floor(max * 0.8)));
 }
 
 /**
- * Shared format rules for all providers: no titles, same general structure.
+ * Shared format rules for all providers: TLDR-first, no titles.
  */
 function getFormatRules() {
   const charCap = getApproxMaxReplyChars();
   return (
-    'Do not start with a title or ## header; reply directly in a consistent, plain format. ' +
-    `Keep every reply under ${charCap} characters (Discord message limit is ~2000), stay focused on the user's goal, and avoid filler. ` +
-    'Prefer a direct answer first; this is a fast chat channel. Use Discord markdown sparingly for clarity: **bold** for key terms, *italics* for subtle emphasis, ' +
-    'bullet lists or numbered steps only when they organize information, `inline code` for identifiers, and fenced code blocks for longer snippets. ' +
-    "If the user's request is ambiguous, ask one clarifying question before proceeding. " +
-    'Always provide actionable, trustworthy information tailored to the conversation context.'
+    'Default to TLDR: lead with the answer in 1–3 short sentences, or a few tight bullets when listing distinct items. ' +
+    'No preamble (e.g. "Sure!", "Here\'s…") or closing filler. ' +
+    `Stay under ${charCap} characters unless the user asks for detail or you must show code/steps. ` +
+    'Do not start with a title or ## header. Use markdown sparingly: **bold** for at most one key term, `inline code` for identifiers, ' +
+    'lists only when there are 3+ separate points, and fenced code blocks only for code or multi-step fixes. ' +
+    "If the request is ambiguous, ask one short clarifying question. Expand only when the user wants more depth or the task requires it."
   );
 }
 
@@ -65,8 +65,8 @@ function getFormatRules() {
 const SYSTEM_MESSAGES = {
   BASE: (modelName) => `You are an AI assistant running inside a Discord bot and powered by the ${modelName} model. You can analyze both text and images—describe only the details relevant to the user's request. ${getFormatRules()}`,
   BASE_GENERIC: `You are an AI assistant running inside a Discord bot. You can analyze both text and images—describe only the details relevant to the user's request. ${getFormatRules()}`,
-  IMAGE_ANALYSIS: "When analyzing images, focus on the elements that answer the user's question. Keep the description short, factual, and relevant; avoid ornamental details. Do not use titles or headers.",
-  IMAGE_DESCRIPTION_PROMPT: "Give a brief description of this image, highlighting only the key elements."
+  IMAGE_ANALYSIS: "When analyzing images, give a one-sentence TLDR of what matters for the user's question—factual, no filler, no titles.",
+  IMAGE_DESCRIPTION_PROMPT: 'TLDR this image in 1–2 sentences; only what is essential.'
 };
 
 /**
@@ -330,6 +330,116 @@ function createMessageContent(text, imageContents = []) {
   content.push(...imageContents);
   
   return content;
+}
+
+/**
+ * Normalizes a Discord attachment or embed pseudo-attachment URL for deduplication.
+ * @param {{ url?: string, proxyURL?: string, proxyUrl?: string }} item
+ * @returns {string|undefined}
+ */
+function normalizeMediaUrl(item) {
+  if (!item) return undefined;
+  return item.proxyURL || item.proxyUrl || item.url;
+}
+
+/**
+ * Infers image MIME type from a Discord CDN URL path.
+ * @param {string} url
+ * @returns {string}
+ */
+function inferImageContentTypeFromUrl(url) {
+  const lower = String(url).toLowerCase();
+  if (lower.includes('.gif')) return 'image/gif';
+  if (lower.includes('.webp')) return 'image/webp';
+  if (lower.includes('.png')) return 'image/png';
+  if (lower.includes('.jpg') || lower.includes('.jpeg')) return 'image/jpeg';
+  return 'image/png';
+}
+
+/**
+ * Returns true when a URL is allowed for vision download (Discord CDN, HTTPS).
+ * @param {string} url
+ * @returns {boolean}
+ */
+function isAllowedDiscordImageUrl(url) {
+  try {
+    assertDiscordImageDownloadUrl(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Collects image/GIF attachment and embed preview URLs from a reply chain (oldest first).
+ * @param {Array} replyChain - Discord messages oldest → newest
+ * @param {string} botId - Bot user id; bot messages are skipped
+ * @param {{ maxImages?: number }} [options]
+ * @returns {{ attachments: Array, truncated: boolean, attachmentSources: number, embedSources: number }}
+ */
+function collectReplyChainMedia(replyChain, botId, options = {}) {
+  const maxImages = typeof options.maxImages === 'number' && options.maxImages > 0
+    ? options.maxImages
+    : 4;
+  const chain = Array.isArray(replyChain) ? replyChain : [];
+  const seen = new Set();
+  const attachments = [];
+  let truncated = false;
+  let attachmentSources = 0;
+  let embedSources = 0;
+
+  const pushCandidate = (item) => {
+    const url = normalizeMediaUrl(item);
+    if (!url || seen.has(url) || !isAllowedDiscordImageUrl(url)) return false;
+    if (attachments.length >= maxImages) {
+      truncated = true;
+      return false;
+    }
+    seen.add(url);
+    attachments.push(item);
+    return true;
+  };
+
+  for (const msg of chain) {
+    if (!msg || msg.author?.id === botId) continue;
+
+    if (msg.attachments && msg.attachments.size > 0) {
+      const values = typeof msg.attachments.values === 'function'
+        ? Array.from(msg.attachments.values())
+        : [];
+      for (const att of values) {
+        if (!att?.contentType?.startsWith('image/')) continue;
+        if (pushCandidate(att)) attachmentSources += 1;
+        if (truncated) break;
+      }
+    }
+    if (truncated) break;
+
+    const embeds = Array.isArray(msg.embeds) ? msg.embeds : [];
+    for (const embed of embeds) {
+      const urls = [];
+      if (embed?.image?.url) urls.push(embed.image.url);
+      if (embed?.thumbnail?.url) urls.push(embed.thumbnail.url);
+
+      for (const url of urls) {
+        if (pushCandidate({ url, contentType: inferImageContentTypeFromUrl(url) })) {
+          embedSources += 1;
+        }
+        if (truncated) break;
+      }
+      if (truncated) break;
+    }
+    if (truncated) break;
+  }
+
+  if (truncated) {
+    logger.debug('Reply-chain image collection truncated.', {
+      maxImages,
+      collected: attachments.length
+    });
+  }
+
+  return { attachments, truncated, attachmentSources, embedSources };
 }
 
 /**
@@ -972,6 +1082,9 @@ module.exports = {
   splitMessage,
   downloadImageAsBase64,
   createMessageContent,
+  collectReplyChainMedia,
+  normalizeMediaUrl,
+  inferImageContentTypeFromUrl,
   processImageAttachments,
   hasImages,
   estimateTokensFromText,

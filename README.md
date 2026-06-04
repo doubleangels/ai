@@ -30,13 +30,13 @@
 ## Features
 
 - **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via `AI_PROVIDER`.
-- **Vision** — Attach images; the bot analyzes charts, photos, and screenshots (current message only).
+- **Vision** — Analyze images and GIFs from your message and the reply chain (file attachments and embed previews; capped per request).
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
 - **Reply-chain context** — Traces Discord reply chains on new threads; reuses channel history when a conversation already exists.
 - **Web search and maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
 - **Prompt caching** — Optional context caching to reduce cost and latency for long conversations.
 - **Anti-spam** — Per-user and per-channel cooldowns, per-channel queue backpressure, safe mention defaults.
-- **Memory optimized** — Bounded reply-chain cache, vision on the current message only, cooldown pruning, and aggressive Discord.js cache limits for container deployments.
+- **Memory optimized** — Bounded reply-chain cache, capped reply-chain vision downloads, cooldown pruning, and aggressive Discord.js cache limits for container deployments.
 - **Production observability** — Sentry errors, traces, profiling, logs, and custom metrics via Pino.
 - **Secure secrets** — Doppler injects environment variables at runtime in Docker; local dev uses the Doppler CLI.
 
@@ -159,11 +159,12 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `MESSAGE_CACHE_TTL_MS` | Message cache TTL (ms) | `1800000` (30 min) | 60000–86400000 |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | Vision image download timeout | `8000` | — |
 | `MAX_IMAGE_BYTES` | Max bytes per downloaded image | `6000000` | — |
+| `MAX_REPLY_CHAIN_IMAGES` | Max images/GIFs collected from a reply chain per request | `4` | 1–10 |
 
 **Behavior notes:**
 
 - Reply-chain **text** is injected only when the channel has no prior turns beyond the system message. Ongoing threads use `conversationHistory`.
-- **Images** are sent to the model for the **current** message only, not every message in the reply chain.
+- **Images and GIFs** (attachments and embed previews) are collected from non-bot messages in the reply chain, oldest first, up to `MAX_REPLY_CHAIN_IMAGES`. Video attachments are not analyzed.
 - Set `MAX_HISTORY_TOKENS` for long threads to cap API payload size.
 
 ---
@@ -175,6 +176,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 - **Mention:** `@AI What is the capital of France?`
 - **Reply:** Use Discord’s reply feature on a bot message to continue a thread.
 - The bot ignores `@here` and `@everyone` unless it is also mentioned.
+- **Reply style:** Answers default to short TLDR form (direct answer first). Ask for more detail, steps, or code if you need a longer reply.
 
 ### Images
 
