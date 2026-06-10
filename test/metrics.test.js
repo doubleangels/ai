@@ -6,6 +6,7 @@ const deployPath = path.resolve(__dirname, '..', 'deploy-commands.js');
 const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
+const discordApiPath = path.resolve(__dirname, '..', 'utils', 'discordApi.js');
 
 function stubInstrument(calls, instrumentStub) {
   stubModule(instrumentPath, instrumentStub);
@@ -23,6 +24,7 @@ test('should records rate limit metric when edit fails with 429', async () => {
       allowedGuildIds: new Set()
     });
     stubModule(aiServicePath, { generateAIResponse: async () => 'ok' });
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
     stubInstrument(calls, {
       Sentry: { isEnabled: () => false },
       captureError: (err, tags) => calls.push({ fn: 'captureError', err, tags }),
@@ -45,6 +47,7 @@ test('should records rate limit metric when edit fails with 429', async () => {
     channel: { name: 'general', messages: { fetch: async () => ({ author: { id: 'bot-123' }, content: 'prev' }) } },
     client: {
       user: { id: 'bot-123' },
+      discordReady: true,
       channelLocks: new Map(),
       channelQueueDepth: new Map(),
       userCooldowns: new Map(),
@@ -52,7 +55,8 @@ test('should records rate limit metric when edit fails with 429', async () => {
       conversationHistory: new Map()
     },
     author: { bot: false, id: 'user-1', tag: 'User#1' },
-    mentions: { has: () => true, users: { has: () => true } },
+    mentions: { has: () => true, users: { has: () => true }, roles: { size: 0, some: () => false }, everyone: false },
+    guild: { members: { cache: { get: () => ({ roles: { cache: { has: () => false } } }) } } },
     reference: null,
     attachments: new Map(),
     reply: async (payload) => {

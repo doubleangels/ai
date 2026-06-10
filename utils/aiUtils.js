@@ -107,7 +107,9 @@ function splitMessage(text, limit = MESSAGE_CONFIG.defaultLimit) {
       let splitPoint = findBestSplitPoint(remainingText, limit);
       
       const chunk = remainingText.substring(0, splitPoint).trim();
-      chunks.push(chunk);
+      if (chunk.length > 0) {
+        chunks.push(chunk);
+      }
 
       remainingText = remainingText.substring(splitPoint);
       
@@ -357,6 +359,19 @@ function inferImageContentTypeFromUrl(url) {
 }
 
 /**
+ * Returns true when a MIME type is a supported raster image for vision (excludes SVG).
+ * @param {string|undefined} contentType
+ * @returns {boolean}
+ */
+function isSupportedVisionImageType(contentType) {
+  if (!contentType || typeof contentType !== 'string') return false;
+  const normalized = contentType.toLowerCase().trim();
+  if (!normalized.startsWith('image/')) return false;
+  if (normalized.includes('svg')) return false;
+  return true;
+}
+
+/**
  * Returns true when a URL is allowed for vision download (Discord CDN, HTTPS).
  * @param {string} url
  * @returns {boolean}
@@ -408,7 +423,7 @@ function collectReplyChainMedia(replyChain, botId, options = {}) {
         ? Array.from(msg.attachments.values())
         : [];
       for (const att of values) {
-        if (!att?.contentType?.startsWith('image/')) continue;
+        if (!isSupportedVisionImageType(att?.contentType)) continue;
         if (pushCandidate(att)) attachmentSources += 1;
         if (truncated) break;
       }
@@ -453,13 +468,16 @@ async function processImageAttachments(attachments) {
 
   const indexed = await Promise.all(
     list.map(async (attachment, index) => {
-      const isImage = attachment.contentType && attachment.contentType.startsWith('image/');
-      if (!isImage) return { index, item: null };
+      if (!isSupportedVisionImageType(attachment.contentType)) return { index, item: null };
 
       const attachmentLabel = attachment.name || attachment.filename || attachment.url || 'unknown';
       try {
         logger.debug(`Processing image attachment ${attachmentLabel}.`, { contentType: attachment.contentType });
-        const base64Image = await downloadImageAsBase64(attachment.url);
+        const mediaUrl = normalizeMediaUrl(attachment);
+        if (!mediaUrl) {
+          return { index, item: null };
+        }
+        const base64Image = await downloadImageAsBase64(mediaUrl);
         logger.debug(`Successfully processed image ${attachmentLabel}.`);
         return {
           index,
@@ -499,6 +517,76 @@ function hasImages(conversation) {
     }
     return false;
   });
+}
+
+function getMessageTextContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter(item => item && item.type === 'input_text' && typeof item.text === 'string')
+      .map(item => item.text)
+      .join('\n');
+  }
+  return '';
+}
+
+function mergeMessageContent(existing, incoming) {
+  if (typeof existing === 'string' && typeof incoming === 'string') {
+    return `${existing}\n\n${incoming}`.trim();
+  }
+  const parts = Array.isArray(existing) ? [...existing] : [{ type: 'input_text', text: String(existing || '') }];
+  const incomingText = getMessageTextContent(incoming);
+  if (incomingText) {
+    const textPart = parts.find(item => item && item.type === 'input_text');
+    if (textPart) {
+      textPart.text = `${textPart.text}\n\n${incomingText}`.trim();
+    } else {
+      parts.unshift({ type: 'input_text', text: incomingText });
+    }
+  }
+  if (Array.isArray(incoming)) {
+    for (const item of incoming) {
+      if (item && item.type === 'input_image') {
+        parts.push(item);
+      }
+    }
+  }
+  return parts;
+}
+
+/**
+ * Merges consecutive user turns so provider APIs receive alternating roles.
+ * @param {Array} channelHistory
+ * @returns {Array}
+ */
+function normalizeConversationRoles(channelHistory) {
+  if (!Array.isArray(channelHistory) || channelHistory.length <= 1) {
+    return channelHistory;
+  }
+
+  const hasSystem = channelHistory[0]?.role === 'system';
+  const rest = hasSystem ? channelHistory.slice(1) : [...channelHistory];
+  const normalized = hasSystem ? [channelHistory[0]] : [];
+
+  for (const msg of rest) {
+    if (!msg || !msg.role) continue;
+    normalized.push({ role: msg.role, content: msg.content });
+  }
+
+  const startIndex = hasSystem ? 1 : 0;
+  while (normalized.length > startIndex + 1) {
+    const last = normalized[normalized.length - 1];
+    const prev = normalized[normalized.length - 2];
+    if (last.role === 'user' && prev.role === 'user') {
+      prev.content = mergeMessageContent(prev.content, last.content);
+      normalized.pop();
+    } else {
+      break;
+    }
+  }
+
+  channelHistory.splice(0, channelHistory.length, ...normalized);
+  return channelHistory;
 }
 
 function estimateTokensFromText(text) {
@@ -584,22 +672,54 @@ function pruneStaleMapEntries(map, maxAgeMs) {
 }
 
 /**
+ * Removes per-channel lock/queue entries when no work is pending for that channel.
+ * @param {string} channelId
+ * @param {Map<string, Promise>|undefined} channelLocks
+ * @param {Map<string, number>|undefined} channelQueueDepth
+ */
+function pruneChannelAuxMaps(channelId, channelLocks, channelQueueDepth, channelGuildIds) {
+  if (!channelId) return;
+  const depth = channelQueueDepth?.get(channelId) || 0;
+  if (depth > 0) return;
+  channelQueueDepth?.delete(channelId);
+  channelLocks?.delete(channelId);
+  channelGuildIds?.delete(channelId);
+}
+
+/**
  * Prunes idle channel histories and enforces a max channel count (LRU by last activity).
+ * Optionally prunes channelLocks and channelQueueDepth for evicted channels.
  * @param {Map<string, Array>} conversationHistory
  * @param {Map<string, number>} channelLastActivity - channelId → last activity timestamp
  * @param {number} maxChannels - Max channels to retain (0 = no cap)
  * @param {number} idleMs - Drop histories idle longer than this (0 = disabled)
+ * @param {Map<string, Promise>} [channelLocks]
+ * @param {Map<string, number>} [channelQueueDepth]
+ * @param {Map<string, string|null>} [channelGuildIds]
  */
-function pruneConversationHistories(conversationHistory, channelLastActivity, maxChannels, idleMs) {
+function pruneConversationHistories(
+  conversationHistory,
+  channelLastActivity,
+  maxChannels,
+  idleMs,
+  channelLocks,
+  channelQueueDepth,
+  channelGuildIds
+) {
   if (!conversationHistory) return;
+
+  const evictChannel = (channelId) => {
+    conversationHistory.delete(channelId);
+    channelLastActivity?.delete(channelId);
+    pruneChannelAuxMaps(channelId, channelLocks, channelQueueDepth, channelGuildIds);
+  };
 
   const now = Date.now();
   if (typeof idleMs === 'number' && idleMs > 0 && channelLastActivity) {
     for (const channelId of [...conversationHistory.keys()]) {
       const lastActive = channelLastActivity.get(channelId) ?? 0;
       if (now - lastActive > idleMs) {
-        conversationHistory.delete(channelId);
-        channelLastActivity.delete(channelId);
+        evictChannel(channelId);
       }
     }
   }
@@ -617,8 +737,7 @@ function pruneConversationHistories(conversationHistory, channelLastActivity, ma
       }
     }
     if (!oldestChannelId) break;
-    conversationHistory.delete(oldestChannelId);
-    channelLastActivity.delete(oldestChannelId);
+    evictChannel(oldestChannelId);
   }
 }
 
@@ -629,7 +748,12 @@ function pruneConversationHistories(conversationHistory, channelLastActivity, ma
 function stripImagesFromHistory(channelHistory) {
   if (!Array.isArray(channelHistory)) return;
 
-  for (let idx = 0; idx < channelHistory.length - 1; idx++) {
+  const lastRole = channelHistory[channelHistory.length - 1]?.role;
+  const lastUserIndex = lastRole === 'assistant'
+    ? channelHistory.length - 2
+    : channelHistory.length - 1;
+
+  for (let idx = 0; idx <= lastUserIndex && idx < channelHistory.length; idx++) {
     const historyMessage = channelHistory[idx];
     if (historyMessage.role === 'user' && Array.isArray(historyMessage.content)) {
       for (let j = 0; j < historyMessage.content.length; j++) {
@@ -1077,6 +1201,14 @@ function isAIUserErrorMessage(text) {
   return typeof text === 'string' && text.startsWith('⚠️ ');
 }
 
+/**
+ * @param {AIErrorReason} reason
+ * @returns {boolean}
+ */
+function isBusyAIErrorReason(reason) {
+  return reason === 'overloaded' || reason === 'rate_limit';
+}
+
 module.exports = {
   assertDiscordImageDownloadUrl,
   splitMessage,
@@ -1090,11 +1222,16 @@ module.exports = {
   estimateTokensFromText,
   trimConversationHistory,
   pruneStaleMapEntries,
+  normalizeConversationRoles,
+  pruneChannelAuxMaps,
   pruneConversationHistories,
   stripImagesFromHistory,
   createSystemMessage,
   classifyAIError,
   formatAIUserMessage,
   isAIUserErrorMessage,
+  isBusyAIErrorReason,
+  classifyAIError,
+  isSupportedVisionImageType,
   SYSTEM_MESSAGES
 };

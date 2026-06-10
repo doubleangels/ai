@@ -6,6 +6,7 @@ const {
   geminiApiKey,
   anthropicApiKey,
   modelName,
+  fallbackModelName,
   getTemperature,
   reasoningEffort,
   responsesVerbosity,
@@ -18,7 +19,9 @@ const {
   claudeThinkingBudgetTokens,
   geminiSafetySettings,
   openaiTimeoutMs,
-  openaiMaxRetries
+  openaiMaxRetries,
+  geminiTimeoutMs,
+  claudeTimeoutMs
 } = require('../config');
 const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const path = require('path');
@@ -28,8 +31,57 @@ const {
   SYSTEM_MESSAGES,
   estimateTokensFromText,
   formatAIUserMessage,
-  isAIUserErrorMessage
+  isAIUserErrorMessage,
+  normalizeConversationRoles,
+  classifyAIError,
+  isBusyAIErrorReason
 } = require('./aiUtils');
+
+/**
+ * @param {unknown} error
+ * @returns {error is ProviderBusyError}
+ */
+function isProviderBusyError(error) {
+  return error instanceof ProviderBusyError || error?.name === 'ProviderBusyError';
+}
+
+class ProviderBusyError extends Error {
+  /**
+   * @param {unknown} cause
+   * @param {string} reason
+   * @param {string} attemptedModel
+   */
+  constructor(cause, reason, attemptedModel) {
+    super(cause instanceof Error ? cause.message : 'Provider busy');
+    this.name = 'ProviderBusyError';
+    this.cause = cause;
+    this.reason = reason;
+    this.attemptedModel = attemptedModel;
+  }
+}
+
+/**
+ * @param {unknown} apiError
+ * @param {string} provider
+ * @param {string} attemptedModel
+ */
+function rethrowIfBusyForFallback(apiError, provider, attemptedModel) {
+  if (isProviderBusyError(apiError)) throw apiError;
+  const reason = classifyAIError(apiError, provider);
+  if (fallbackModelName && isBusyAIErrorReason(reason)) {
+    throw new ProviderBusyError(apiError, reason, attemptedModel);
+  }
+}
+
+function prepareConversationForApi(conversation) {
+  const copy = conversation.map(msg => ({
+    role: msg.role,
+    content: Array.isArray(msg.content)
+      ? msg.content.map(part => ({ ...part }))
+      : msg.content
+  }));
+  return normalizeConversationRoles(copy);
+}
 
 /** Gemini context cache minimum token count (API requirement; Flash 1024, Pro 4096 — use 2048 to be safe). */
 const GEMINI_MIN_CACHE_TOKENS = 2048;
@@ -56,7 +108,33 @@ const genAI = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
  * Anthropic client (used when aiProvider === 'claude').
  * @type {Anthropic|null}
  */
-const anthropic = anthropicApiKey ? new Anthropic({ apiKey: anthropicApiKey }) : null;
+const anthropic = anthropicApiKey
+  ? new Anthropic({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
+  : null;
+
+/**
+ * Rejects when a provider request exceeds the configured timeout.
+ * @param {Promise<*>} promise
+ * @param {number} timeoutMs
+ * @param {string} label
+ * @returns {Promise<*>}
+ */
+function withRequestTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} request timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+    Promise.resolve(promise)
+      .then(value => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(error => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
@@ -241,7 +319,7 @@ function conversationToClaudeFormat(conversation) {
  * @param {Array<{role: string, content: string|Array}>} conversation - Conversation history
  * @returns {Promise<string>} Generated reply or empty string on failure
  */
-async function generateGeminiResponse(conversation) {
+async function generateGeminiResponse(conversation, activeModel = modelName) {
   if (!genAI) {
     logger.error('Gemini API key not configured (GEMINI_API_KEY).');
     return formatAIUserMessage({ reason: 'missing_api_key', provider: 'gemini' });
@@ -277,7 +355,7 @@ async function generateGeminiResponse(conversation) {
     } else {
       try {
         const cache = await genAI.caches.create({
-          model: modelName,
+          model: activeModel,
           config: {
             systemInstruction: systemWithImageHint,
             ttl: `${geminiCacheTtlSeconds}s`,
@@ -316,9 +394,9 @@ async function generateGeminiResponse(conversation) {
     config.safetySettings = geminiSafetySettings;
   }
 
-  logger.debug(`Sending conversation to Gemini API using model ${modelName}.`, {
+  logger.debug(`Sending conversation to Gemini API using model ${activeModel}.`, {
     messageCount: conversation.length,
-    model: modelName,
+    model: activeModel,
     contentsLength: contents.length,
     searchGrounding: geminiUseWebSearch,
     mapsGrounding: geminiUseMaps,
@@ -329,11 +407,15 @@ async function generateGeminiResponse(conversation) {
 
   let response;
   try {
-    response = await genAI.models.generateContent({
-      model: modelName,
-      contents: contents,
-      config
-    });
+    response = await withRequestTimeout(
+      genAI.models.generateContent({
+        model: activeModel,
+        contents: contents,
+        config
+      }),
+      geminiTimeoutMs,
+      'Gemini'
+    );
 
     const text = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
     if (!text || !text.trim()) {
@@ -343,7 +425,7 @@ async function generateGeminiResponse(conversation) {
 
     logger.info('Generated AI response successfully (Gemini).', {
       charCount: text.length,
-      model: modelName
+      model: activeModel
     });
     return text.trim();
   } catch (apiError) {
@@ -362,35 +444,41 @@ async function generateGeminiResponse(conversation) {
       delete retryConfig.cachedContent;
       if (systemWithImageHint) retryConfig.systemInstruction = systemWithImageHint;
       try {
-        response = await genAI.models.generateContent({
-          model: modelName,
-          contents: contents,
-          config: retryConfig
-        });
+        response = await withRequestTimeout(
+          genAI.models.generateContent({
+            model: activeModel,
+            contents: contents,
+            config: retryConfig
+          }),
+          geminiTimeoutMs,
+          'Gemini'
+        );
         const retryText = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
         if (retryText && retryText.trim()) {
           logger.info('Generated AI response successfully (Gemini, retry without cache).', {
             charCount: retryText.length,
-            model: modelName
+            model: activeModel
           });
           return retryText.trim();
         }
       } catch (retryErr) {
+        rethrowIfBusyForFallback(retryErr, 'gemini', activeModel);
         captureError(retryErr, { provider: 'gemini', handler: 'retryWithoutCache' });
         logger.error('Gemini API retry without cache failed.', {
           error: retryErr?.stack,
           message: retryErr?.message,
-          model: modelName
+          model: activeModel
         });
         return formatAIUserMessage({ error: retryErr, provider: 'gemini' });
       }
       return formatAIUserMessage({ reason: 'empty_response' });
     }
+    rethrowIfBusyForFallback(apiError, 'gemini', activeModel);
     captureError(apiError, { provider: 'gemini' });
     logger.error('Gemini API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
-      model: modelName
+      model: activeModel
     });
     return formatAIUserMessage({ error: apiError, provider: 'gemini' });
   }
@@ -401,7 +489,7 @@ async function generateGeminiResponse(conversation) {
  * @param {Array<{role: string, content: string|Array}>} conversation - Conversation history
  * @returns {Promise<string>} Generated reply or empty string on failure
  */
-async function generateClaudeResponse(conversation) {
+async function generateClaudeResponse(conversation, activeModel = modelName) {
   if (!anthropic) {
     logger.error('Anthropic API key not configured (ANTHROPIC_API_KEY).');
     return formatAIUserMessage({ reason: 'missing_api_key', provider: 'claude' });
@@ -420,12 +508,18 @@ async function generateClaudeResponse(conversation) {
     systemWithImageHint = SYSTEM_MESSAGES.IMAGE_ANALYSIS;
   }
 
+  const extendedThinkingEnabled = claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(activeModel);
+  const claudeMaxTokens = extendedThinkingEnabled
+    ? Math.min(65536, maxOutputTokens + claudeThinkingBudgetTokens)
+    : maxOutputTokens;
   const params = {
-    model: modelName,
-    max_tokens: maxOutputTokens,
-    messages,
-    temperature: getTemperature()
+    model: activeModel,
+    max_tokens: claudeMaxTokens,
+    messages
   };
+  if (!extendedThinkingEnabled) {
+    params.temperature = getTemperature();
+  }
   if (systemWithImageHint) {
     if (enableContextCache) {
       params.system = [{ type: 'text', text: systemWithImageHint, cache_control: { type: 'ephemeral' } }];
@@ -434,7 +528,7 @@ async function generateClaudeResponse(conversation) {
     }
   }
 
-  if (claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(modelName)) {
+  if (extendedThinkingEnabled) {
     params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
   }
 
@@ -442,9 +536,9 @@ async function generateClaudeResponse(conversation) {
     params.tools = CLAUDE_TOOLS;
   }
 
-  logger.debug(`Sending conversation to Claude API using model ${modelName}.`, {
+  logger.debug(`Sending conversation to Claude API using model ${activeModel}.`, {
     messageCount: conversation.length,
-    model: modelName,
+    model: activeModel,
     messagesLength: messages.length,
     hasImages: hasImages(conversation),
     promptCacheEnabled: enableContextCache,
@@ -458,7 +552,11 @@ async function generateClaudeResponse(conversation) {
     let response;
 
     while (round < maxToolRounds) {
-      response = await anthropic.messages.create({ ...params, messages: currentMessages });
+      response = await withRequestTimeout(
+        anthropic.messages.create({ ...params, messages: currentMessages }),
+        claudeTimeoutMs,
+        'Claude'
+      );
 
       const toolUseBlocks = (response.content || []).filter(b => b.type === 'tool_use');
       if (toolUseBlocks.length === 0) {
@@ -470,7 +568,7 @@ async function generateClaudeResponse(conversation) {
         }
         logger.info('Generated AI response successfully (Claude).', {
           charCount: text.length,
-          model: modelName,
+          model: activeModel,
           toolRounds: round
         });
         return text;
@@ -494,11 +592,12 @@ async function generateClaudeResponse(conversation) {
     logger.warn('Claude hit max tool rounds without final text.');
     return formatAIUserMessage({ reason: 'api_error' });
   } catch (apiError) {
+    rethrowIfBusyForFallback(apiError, 'claude', activeModel);
     captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
       error: apiError?.stack,
       message: apiError?.message,
-      model: modelName
+      model: activeModel
     });
     return formatAIUserMessage({ error: apiError, provider: 'claude' });
   }
@@ -510,7 +609,7 @@ async function generateClaudeResponse(conversation) {
  * @param {Array<{role: string, content: string|Array}>} conversation - Array of conversation messages
  * @returns {Promise<string>} The generated AI response, or empty string if generation fails
  */
-async function generateOpenAIResponse(conversation) {
+async function generateOpenAIResponse(conversation, activeModel = modelName) {
   if (!openai) {
     logger.error('OpenAI API key not configured (OPENAI_API_KEY).');
     return formatAIUserMessage({ reason: 'missing_api_key', provider: 'openai' });
@@ -535,7 +634,7 @@ async function generateOpenAIResponse(conversation) {
     }
 
     const requestParams = {
-      model: modelName,
+      model: activeModel,
       input: messages,
       max_output_tokens: maxOutputTokens
     };
@@ -563,13 +662,16 @@ async function generateOpenAIResponse(conversation) {
       requestParams.tools = [{ type: 'web_search' }];
     }
 
-    const temperature = getTemperature();
-    requestParams.temperature = temperature;
-    const temperatureValue = temperature;
+    const usesReasoning = normalizedReasoningEffort && normalizedReasoningEffort !== 'none';
+    let temperatureValue;
+    if (!usesReasoning) {
+      temperatureValue = getTemperature();
+      requestParams.temperature = temperatureValue;
+    }
 
-    logger.debug(`Sending conversation to OpenAI API using model ${modelName}.`, {
+    logger.debug(`Sending conversation to OpenAI API using model ${activeModel}.`, {
       messageCount: conversation.length,
-      model: modelName,
+      model: activeModel,
       temperature: temperatureValue,
       reasoningEffort: normalizedReasoningEffort || undefined,
       verbosity: normalizedVerbosity || undefined,
@@ -581,11 +683,12 @@ async function generateOpenAIResponse(conversation) {
     try {
       response = await openai.responses.create(requestParams);
     } catch (apiError) {
+      rethrowIfBusyForFallback(apiError, 'openai', activeModel);
       captureError(apiError, { provider: 'openai' });
       logger.error('API request failed.', {
         error: apiError?.stack,
         message: apiError?.message,
-        model: modelName,
+        model: activeModel,
         statusCode: apiError?.status ?? 'unknown'
       });
       return formatAIUserMessage({ error: apiError, provider: 'openai' });
@@ -601,7 +704,7 @@ async function generateOpenAIResponse(conversation) {
 
     if (response.status !== 'completed') {
       logger.warn('OpenAI API response was not completed.', {
-        model: modelName,
+        model: activeModel,
         responseStatus: response.status,
         responseId: response.id,
         incompleteDetails: response.incomplete_details || undefined,
@@ -625,11 +728,12 @@ async function generateOpenAIResponse(conversation) {
 
     return reply;
   } catch (error) {
+    if (isProviderBusyError(error)) throw error;
     captureError(error, { provider: aiProvider || 'unknown' });
     logger.error('Error occurred while generating AI response.', {
       error: error?.stack,
       message: error?.message,
-      model: modelName,
+      model: activeModel,
       errorType: error?.type ?? 'unknown',
       errorCode: error?.code ?? 'unknown',
       statusCode: error?.status ?? 'unknown'
@@ -661,13 +765,28 @@ async function generateAIResponse(conversation) {
     name: `Generate AI response (${aiProvider})`
   }, async () => {
     try {
+      const conversationForApi = prepareConversationForApi(conversation);
+
+      const invokeProvider = async (activeModel) => {
+        if (aiProvider === 'gemini') return generateGeminiResponse(conversationForApi, activeModel);
+        if (aiProvider === 'claude') return generateClaudeResponse(conversationForApi, activeModel);
+        return generateOpenAIResponse(conversationForApi, activeModel);
+      };
+
       let reply;
-      if (aiProvider === 'gemini') {
-        reply = await generateGeminiResponse(conversation);
-      } else if (aiProvider === 'claude') {
-        reply = await generateClaudeResponse(conversation);
-      } else {
-        reply = await generateOpenAIResponse(conversation);
+      try {
+        reply = await invokeProvider(modelName);
+      } catch (error) {
+        if (isProviderBusyError(error) && fallbackModelName) {
+          logger.warn(`Primary model ${error.attemptedModel} returned ${error.reason}; retrying with fallback model ${fallbackModelName}.`);
+          recordCount('ai.generate.fallback', 1, {
+            provider: aiProvider,
+            reason: error.reason
+          });
+          reply = await invokeProvider(fallbackModelName);
+        } else {
+          throw error;
+        }
       }
 
       const isErrorReply = isAIUserErrorMessage(reply);
@@ -705,6 +824,7 @@ async function generateAIResponse(conversation) {
 
 
 
-module.exports = { 
-  generateAIResponse
+module.exports = {
+  generateAIResponse,
+  ProviderBusyError
 };

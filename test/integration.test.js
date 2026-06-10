@@ -3,7 +3,7 @@ const { EventEmitter } = require('node:events');
 const { withEnv, loadAiService, setSdkStubs, instrumentPath: sharedInstrumentPath } = require('./loadHelpers.cjs');
 const { stubModule, reloadModule, DEFAULT_CONFIG, defaultInstrumentStub, clearStubRegistry, clearStubModuleCaches } = require('./testUtils.cjs');
 
-const indexPath = path.resolve(__dirname, '..', 'index.js');
+const botPath = path.resolve(__dirname, '..', 'bot.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const messageCreatePath = path.resolve(__dirname, '..', 'events', 'messageCreate.js');
@@ -11,6 +11,7 @@ const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
 const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
 const realAiUtils = require(aiUtilsPath);
 const replyChainTracerPath = path.resolve(__dirname, '..', 'utils', 'replyChainTracer.js');
+const discordApiPath = path.resolve(__dirname, '..', 'utils', 'discordApi.js');
 const deployPath = path.resolve(__dirname, '..', 'deploy-commands.js');
 const resetPath = path.resolve(__dirname, '..', 'commands', 'reset.js');
 const loggerPath = path.resolve(__dirname, '..', 'logger.js');
@@ -49,6 +50,7 @@ function loadMessageCreate(overrides = {}) {
     stubModule(aiServicePath, {
       generateAIResponse: overrides.generateAIResponse || (async () => 'ok')
     });
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
     stubModule(instrumentPath, defaultInstrumentStub({
       recordCount: overrides.recordCount
     }));
@@ -82,7 +84,7 @@ function loadIndexHarness(recordCountImpl, configOverrides = {}, options = {}) {
   }
 
   const originalReaddir = require('fs').readdirSync;
-  reloadModule(indexPath, () => {
+  reloadModule(botPath, () => {
     stubModule(configPath, { ...DEFAULT_CONFIG, ...configOverrides });
     stubModule(instrumentPath, defaultInstrumentStub({
       recordCount: options.recordCount || recordCountImpl
@@ -107,14 +109,16 @@ function loadIndexHarness(recordCountImpl, configOverrides = {}, options = {}) {
 }
 
 function createMessage(overrides = {}) {
+  const { client: clientOverrides, ...messageOverrides } = overrides;
   const client = {
     user: { id: 'bot-123', tag: 'AI#0001' },
+    discordReady: true,
     channelLocks: new Map(),
     channelQueueDepth: new Map(),
     userCooldowns: new Map(),
     channelCooldowns: new Map(),
     conversationHistory: new Map(),
-    ...(overrides.client || {})
+    ...clientOverrides
   };
 
   return {
@@ -139,14 +143,28 @@ function createMessage(overrides = {}) {
     mentions: {
       has: () => true,
       users: { has: () => true },
+      roles: { size: 0, some: () => false },
       everyone: false,
       size: 1,
       values: () => [{ id: '123' }]
     },
+    guild: {
+      members: {
+        cache: {
+          get: () => ({ roles: { cache: { has: () => false } } })
+        }
+      }
+    },
     reference: null,
     attachments: new Map(),
+    fetchReference: async function fetchReference() {
+      if (!this.reference?.messageId) {
+        throw new Error('No reference.');
+      }
+      return this.channel.messages.fetch(this.reference.messageId);
+    },
     reply: async () => ({ edit: async () => {} }),
-    ...overrides
+    ...messageOverrides
   };
 }
 
@@ -223,39 +241,10 @@ test('should index sends successful command error replies and swallows metric fa
   });
   expect(commandReplyMetrics).toBe(2);
 
-  delete require.cache[indexPath];
+  delete require.cache[botPath];
 });
 
-test('should index swallows context menu reply metric failures', async () => {
-  let contextReplyMetrics = 0;
-  const client = loadIndexHarness((_name, _value, attrs) => {
-    if (attrs?.location === 'index.contextmenu_reply') {
-      contextReplyMetrics += 1;
-      if (contextReplyMetrics >= 2) throw new Error('metric failed');
-    }
-  });
-
-  client.commands.set('ctx-boom', { execute: async () => { throw new Error('ctx failed'); } });
-  const handlers = client.handlers.get('interactionCreate') || [];
-
-  await handlers[1]({
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => true,
-    commandName: 'ctx-boom',
-    user: { id: 'u1', tag: 'User#1' },
-    guildId: 'guild-1',
-    inGuild: () => true,
-    replied: false,
-    deferred: false,
-    reply: async () => {
-      const err = new Error('rate limited');
-      err.status = 429;
-      throw err;
-    },
-    followUp: async () => {}
-  });
-  expect(contextReplyMetrics).toBe(2);
-
+test('should index swallows command reply metric failures', async () => {
   let commandStatusCodeMetrics = 0;
   const client2 = loadIndexHarness((_name, _value, attrs) => {
     if (attrs?.location === 'index.command_reply') {
@@ -655,7 +644,7 @@ test('should covers cooldown failures, bot reply fetch, and fallback reply metri
       user: { id: 'bot-123', tag: 'AI#0001' },
       channelLocks: new Map(),
       channelQueueDepth: new Map(),
-      userCooldowns: new Map([['user-1', Date.now()]]),
+      userCooldowns: new Map([['user-1:chan-1', Date.now()]]),
       channelCooldowns: new Map(),
       conversationHistory: new Map()
     },
@@ -814,11 +803,12 @@ test('should initializes missing client state maps', async () => {
     user: { id: 'bot-123' },
     conversationHistory: new Map()
   };
-  await mod.execute(createMessage({ client: bareClient }));
-  expect(bareClient.channelLocks instanceof Map).toBeTruthy();
-  expect(bareClient.channelQueueDepth instanceof Map).toBeTruthy();
-  expect(bareClient.userCooldowns instanceof Map).toBeTruthy();
-  expect(bareClient.channelCooldowns instanceof Map).toBeTruthy();
+  const message = createMessage({ client: bareClient });
+  await mod.execute(message);
+  expect(message.client.channelLocks instanceof Map).toBeTruthy();
+  expect(message.client.channelQueueDepth instanceof Map).toBeTruthy();
+  expect(message.client.userCooldowns instanceof Map).toBeTruthy();
+  expect(message.client.channelCooldowns instanceof Map).toBeTruthy();
 });
 
 test('should ignores bot authors and prefetch fetch failures', async () => {
@@ -901,14 +891,7 @@ test('should handles reply trigger and additional chunk rate limit metrics', asy
 });
 
 test('should index covers interaction handler guard branches and httpStatus fallbacks', async () => {
-  let contextBlockedReply = false;
-  const client = loadIndexHarness((_name, _value, attrs) => {
-    if (attrs?.location === 'index.contextmenu_reply' && attrs?.httpStatus === 418) {
-      throw new Error('metric failed');
-    }
-  });
-
-  client.commands.set('ctx-boom', { execute: async () => { throw new Error('ctx failed'); } });
+  const client = loadIndexHarness(() => {});
   const handlers = client.handlers.get('interactionCreate') || [];
 
   await handlers[0]({
@@ -922,32 +905,6 @@ test('should index covers interaction handler guard branches and httpStatus fall
     followUp: async () => {}
   });
 
-  await handlers[1]({
-    isChatInputCommand: () => true,
-    isContextMenuCommand: () => false,
-    commandName: 'ignored',
-    user: { id: 'u1', tag: 'User#1' },
-    guildId: 'guild-1',
-    inGuild: () => true,
-    reply: async () => {},
-    followUp: async () => {}
-  });
-
-  const blockedClient = loadIndexHarness(() => {}, { allowedGuildIds: new Set(['allowed-only']) });
-  blockedClient.commands.set('ctx-boom', { execute: async () => {} });
-  const blockedHandlers = blockedClient.handlers.get('interactionCreate') || [];
-  await blockedHandlers[1]({
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => true,
-    commandName: 'ctx-boom',
-    user: { id: 'u1', tag: 'User#1' },
-    guildId: 'wrong-guild',
-    inGuild: () => true,
-    reply: async () => { contextBlockedReply = true; throw new Error('blocked'); },
-    followUp: async () => {}
-  });
-  expect(contextBlockedReply).toBe(true);
-
   const httpClient = loadIndexHarness(() => {});
   httpClient.commands.set('cmd-boom', { execute: async () => { throw new Error('cmd failed'); } });
   const httpHandlers = httpClient.handlers.get('interactionCreate') || [];
@@ -955,23 +912,6 @@ test('should index covers interaction handler guard branches and httpStatus fall
     isChatInputCommand: () => true,
     isContextMenuCommand: () => false,
     commandName: 'cmd-boom',
-    user: { id: 'u1', tag: 'User#1' },
-    guildId: 'guild-1',
-    inGuild: () => true,
-    replied: false,
-    deferred: false,
-    reply: async () => {
-      const err = new Error('teapot');
-      err.httpStatus = 418;
-      throw err;
-    },
-    followUp: async () => {}
-  });
-
-  await httpHandlers[1]({
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => true,
-    commandName: 'ctx-boom',
     user: { id: 'u1', tag: 'User#1' },
     guildId: 'guild-1',
     inGuild: () => true,
@@ -1327,19 +1267,19 @@ test('should branch coverage for channel name, triggers, and reply paths', async
   expect(chunkStatusCodeMetrics).toBe(1);
 });
 
-test('should index covers remaining reply error and rejection branches', async () => {
-  let contextHttpMetrics = 0;
+test('should index covers remaining command reply error branches', async () => {
+  let commandHttpMetrics = 0;
   const client = loadIndexHarness(() => {}, {}, {
     recordCount: (_name, _value, attrs) => {
-      if (attrs?.location === 'index.contextmenu_reply') contextHttpMetrics += 1;
+      if (attrs?.location === 'index.command_reply') commandHttpMetrics += 1;
     }
   });
-  client.commands.set('ctx-boom', { execute: async () => { throw new Error('ctx failed'); } });
+  client.commands.set('cmd-boom', { execute: async () => { throw new Error('cmd failed'); } });
   const handlers = client.handlers.get('interactionCreate') || [];
-  await handlers[1]({
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => true,
-    commandName: 'ctx-boom',
+  await handlers[0]({
+    isChatInputCommand: () => true,
+    isContextMenuCommand: () => false,
+    commandName: 'cmd-boom',
     user: { id: 'u1', tag: 'User#1' },
     guildId: 'guild-1',
     inGuild: () => true,
@@ -1352,8 +1292,8 @@ test('should index covers remaining reply error and rejection branches', async (
     },
     followUp: async () => {}
   });
-  expect(contextHttpMetrics).toBe(1);
-  delete require.cache[indexPath];
+  expect(commandHttpMetrics).toBe(1);
+  delete require.cache[botPath];
 });
 
 test('should reset logs when error-path followUp succeeds after editReply fails', async () => {
@@ -1432,8 +1372,8 @@ test('should records rate limit metrics and swallows metric failures', async () 
 });
 
 
-test('should index context menu reply failures record rate limits and metric errors', async () => {
-  delete require.cache[indexPath];
+test('should index command reply failures record rate limits and metric errors', async () => {
+  delete require.cache[botPath];
   delete require.cache[configPath];
   delete require.cache[instrumentPath];
 
@@ -1450,7 +1390,7 @@ test('should index context menu reply failures record rate limits and metric err
     recordCount: (name, value, attrs) => {
       recordCalls += 1;
       const location = attrs?.location;
-      if (location === 'index.command_reply' || location === 'index.contextmenu_reply') {
+      if (location === 'index.command_reply') {
         if (recordCalls > 10) throw new Error('metric failed');
       }
     },
@@ -1497,46 +1437,15 @@ test('should index context menu reply failures record rate limits and metric err
     return originalReaddir(dir);
   };
 
-  require(indexPath);
+  require(botPath);
   const client = FakeClient.instance;
   client.commands.set('cmd-boom', { execute: async () => { throw new Error('cmd failed'); } });
-  client.commands.set('ctx-boom', { execute: async () => { throw new Error('ctx failed'); } });
 
   const chatHandlers = client.handlers.get('interactionCreate') || [];
   await chatHandlers[0]({
     isChatInputCommand: () => true,
     isContextMenuCommand: () => false,
     commandName: 'cmd-boom',
-    user: { id: 'u1', tag: 'User#1' },
-    guildId: 'allowed-guild',
-    inGuild: () => true,
-    replied: false,
-    deferred: false,
-    reply: async () => {
-      const err = new Error('rate limited');
-      err.status = 429;
-      throw err;
-    },
-    followUp: async () => {}
-  });
-
-  await chatHandlers[1]({
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => true,
-    commandName: 'ctx-boom',
-    user: { id: 'u1', tag: 'User#1' },
-    guildId: 'blocked-guild',
-    inGuild: () => true,
-    replied: false,
-    deferred: false,
-    reply: async () => { throw new Error('blocked'); },
-    followUp: async () => {}
-  });
-
-  await chatHandlers[1]({
-    isChatInputCommand: () => false,
-    isContextMenuCommand: () => true,
-    commandName: 'ctx-boom',
     user: { id: 'u1', tag: 'User#1' },
     guildId: 'allowed-guild',
     inGuild: () => true,
@@ -1599,35 +1508,23 @@ test('should covers thinking failures, chain tracing, and reply-chain images', a
     }
   });
 
-  const client = {
-    user: { id: 'bot-123' },
-    channelLocks: new Map(),
-    channelQueueDepth: new Map(),
-    userCooldowns: new Map(),
-    channelCooldowns: new Map(),
-    conversationHistory: new Map()
-  };
-
   const reply = async payload => {
     if (payload.content === '*Thinking...*') throw new Error('thinking failed');
     return { edit: async () => {} };
   };
 
-  const base = {
+  const base = createMessage({
     content: '<@123>',
     guildId: 'guild-1',
     channel: { name: 'general', messages: { fetch: async () => parentWithImage } },
-    client,
     author: { bot: false, id: 'user-1', tag: 'User#1', username: 'user' },
-    mentions: { has: () => true, users: { has: () => true }, everyone: false, size: 1, values: () => [] },
     reference: { messageId: 'parent' },
-    attachments: new Map(),
     reply
-  };
+  });
 
   await mod.execute({ ...base, id: 'trace-fail', channelId: 'chan-2' });
   await mod.execute({ ...base, id: 'msg-1', channelId: 'chan-1' });
-  expect(client.conversationHistory.has('chan-1')).toBeTruthy();
+  expect(base.client.conversationHistory.has('chan-1')).toBeTruthy();
   expect(imageCallCount).toBe(1);
 });
 

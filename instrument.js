@@ -53,10 +53,10 @@ const isProduction = environment === 'production';
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true' || process.env.SENTRY_SEND_DEFAULT_PII === '1',
-  tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, 1.0),
+  tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, isProduction ? 0.1 : 1.0),
   enableLogs: process.env.SENTRY_ENABLE_LOGS !== 'false',
   enableMetrics: process.env.SENTRY_ENABLE_METRICS !== 'false',
-  profileSessionSampleRate: parseSampleRate(process.env.SENTRY_PROFILE_SESSION_SAMPLE_RATE, 1.0),
+  profileSessionSampleRate: parseSampleRate(process.env.SENTRY_PROFILE_SESSION_SAMPLE_RATE, isProduction ? 0.1 : 1.0),
   profileLifecycle: process.env.SENTRY_PROFILE_LIFECYCLE || 'trace',
   includeLocalVariables: !isProduction,
   environment,

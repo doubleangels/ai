@@ -48,8 +48,27 @@ const SUPPORTED_CLAUDE_MODELS = [
 ];
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
+const SUPPORTED_AI_PROVIDERS = ['openai', 'gemini', 'claude'];
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
-const resolvedProvider = ['gemini', 'claude'].includes(aiProvider) ? aiProvider : 'openai';
+if (!SUPPORTED_AI_PROVIDERS.includes(aiProvider)) {
+  console.error(`Invalid AI_PROVIDER "${process.env.AI_PROVIDER}". Supported values are ${SUPPORTED_AI_PROVIDERS.join(', ')}.`);
+  process.exit(1);
+}
+const resolvedProvider = aiProvider;
+
+/**
+ * Parses an integer env var; preserves 0. Returns default when unset or invalid.
+ * @param {string|undefined} value
+ * @param {number} defaultValue
+ * @returns {number}
+ */
+function parseEnvInt(value, defaultValue) {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return defaultValue;
+  }
+  const parsed = parseInt(String(value), 10);
+  return Number.isNaN(parsed) ? defaultValue : parsed;
+}
 
 const envOpenaiModel = (process.env.OPENAI_MODEL_NAME || '').trim();
 const envGeminiModel = (process.env.GEMINI_MODEL_NAME || '').trim();
@@ -87,13 +106,46 @@ if (!supportedList.includes(resolvedModel)) {
  */
 const parsedHistoryLength = parseInt(process.env.MAX_HISTORY_LENGTH, 10);
 
-/** When non-empty, only these Discord guild (server) IDs may use the bot (messages + slash commands). DMs are ignored. */
-const allowedGuildIds = new Set(
-  (process.env.ALLOWED_GUILD_IDS || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-);
+const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
+
+/** When non-empty, only listed guild IDs may use the bot; DMs are blocked. When empty, all guilds and DMs are allowed. */
+const allowedGuildIdList = (process.env.ALLOWED_GUILD_IDS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+for (const guildId of allowedGuildIdList) {
+  if (!DISCORD_SNOWFLAKE_RE.test(guildId)) {
+    console.warn(
+      `ALLOWED_GUILD_IDS contains invalid guild ID "${guildId}" (expected a numeric Discord snowflake). Messages from that ID will never match.`
+    );
+  }
+}
+
+const allowedGuildIds = new Set(allowedGuildIdList);
+
+const envFallbackModel = (process.env.FALLBACK_MODEL_NAME || '').trim();
+let fallbackModelName = null;
+if (envFallbackModel) {
+  if (!supportedList.includes(envFallbackModel)) {
+    console.warn(
+      `FALLBACK_MODEL_NAME "${envFallbackModel}" is not supported for AI_PROVIDER "${resolvedProvider}"; fallback disabled.`
+    );
+  } else if (envFallbackModel === resolvedModel) {
+    console.warn('FALLBACK_MODEL_NAME matches the primary model; fallback disabled.');
+  } else {
+    fallbackModelName = envFallbackModel;
+  }
+}
+
+const shardCountRaw = (process.env.DISCORD_SHARD_COUNT || '').trim().toLowerCase();
+let discordShardCount = 0;
+if (shardCountRaw === 'auto') {
+  discordShardCount = 'auto';
+} else if (shardCountRaw) {
+  const parsedShards = parseInt(shardCountRaw, 10);
+  discordShardCount = Number.isNaN(parsedShards) || parsedShards < 1 ? 0 : parsedShards;
+}
 
 const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
@@ -105,8 +157,10 @@ const config = {
   })(),
   // Rough, token-estimated cap for stored history (in addition to maxHistoryLength).
   // If unset/invalid, token trimming is effectively disabled.
-  maxHistoryTokens: parseInt(process.env.MAX_HISTORY_TOKENS, 10) || 0,
+  maxHistoryTokens: parseEnvInt(process.env.MAX_HISTORY_TOKENS, 0),
   modelName: resolvedModel,
+  fallbackModelName,
+  discordShardCount,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
@@ -134,9 +188,9 @@ const config = {
   // Claude extended thinking: token budget for reasoning (0 = disabled). Only used for models that support it (e.g. 4.5).
   claudeThinkingBudgetTokens: Math.max(0, Math.min(32000, parseInt(process.env.CLAUDE_THINKING_BUDGET_TOKENS, 10) || 0)),
   // Basic anti-spam/cost controls (in-memory, per process).
-  userCooldownMs: parseInt(process.env.USER_COOLDOWN_MS, 10) || 4000,
-  channelCooldownMs: parseInt(process.env.CHANNEL_COOLDOWN_MS, 10) || 1500,
-  maxPendingPerChannel: parseInt(process.env.MAX_PENDING_PER_CHANNEL, 10) || 3,
+  userCooldownMs: parseEnvInt(process.env.USER_COOLDOWN_MS, 4000),
+  channelCooldownMs: parseEnvInt(process.env.CHANNEL_COOLDOWN_MS, 1500),
+  maxPendingPerChannel: parseEnvInt(process.env.MAX_PENDING_PER_CHANNEL, 3),
   // Reply chain traversal cap (Discord parent-message fetches before AI call).
   maxReplyChainDepth: Math.max(1, Math.min(50, parseInt(process.env.MAX_REPLY_CHAIN_DEPTH, 10) || 15)),
   // In-memory Discord message cache for reply-chain traversal (LRU + TTL).
@@ -148,8 +202,10 @@ const config = {
   // Max images (attachments + embed previews) collected from a reply chain per request.
   maxReplyChainImages: Math.max(1, Math.min(10, parseInt(process.env.MAX_REPLY_CHAIN_IMAGES, 10) || 4)),
   // OpenAI client: request timeout (ms) and max retries for transient failures.
-  openaiTimeoutMs: Math.max(5000, Math.min(300000, parseInt(process.env.OPENAI_TIMEOUT_MS, 10) || 60000)),
-  openaiMaxRetries: Math.max(0, Math.min(5, parseInt(process.env.OPENAI_MAX_RETRIES, 10) || 2)),
+  openaiTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.OPENAI_TIMEOUT_MS, 60000))),
+  openaiMaxRetries: Math.max(0, Math.min(5, parseEnvInt(process.env.OPENAI_MAX_RETRIES, 2))),
+  geminiTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.GEMINI_TIMEOUT_MS, 60000))),
+  claudeTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.CLAUDE_TIMEOUT_MS, 60000))),
   // In-memory conversation store bounds (per process).
   conversationHistoryMaxChannels: Math.max(0, Math.min(10000, parseInt(process.env.CONVERSATION_HISTORY_MAX_CHANNELS, 10) || 500)),
   conversationHistoryIdleMs: Math.max(0, Math.min(86_400_000 * 7, parseInt(process.env.CONVERSATION_HISTORY_IDLE_MS, 10) || 86_400_000)),

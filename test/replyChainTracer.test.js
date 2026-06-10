@@ -90,6 +90,59 @@ test('should traceReplyChain returns single message when no reference', async ()
   expect(chain[0].id).toBe('m3');
 });
 
+test('should traceReplyChain uses fetchReference when available', async () => {
+  const tracer = loadTracer();
+  const parent = makeMessage({ id: 'm1', content: 'oldest' });
+  const start = {
+    ...makeMessage({ id: 'm2', content: 'current', reference: { messageId: 'm1' } }),
+    fetchReference: async () => parent
+  };
+  const channel = {
+    id: 'chan-1',
+    messages: {
+      fetch: async () => {
+        throw new Error('channel fetch should not be used');
+      }
+    }
+  };
+
+  const chain = await tracer.traceReplyChain(start, channel);
+  expect(chain.map(m => m.id)).toEqual(['m1', 'm2']);
+});
+
+test('should traceReplyChain falls back to reference channel fetch', async () => {
+  const tracer = loadTracer();
+  const parent = makeMessage({ id: 'm1', content: 'oldest' });
+  const otherChannel = {
+    id: 'chan-other',
+    messages: {
+      fetch: async (messageId) => (messageId === 'm1' ? parent : null)
+    }
+  };
+  const start = {
+    ...makeMessage({
+      id: 'm2',
+      content: 'current',
+      reference: { messageId: 'm1', channelId: 'chan-other' }
+    }),
+    fetchReference: async () => {
+      throw new Error('fetchReference failed');
+    }
+  };
+  const channel = {
+    id: 'chan-1',
+    client: {
+      channels: {
+        fetch: async (channelId) => (channelId === 'chan-other' ? otherChannel : null)
+      }
+    },
+    messages: { fetch: async () => null }
+  };
+
+  const chain = await tracer.traceReplyChain(start, channel);
+  expect(chain.map(m => m.id)).toEqual(['m1', 'm2']);
+});
+
 test('should traceReplyChain walks parent references oldest to newest', async () => {
   const tracer = loadTracer();
   const parent = makeMessage({ id: 'm1', content: 'oldest' });

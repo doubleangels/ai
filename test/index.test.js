@@ -2,7 +2,7 @@ const path = require('path');
 const Module = require('module');
 const { stubModule, reloadModule } = require('./testUtils.cjs');
 
-const indexPath = path.resolve(__dirname, '..', 'index.js');
+const botPath = path.resolve(__dirname, '..', 'bot.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const discordPath = require.resolve('discord.js');
@@ -39,6 +39,10 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
         ? Promise.reject(new Error('login failed'))
         : Promise.resolve();
     }
+
+    destroy() {
+      return Promise.resolve();
+    }
   }
   FakeClient.instances = [];
 
@@ -52,7 +56,7 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
     };
   }
 
-  reloadModule(indexPath, () => {
+  reloadModule(botPath, () => {
     if (options.virtualRequires) {
       for (const [modPath, exportsObj] of Object.entries(options.virtualRequires)) {
         if (exportsObj === null) {
@@ -210,7 +214,7 @@ test('should index wires command and signal handlers (coverage merged)', async (
     client.commands.set('boom', { execute: async () => { throw new Error('command failed'); } });
 
     const chatHandlers = client.handlers.get('interactionCreate') || [];
-    expect(chatHandlers.length >= 2).toBe(true);
+    expect(chatHandlers.length >= 1).toBe(true);
 
     await chatHandlers[0](
       {
@@ -255,39 +259,6 @@ test('should index wires command and signal handlers (coverage merged)', async (
         guildId: 'guild-1',
         inGuild: () => true,
         replied: true,
-        deferred: false,
-        reply: async () => {},
-        followUp: async () => {}
-      }
-    );
-
-    client.commands.set('context-ok', { execute: async () => {} });
-    client.commands.set('ctx-error-reply', { execute: async () => { throw new Error('ctx failed'); } });
-    const contextHandlers = client.handlers.get('interactionCreate') || [];
-    await contextHandlers[1](
-      {
-        isChatInputCommand: () => false,
-        isContextMenuCommand: () => true,
-        commandName: 'ctx-error-reply',
-        user: { id: 'user-1', tag: 'User#0001' },
-        guildId: 'guild-1',
-        inGuild: () => true,
-        replied: false,
-        deferred: false,
-        reply: async () => {},
-        followUp: async () => {}
-      }
-    );
-
-    await contextHandlers[1](
-      {
-        isChatInputCommand: () => false,
-        isContextMenuCommand: () => true,
-        commandName: 'context-ok',
-        user: { id: 'user-1', tag: 'User#0001' },
-        guildId: 'guild-1',
-        inGuild: () => true,
-        replied: false,
         deferred: false,
         reply: async () => {},
         followUp: async () => {}
@@ -366,45 +337,6 @@ test('should index blocks interactions outside allowed guilds', async () => {
   }
 });
 
-test('should index blocks context menu interactions outside allowed guilds', async () => {
-  const { client, restore } = loadIndexHarness({ allowedGuildIds: new Set(['allowed-guild']) });
-  try {
-    client.commands.set('ctx-ok', { execute: async () => {} });
-    let replied = false;
-    const contextHandlers = client.handlers.get('interactionCreate') || [];
-    await contextHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'ctx-ok',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'blocked-guild',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => { replied = true; },
-      followUp: async () => {}
-    });
-    expect(replied).toBe(true);
-
-    let replyFailed = false;
-    await contextHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'ctx-ok',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'blocked-guild-2',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => { replyFailed = true; throw new Error('blocked'); },
-      followUp: async () => {}
-    });
-    expect(replyFailed).toBe(true);
-  } finally {
-    restore();
-  }
-});
-
 test('should index records command reply failures using httpStatus only', async () => {
   let commandReplyMetrics = 0;
   const { client, restore } = loadIndexHarness({}, {}, {
@@ -437,7 +369,7 @@ test('should index records command reply failures using httpStatus only', async 
   }
 });
 
-test('should index ignores unknown chat commands and context menu commands', async () => {
+test('should index ignores unknown chat commands', async () => {
   const { client, restore } = loadIndexHarness();
   try {
     const chatHandlers = client.handlers.get('interactionCreate') || [];
@@ -451,17 +383,6 @@ test('should index ignores unknown chat commands and context menu commands', asy
       reply: async () => { throw new Error('should not reply'); },
       followUp: async () => {}
     });
-
-    await chatHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'missing-context',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      reply: async () => { throw new Error('should not reply'); },
-      followUp: async () => {}
-    });
   } finally {
     restore();
   }
@@ -469,7 +390,7 @@ test('should index ignores unknown chat commands and context menu commands', asy
 
 test('should index records chat command reply failures and metric errors', async () => {
   let commandReplyMetrics = 0;
-  delete require.cache[indexPath];
+  delete require.cache[botPath];
   delete require.cache[configPath];
   delete require.cache[instrumentPath];
 
@@ -518,69 +439,45 @@ test('should index records chat command reply failures and metric errors', async
   }
 });
 
-test('should index handles successful and failing context menu commands', async () => {
-  const { client, restore } = loadIndexHarness();
+test('should index handles gateway lifecycle events', async () => {
+  const originalExit = process.exit;
+  const exitCodes = [];
+  process.exit = code => exitCodes.push(code);
+
+  const { client, restore } = loadIndexHarness({}, {}, { captureProcessHandlers: true });
   try {
-    client.commands.set('ctx-ok', { execute: async () => {} });
-    client.commands.set('ctx-boom', { execute: async () => { throw new Error('ctx failed'); } });
-    const contextHandlers = client.handlers.get('interactionCreate') || [];
+    const errorHandlers = client.handlers.get('error') || [];
+    errorHandlers.forEach(handler => handler(new Error('gateway error')));
 
-    await contextHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'ctx-ok',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {},
-      followUp: async () => {}
-    });
+    const disconnectHandlers = client.handlers.get('shardDisconnect') || [];
+    client.discordReady = true;
+    disconnectHandlers.forEach(handler => handler({}, 0));
+    expect(client.discordReady).toBe(false);
 
-    await contextHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'ctx-boom',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: false,
-      deferred: false,
-      reply: async () => {
-        const error = new Error('reply failed');
-        error.status = 500;
-        throw error;
-      },
-      followUp: async () => {}
-    });
+    const shardErrorHandlers = client.handlers.get('shardError') || [];
+    shardErrorHandlers.forEach(handler => handler(new Error('shard boom'), 1));
+
+    const invalidatedHandlers = client.handlers.get('invalidated') || [];
+    invalidatedHandlers.forEach(handler => handler());
+    await new Promise(resolve => setImmediate(resolve));
+    expect(exitCodes).toEqual([1]);
   } finally {
+    process.exit = originalExit;
     restore();
   }
 });
 
-test('should index handles context menu errors and login failures', async () => {
-  const { client, restore } = loadIndexHarness({}, {}, { loginReject: true });
+test('should index exits on login failures', async () => {
+  const originalExit = process.exit;
+  const exitCodes = [];
+  process.exit = code => exitCodes.push(code);
+
+  const { restore } = loadIndexHarness({}, {}, { loginReject: true });
   try {
-    client.commands.set('ctx-boom', { execute: async () => { throw new Error('ctx failed'); } });
-    const contextHandlers = client.handlers.get('interactionCreate') || [];
-    await contextHandlers[1]({
-      isChatInputCommand: () => false,
-      isContextMenuCommand: () => true,
-      commandName: 'ctx-boom',
-      user: { id: 'user-1', tag: 'User#0001' },
-      guildId: 'guild-1',
-      inGuild: () => true,
-      replied: true,
-      deferred: false,
-      reply: async () => {
-        const error = new Error('rate limited');
-        error.status = 429;
-        throw error;
-      },
-      followUp: async () => {}
-    });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(exitCodes).toEqual([1]);
   } finally {
+    process.exit = originalExit;
     restore();
   }
 });

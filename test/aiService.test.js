@@ -864,7 +864,7 @@ test('should claude handles missing response content in tool rounds', async () =
   expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toMatch(/empty response/);
 });
 
-test('should openAI outer catch tags unknown provider when config provider is empty', async () => {
+test('should openAI outer catch tags provider when conversation preparation fails', async () => {
   let capturedProvider;
 
   const aiService = reloadModule(aiServicePath, () => {
@@ -876,7 +876,7 @@ test('should openAI outer catch tags unknown provider when config provider is em
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
-      aiProvider: '',
+      aiProvider: 'openai',
       enableWebSearch: false,
       enableGoogleMaps: false,
       enableContextCache: false,
@@ -884,7 +884,9 @@ test('should openAI outer catch tags unknown provider when config provider is em
       maxOutputTokens: 1024,
       claudeThinkingBudgetTokens: 0,
       openaiTimeoutMs: 60000,
-      openaiMaxRetries: 2
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
     });
     global.__openaiStub = {
       OpenAI: class {
@@ -905,18 +907,15 @@ test('should openAI outer catch tags unknown provider when config provider is em
   });
 
   const broken = [{ role: 'user', content: 'hi' }];
-  Object.defineProperty(broken, Symbol.iterator, {
-    value() {
-      throw new Error('iter failed');
-    }
-  });
+  broken.map = () => {
+    throw new Error('iter failed');
+  };
 
-  const reply = await aiService.generateAIResponse(broken);
-  expect(reply).toMatch(/^⚠️ /);
-  expect(capturedProvider).toBe('unknown');
+  await expect(aiService.generateAIResponse(broken)).rejects.toThrow(/iter failed/);
+  expect(capturedProvider).toBe('openai');
 });
 
-test('should captureError tags unknown provider on post-success failures', async () => {
+test('should captureError tags provider on post-success failures', async () => {
   const aiService = reloadModule(aiServicePath, () => {
     stubModule(configPath, {
       openaiApiKey: 'fake',
@@ -926,7 +925,7 @@ test('should captureError tags unknown provider on post-success failures', async
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
-      aiProvider: '',
+      aiProvider: 'openai',
       enableWebSearch: false,
       enableGoogleMaps: false,
       enableContextCache: false,
@@ -934,7 +933,9 @@ test('should captureError tags unknown provider on post-success failures', async
       maxOutputTokens: 1024,
       claudeThinkingBudgetTokens: 0,
       openaiTimeoutMs: 60000,
-      openaiMaxRetries: 2
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
     });
     global.__openaiStub = {
       OpenAI: class {
@@ -964,4 +965,310 @@ test('should captureError tags unknown provider on post-success failures', async
   });
 
   await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/metric failed/);
+});
+
+test('should openAI outer catch handles unexpected generation errors', async () => {
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      getTemperature: () => {
+        throw { message: 'bare failure' };
+      },
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: '',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = { create: async () => ({ status: 'completed', output_text: 'ok', id: 'r1' }) };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(reply).toMatch(/^⚠️/);
+});
+
+test('should generateAIResponse catch uses unknown provider when config is empty', async () => {
+  const captured = [];
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: '',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async () => ({
+              status: 'completed',
+              output_text: 'ok',
+              id: 'r1',
+              usage: { total_tokens: 1 }
+            })
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: (_err, ctx) => captured.push(ctx),
+      recordCount: name => {
+        if (name === 'ai.generate.requests') throw new Error('metric failed');
+      },
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/metric failed/);
+  expect(captured[0].provider).toBe('unknown');
+  expect(captured[0].handler).toBe('generateAIResponse');
+});
+
+test('should ProviderBusyError stores busy metadata', () => {
+  const { ProviderBusyError } = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      modelName: 'gpt-5.4-nano',
+      fallbackModelName: null,
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'openai',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+  const fromError = new ProviderBusyError(new Error('rate limited'), 'rate_limit', 'gpt-5.4-nano');
+  expect(fromError.name).toBe('ProviderBusyError');
+  expect(fromError.message).toBe('rate limited');
+  expect(fromError.reason).toBe('rate_limit');
+  expect(fromError.attemptedModel).toBe('gpt-5.4-nano');
+
+  const fromString = new ProviderBusyError('busy', 'overloaded', 'gpt-5.4-mini');
+  expect(fromString.message).toBe('Provider busy');
+});
+
+test('should retries with fallback model when primary is overloaded', async () => {
+  const modelsUsed = [];
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      fallbackModelName: 'gpt-5.4-mini',
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'openai',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async ({ model }) => {
+              modelsUsed.push(model);
+              if (model === 'gpt-5.4-nano') {
+                const err = new Error('overloaded');
+                err.status = 503;
+                throw err;
+              }
+              return {
+                status: 'completed',
+                output_text: 'fallback ok',
+                id: 'r-fallback',
+                usage: { total_tokens: 1 }
+              };
+            }
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(reply).toBe('fallback ok');
+  expect(modelsUsed).toEqual(['gpt-5.4-nano', 'gpt-5.4-mini']);
+});
+
+test('should rethrows busy errors when fallback model is disabled', async () => {
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      fallbackModelName: null,
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'openai',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async () => {
+              const { ProviderBusyError } = require(aiServicePath);
+              throw new ProviderBusyError(new Error('overloaded'), 'overloaded', 'gpt-5.4-nano');
+            }
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  await expect(aiService.generateAIResponse([{ role: 'user', content: 'hi' }])).rejects.toThrow(/overloaded/);
+});
+
+test('should gemini times out long requests', async () => {
+  jest.useFakeTimers();
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: undefined,
+      geminiApiKey: 'fake',
+      anthropicApiKey: undefined,
+      modelName: 'gemini-2.0-flash',
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'gemini',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 100,
+      claudeTimeoutMs: 60000
+    });
+    global.__googleGenaiStub = {
+      GoogleGenAI: class {
+        constructor() {
+          this.models = {
+            generateContent: () => new Promise(() => {})
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const promise = aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hi' }
+  ]);
+  await jest.advanceTimersByTimeAsync(150);
+  const reply = await promise;
+  expect(reply).toMatch(/^⚠️/);
+  jest.useRealTimers();
 });

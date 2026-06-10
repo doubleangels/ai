@@ -19,6 +19,9 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+jest-out*.txt
+test-out.txt
+inst.txt
 
 # IDE settings
 .vscode/

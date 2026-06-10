@@ -57,6 +57,33 @@ test('should logger forwards structured messages to Sentry logger methods (cover
   instrument.Sentry.logger = original;
 });
 
+test('should sanitizeMetaForSentry returns non-object metadata unchanged', () => {
+  expect(getLogger.sanitizeMetaForSentry(null)).toBe(null);
+  expect(getLogger.sanitizeMetaForSentry('plain')).toBe('plain');
+});
+
+test('should logger redacts PII fields from Sentry metadata', () => {
+  const sentryCalls = [];
+  const getLoggerReloaded = reloadModule(loggerPath, () => {
+    stubModule(instrumentPath, {
+      Sentry: {
+        logger: {
+          info: (_message, meta) => sentryCalls.push(meta)
+        }
+      }
+    });
+    stubModule(path.resolve(__dirname, '..', 'config.js'), { logLevel: 'info' });
+  });
+
+  const logger = getLoggerReloaded('pii');
+  logger.info('Message received.', { user: 'User#0001', guildList: 'secret', channelName: 'general', userId: '1' });
+
+  expect(sentryCalls[0].user).toBeUndefined();
+  expect(sentryCalls[0].guildList).toBeUndefined();
+  expect(sentryCalls[0].channelName).toBeUndefined();
+  expect(sentryCalls[0].userId).toBe('1');
+});
+
 test('should logger swallows Sentry forwarding failures (coverage merged)', () => {
   const instrument = require(instrumentPath);
   const original = instrument.Sentry.logger;
@@ -81,10 +108,22 @@ test('should logger pino level formatter uppercases labels', () => {
 });
 
 test('should logger surfaces creation failures (coverage merged)', () => {
+  const captureException = jest.fn();
   const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   try {
-    const getLogger = loadLoggerWithPino(() => ({ child: () => { throw new Error('child failed'); } }));
+    const getLogger = reloadModule(loggerPath, () => {
+      stubModule(instrumentPath, { Sentry: { captureException } });
+      global.__pinoStub = Object.assign(
+        () => ({ child: () => { throw new Error('child failed'); } }),
+        { stdTimeFunctions: { isoTime: () => new Date().toISOString() } }
+      );
+      stubModule(pinoPath, global.__pinoStub);
+    });
     expect(() => getLogger('broken')).toThrow(/Failed to create logger instance/);
+    expect(captureException).toHaveBeenCalledWith(
+      expect.any(Error),
+      { tags: { source: 'logger', handler: 'createLogger' } }
+    );
   } finally {
     errorSpy.mockRestore();
   }

@@ -4,8 +4,11 @@
  * @module events/ready
  */
 
+const fs = require('fs');
 const { ActivityType, Events } = require('discord.js');
 const path = require('path');
+
+const READY_MARKER_PATH = '/tmp/discord-bot-ready';
 const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const logger = require('../logger')(path.basename(__filename));
 const { modelName } = require('../config');
@@ -28,6 +31,13 @@ module.exports = {
         op: 'discord.ready',
         name: 'Client ready'
       }, () => {
+        client.discordReady = true;
+        try {
+          fs.writeFileSync(READY_MARKER_PATH, String(Date.now()));
+        } catch (writeErr) {
+          logger.warn('Failed to write Discord ready marker file.', { errorMessage: writeErr?.message });
+        }
+
         logger.info(`Bot is online as ${client.user.tag}.`);
         logger.info(`Using AI model ${modelName}.`);
 
@@ -38,10 +48,7 @@ module.exports = {
         logger.info('Bot activity was set to watching for mentions.');
 
         const guilds = client.guilds.cache;
-        const guildList = Array.from(guilds.values())
-          .map(guild => `${guild.name} (ID: ${guild.id})`)
-          .join(', ');
-        logger.info(`Bot is in ${guilds.size} guild(s).`, { guildList });
+        logger.info(`Bot is in ${guilds.size} guild(s).`, { guildCount: guilds.size });
         recordCount('discord.ready', 1, { outcome: 'success' });
         recordDistribution('discord.ready.duration_ms', Date.now() - startedAt, {
           unit: 'millisecond',
@@ -61,9 +68,5 @@ module.exports = {
         message: error.message
       });
     }
-
-    logger.info('Bot is ready and setup complete.', {
-      readyTimestamp: new Date().toISOString()
-    });
   }
 };

@@ -3,6 +3,7 @@ services:
     image: ghcr.io/doubleangels/ai:latest
     container_name: ai
     restart: unless-stopped
+    mem_limit: 512m
     cap_drop:
       - ALL
     cap_add:
@@ -12,8 +13,10 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
+    env_file:
+      - path: .env.doppler
+        required: false
     environment:
-      - DOPPLER_TOKEN=${DOPPLER_TOKEN}
       - NODE_OPTIONS=--max-old-space-size=256
     tmpfs:
       - /tmp

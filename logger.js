@@ -4,6 +4,19 @@ const { Sentry } = require('./instrument');
 const config = require('./config');
 
 // Create base logger with configuration
+const PII_META_KEYS = new Set(['user', 'guildList', 'channelName']);
+
+function sanitizeMetaForSentry(meta) {
+  if (!meta || typeof meta !== 'object') return meta;
+  const sanitized = { ...meta };
+  for (const key of PII_META_KEYS) {
+    if (key in sanitized) {
+      delete sanitized[key];
+    }
+  }
+  return sanitized;
+}
+
 const baseLogger = pino({
   level: config.logLevel || 'info',
   formatters: {
@@ -37,7 +50,7 @@ function getLogger(label) {
 
       try {
         if (meta && typeof meta === 'object') {
-          sentryLogger[level](message, meta);
+          sentryLogger[level](message, sanitizeMetaForSentry(meta));
         } else {
           sentryLogger[level](message);
         }
@@ -100,4 +113,5 @@ function getLogger(label) {
   }
 }
 
+getLogger.sanitizeMetaForSentry = sanitizeMetaForSentry;
 module.exports = getLogger;

@@ -411,6 +411,76 @@ test('should SYSTEM_MESSAGES BASE includes TLDR format guidance', () => {
   expect(prompt).toMatch(/1–3 short sentences/);
 });
 
+test('should pruneChannelAuxMaps removes idle lock and queue entries', () => {
+  aiUtils.pruneChannelAuxMaps('', new Map(), new Map());
+
+  const locks = new Map([['chan-1', Promise.resolve()]]);
+  const queue = new Map([['chan-1', 0], ['chan-2', 2]]);
+
+  aiUtils.pruneChannelAuxMaps('chan-1', locks, queue, new Map([['chan-1', 'guild-1']]));
+  expect(locks.has('chan-1')).toBe(false);
+  expect(queue.has('chan-1')).toBe(false);
+
+  const guildIds = new Map([['chan-1', 'guild-1']]);
+  locks.set('chan-1', Promise.resolve());
+  queue.set('chan-1', 0);
+  aiUtils.pruneChannelAuxMaps('chan-1', locks, queue, guildIds);
+  expect(guildIds.has('chan-1')).toBe(false);
+  expect(queue.has('chan-2')).toBe(true);
+
+  aiUtils.pruneChannelAuxMaps('chan-2', locks, queue, guildIds);
+  expect(queue.has('chan-2')).toBe(true);
+});
+
+test('should mergeMessageContent adds text to image-only user arrays', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,OLD' }] },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,NEW' }] }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history[1].content.length).toBeGreaterThan(1);
+  expect(history[1].content.some(part => part.type === 'input_image')).toBe(true);
+});
+
+test('should mergeMessageContent merges plain string user turns', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'one' },
+    { role: 'user', content: 'two' }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history.length).toBe(2);
+  expect(history[1].content).toBe('one\n\ntwo');
+});
+
+test('should mergeMessageContent merges string and array user content via normalize', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,OLD' }] },
+    { role: 'user', content: 'follow up' }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history.length).toBe(2);
+  expect(history[1].content.some(part => part.type === 'input_image')).toBe(true);
+  expect(history[1].content.some(part => part.type === 'input_text' && part.text.includes('follow up'))).toBe(true);
+});
+
+test('should normalizeConversationRoles merges only trailing consecutive user turns', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'ok' },
+    { role: 'user', content: 'second' },
+    { role: 'user', content: 'third' }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history.length).toBe(4);
+  expect(history[1].content).toBe('first');
+  expect(history[3].content).toContain('second');
+  expect(history[3].content).toContain('third');
+});
+
 test('should pruneConversationHistories evicts idle channels and enforces max channel count', () => {
   const history = new Map([
     ['chan-old', [{ role: 'system', content: 's' }]],
@@ -470,6 +540,36 @@ test('should pruneConversationHistories evicts idle channels and enforces max ch
   aiUtils.pruneConversationHistories(partialActivityHistory, partialActivity, 1, 0);
   expect(partialActivityHistory.has('untracked')).toBe(false);
   expect(partialActivityHistory.has('tracked')).toBe(true);
+
+  const auxHistory = new Map([
+    ['chan-old', [{ role: 'system', content: 's' }]],
+    ['chan-new', [{ role: 'system', content: 's' }]]
+  ]);
+  const auxActivity = new Map([
+    ['chan-old', Date.now() - 100_000],
+    ['chan-new', Date.now()]
+  ]);
+  const auxLocks = new Map([
+    ['chan-old', Promise.resolve()],
+    ['chan-new', Promise.resolve()]
+  ]);
+  const auxQueue = new Map([
+    ['chan-old', 0],
+    ['chan-new', 1]
+  ]);
+  aiUtils.pruneConversationHistories(auxHistory, auxActivity, 0, 60_000, auxLocks, auxQueue);
+  expect(auxHistory.has('chan-old')).toBe(false);
+  expect(auxLocks.has('chan-old')).toBe(false);
+  expect(auxQueue.has('chan-old')).toBe(false);
+  expect(auxLocks.has('chan-new')).toBe(true);
+  expect(auxQueue.has('chan-new')).toBe(true);
+});
+
+test('should splitMessage skips whitespace-only chunks', () => {
+  const text = `${'   '.repeat(400)}${'a'.repeat(500)}`;
+  const chunks = aiUtils.splitMessage(text, 300);
+  expect(chunks.every(chunk => chunk.length > 0)).toBe(true);
+  expect(chunks.join('').replace(/\s/g, '')).toBe('a'.repeat(500));
 });
 
 test('should pruneStaleMapEntries removes expired timestamps and ignores invalid input', () => {
@@ -492,12 +592,95 @@ test('should stripImagesFromHistory replaces prior image parts', () => {
       role: 'user',
       content: [{ type: 'input_image', image_url: 'data:image/png;base64,OLD' }]
     },
-    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,NEW' }] }
+    { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,NEW' }] },
+    { role: 'assistant', content: 'done' }
   ];
   aiUtils.stripImagesFromHistory(history);
   expect(history[1].content[0]).toEqual({ type: 'input_text', text: '[Previous Image Processed]' });
-  expect(history[2].content[0].type).toBe('input_image');
+  expect(history[2].content[0]).toEqual({ type: 'input_text', text: '[Previous Image Processed]' });
   aiUtils.stripImagesFromHistory(null);
+});
+
+test('should mergeMessageContent appends text to existing input_text parts', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+    { role: 'user', content: 'world' }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history[1].content).toEqual([{ type: 'input_text', text: 'hello\n\nworld' }]);
+});
+
+test('should mergeMessageContent ignores non-text incoming content shapes', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+    { role: 'user', content: 42 }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history[1].content).toEqual([{ type: 'input_text', text: 'hello' }]);
+});
+
+test('should mergeMessageContent treats falsy numeric existing content as empty text', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 0 },
+    { role: 'user', content: 'more' }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history[1].content).toEqual([{ type: 'input_text', text: 'more' }]);
+});
+
+test('should normalizeConversationRoles skips invalid history entries', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    null,
+    { role: 'user', content: [{ type: 'input_text', text: 'a' }, null] },
+    { role: 'user', content: 'b' }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history.length).toBe(2);
+  expect(history[1].content).toEqual([{ type: 'input_text', text: 'a\n\nb' }, null]);
+});
+
+test('should mergeMessageContent skips non-text array parts when joining content', () => {
+  const history = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: [{ type: 'input_image', image_url: 'x' }, null, { type: 'input_text', text: 'a' }] },
+    { role: 'user', content: [{ type: 'input_text', text: 'tail' }] }
+  ];
+  aiUtils.normalizeConversationRoles(history);
+  expect(history[1].content).toEqual([
+    { type: 'input_image', image_url: 'x' },
+    null,
+    { type: 'input_text', text: 'a\n\ntail' }
+  ]);
+});
+
+test('should isSupportedVisionImageType rejects SVG content types', () => {
+  expect(aiUtils.isSupportedVisionImageType('image/png')).toBe(true);
+  expect(aiUtils.isSupportedVisionImageType('image/svg+xml')).toBe(false);
+  expect(aiUtils.isSupportedVisionImageType('text/plain')).toBe(false);
+  expect(aiUtils.isSupportedVisionImageType(null)).toBe(false);
+});
+
+test('should isBusyAIErrorReason identifies retryable provider states', () => {
+  expect(aiUtils.isBusyAIErrorReason('overloaded')).toBe(true);
+  expect(aiUtils.isBusyAIErrorReason('rate_limit')).toBe(true);
+  expect(aiUtils.isBusyAIErrorReason('timeout')).toBe(false);
+});
+
+test('should collectReplyChainMedia skips SVG attachments', () => {
+  const chain = [{
+    author: { id: 'user-1' },
+    attachments: {
+      size: 1,
+      values: () => [{ url: 'https://cdn.discordapp.com/x.svg', contentType: 'image/svg+xml' }]
+    },
+    embeds: []
+  }];
+  const result = aiUtils.collectReplyChainMedia(chain, 'bot-123');
+  expect(result.attachments.length).toBe(0);
 });
 
 test('should collectReplyChainMedia gathers chain attachments in order and skips bot messages', () => {

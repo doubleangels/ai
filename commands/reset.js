@@ -1,7 +1,43 @@
 const { SlashCommandBuilder, EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js'); 
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
+const { pruneChannelAuxMaps } = require('../utils/aiUtils');
 const logger = require('../logger')(path.basename(__filename));
+
+function channelBelongsToGuild(client, channelId, guildId) {
+  return (client.channelGuildIds?.get(channelId) ?? null) === (guildId ?? null);
+}
+
+function collectGuildChannelIds(client, guildId) {
+  const ids = new Set();
+  for (const channelId of client.conversationHistory.keys()) {
+    if (channelBelongsToGuild(client, channelId, guildId)) {
+      ids.add(channelId);
+    }
+  }
+  if (client.channelLocks) {
+    for (const channelId of client.channelLocks.keys()) {
+      if (channelBelongsToGuild(client, channelId, guildId)) {
+        ids.add(channelId);
+      }
+    }
+  }
+  return [...ids];
+}
+
+function clearGuildChannelState(client, channelIds, channelLocks, channelQueueDepth) {
+  const channelLastActivity = client.channelLastActivity;
+  const channelGuildIds = client.channelGuildIds;
+  const channelCooldowns = client.channelCooldowns;
+
+  for (const channelId of channelIds) {
+    client.conversationHistory.delete(channelId);
+    channelLastActivity?.delete(channelId);
+    channelGuildIds?.delete(channelId);
+    channelCooldowns?.delete(channelId);
+    pruneChannelAuxMaps(channelId, channelLocks, channelQueueDepth, channelGuildIds);
+  }
+}
 
 /**
  * Reset command module that allows users to reset conversation history.
@@ -14,13 +50,18 @@ module.exports = {
    */
   data: new SlashCommandBuilder()
     .setName('reset')
-    .setDescription('Reset conversation history for a specific channel or all channels.')
+    .setDescription('Reset conversation history for a channel or all channels in this server.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(option =>
       option
         .setName('channel')
         .setDescription('What channel would you like to reset history for?')
-        .addChannelTypes(ChannelType.GuildText)
+        .addChannelTypes(
+          ChannelType.GuildText,
+          ChannelType.GuildPublicThread,
+          ChannelType.GuildPrivateThread,
+          ChannelType.AnnouncementThread
+        )
         .setRequired(false)
     ),
     
@@ -48,6 +89,7 @@ module.exports = {
     try {
       const targetChannel = interaction.options.getChannel('channel');
       const channelLocks = client.channelLocks || (client.channelLocks = new Map());
+      const channelQueueDepth = client.channelQueueDepth || (client.channelQueueDepth = new Map());
       const channelLastActivity = client.channelLastActivity;
 
       const settleReply = async (embed) => {
@@ -114,6 +156,8 @@ module.exports = {
 
           client.conversationHistory.delete(channelId);
           channelLastActivity?.delete(channelId);
+          client.channelCooldowns?.delete(channelId);
+          pruneChannelAuxMaps(channelId, channelLocks, channelQueueDepth, client.channelGuildIds);
 
           logger.info(`Conversation history deleted for channel ${channelId} (#${channelName}).`, {
             previousLength: currentLength
@@ -130,47 +174,48 @@ module.exports = {
           await settleReply(embed);
         });
       } else {
-        const channelIds = [...new Set([
-          ...client.conversationHistory.keys(),
-          ...channelLocks.keys()
-        ])];
+        const guildId = interaction.guildId;
+        const channelIds = collectGuildChannelIds(client, guildId);
 
         await runUnderChannelLocks(channelIds, async () => {
-          const totalChannels = client.conversationHistory.size;
-          const totalMessages = Array.from(client.conversationHistory.values())
-            .reduce((total, history) => total + history.length, 0);
+          const guildChannelIds = [...client.conversationHistory.keys()]
+            .filter(channelId => channelBelongsToGuild(client, channelId, guildId));
+          const totalChannels = guildChannelIds.length;
+          const totalMessages = guildChannelIds
+            .reduce((total, channelId) => total + (client.conversationHistory.get(channelId)?.length || 0), 0);
 
           if (totalChannels === 0) {
             resetOutcome = 'no_history';
-            logger.debug(`Reset command failed - no conversation history found in any channel.`);
+            logger.debug('Reset command failed - no conversation history found in this server.');
             recordCount('discord.reset.executed', 1, {
-              scope: 'all',
+              scope: 'guild',
               outcome: 'no_history'
             });
             const embed = new EmbedBuilder()
               .setColor(0xFF0000)
               .setTitle('⚠️ No History Found')
-              .setDescription('No conversation history found in any channel.');
+              .setDescription('No conversation history found in this server.');
             await settleReply(embed);
             return;
           }
 
-          client.conversationHistory.clear();
-          channelLastActivity?.clear();
+          clearGuildChannelState(client, guildChannelIds, channelLocks, channelQueueDepth);
+          client.userCooldowns?.clear();
 
-          logger.info(`All conversation history cleared across ${totalChannels} channels.`, {
+          logger.info(`Conversation history cleared for guild ${interaction.guildId}.`, {
             totalChannels,
-            totalMessages
+            totalMessages,
+            guildId: interaction.guildId
           });
           recordCount('discord.reset.executed', 1, {
-            scope: 'all',
+            scope: 'guild',
             outcome: 'success'
           });
 
           const embed = new EmbedBuilder()
             .setColor(0x00FF00)
-            .setTitle('🗑️ All History Reset')
-            .setDescription(`Conversation history has been reset for all channels (${totalChannels} channels cleared).`);
+            .setTitle('🗑️ Server History Reset')
+            .setDescription(`Conversation history has been reset for this server (${totalChannels} channel${totalChannels === 1 ? '' : 's'} cleared).`);
           await settleReply(embed);
         });
       }
@@ -178,7 +223,7 @@ module.exports = {
       recordDistribution('discord.reset.duration_ms', Date.now() - startedAt, {
         unit: 'millisecond',
         attributes: {
-          scope: targetChannel ? 'channel' : 'all',
+          scope: targetChannel ? 'channel' : 'guild',
           outcome: resetOutcome
         }
       });
@@ -186,13 +231,13 @@ module.exports = {
       resetOutcome = 'error';
       captureError(error, { command: 'reset', handler: 'execute' });
       recordCount('discord.reset.executed', 1, {
-        scope: interaction.options.getChannel('channel') ? 'channel' : 'all',
+        scope: interaction.options.getChannel('channel') ? 'channel' : 'guild',
         outcome: 'error'
       });
       recordDistribution('discord.reset.duration_ms', Date.now() - startedAt, {
         unit: 'millisecond',
         attributes: {
-          scope: interaction.options.getChannel('channel') ? 'channel' : 'all',
+          scope: interaction.options.getChannel('channel') ? 'channel' : 'guild',
           outcome: 'error'
         }
       });

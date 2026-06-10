@@ -118,7 +118,7 @@ jobs:
         with:
           image-ref: ${{ steps.build.outputs.imageid }}
           ignore-unfixed: true
-          exit-code: '0'
+          exit-code: '1'
           format: 'sarif'
           output: 'trivy-image-results.sarif'
           severity: 'CRITICAL,HIGH'

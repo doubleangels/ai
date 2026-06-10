@@ -32,7 +32,7 @@
 - **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via `AI_PROVIDER`.
 - **Vision** — Analyze images and GIFs from your message and the reply chain (file attachments and embed previews; capped per request).
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
-- **Reply-chain context** — Traces Discord reply chains on new threads; reuses channel history when a conversation already exists.
+- **Reply-chain context** — Traces Discord reply chains and injects quoted parent-message text alongside per-channel history when you reply to the bot.
 - **Web search and maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
 - **Prompt caching** — Optional context caching to reduce cost and latency for long conversations.
 - **Anti-spam** — Per-user and per-channel cooldowns, per-channel queue backpressure, safe mention defaults.
@@ -108,7 +108,7 @@ Set variables in Doppler (or `.env` for local experiments). Invalid model names 
 | :--- | :--- | :--- |
 | `DISCORD_BOT_TOKEN` | Bot token | *required* |
 | `DISCORD_CLIENT_ID` | Application ID | *required for deploy* |
-| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs (empty = all guilds; DMs ignored) | *all servers* |
+| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (DMs blocked). **Set in production.** | *all servers + DMs* |
 | `LOG_LEVEL` | Pino log level | `info` |
 
 ### AI provider and models
@@ -136,6 +136,8 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking budget (`0` = off, max 32000) | `0` |
 | `OPENAI_TIMEOUT_MS` | OpenAI client timeout (5000–300000) | `60000` |
 | `OPENAI_MAX_RETRIES` | OpenAI client retries (0–5) | `2` |
+| `GEMINI_TIMEOUT_MS` | Gemini request timeout (5000–300000) | `60000` |
+| `CLAUDE_TIMEOUT_MS` | Claude request timeout (5000–300000) | `60000` |
 
 ### Conversation and cost limits
 
@@ -144,9 +146,11 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `MAX_OUTPUT_TOKENS` | Response token cap (256–65536) | `1024` |
 | `MAX_HISTORY_TOKENS` | Channel history token cap (`0` = disabled) | `0` |
 | `MAX_HISTORY_LENGTH` | Max messages per channel (plus system); minimum `1` | `20` |
-| `USER_COOLDOWN_MS` | Per-user cooldown | `4000` |
-| `CHANNEL_COOLDOWN_MS` | Per-channel cooldown | `1500` |
-| `MAX_PENDING_PER_CHANNEL` | Queue depth before a “busy” reply | `3` |
+| `USER_COOLDOWN_MS` | Per-user **per-channel** cooldown (`0` = disabled) | `4000` |
+| `FALLBACK_MODEL_NAME` | Optional model retry when the primary returns busy/overloaded errors | *unset* |
+| `DISCORD_SHARD_COUNT` | Shard count (`auto`, `2`, …); omit or `1` for single process | *single process* |
+| `CHANNEL_COOLDOWN_MS` | Per-channel cooldown (`0` = disabled) | `1500` |
+| `MAX_PENDING_PER_CHANNEL` | Queue depth before a “busy” reply (`0` = disabled) | `3` |
 | `CONVERSATION_HISTORY_MAX_CHANNELS` | Max in-memory channel histories (LRU; `0` = no cap) | `500` |
 | `CONVERSATION_HISTORY_IDLE_MS` | Drop idle channel history (`0` = disabled) | `86400000` (24h) |
 
@@ -163,9 +167,13 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 
 **Behavior notes:**
 
-- Reply-chain **text** is injected only when the channel has no prior turns beyond the system message. Ongoing threads use `conversationHistory`.
+- When you **reply** to the bot, quoted text from the reply chain is prepended to your message **in addition to** stored `conversationHistory` (useful for translation and thread grounding).
 - **Images and GIFs** (attachments and embed previews) are collected from non-bot messages in the reply chain, oldest first, up to `MAX_REPLY_CHAIN_IMAGES`. Video attachments are not analyzed.
-- Set `MAX_HISTORY_TOKENS` for long threads to cap API payload size.
+- Set `MAX_HISTORY_TOKENS` in production for long threads to cap API payload size.
+- With `ENABLE_CONTEXT_CACHE=true`, each bot **process** creates its own Gemini cache entry; multiple replicas each pay a one-time cache-creation cost on cold start.
+- **History staleness:** `conversationHistory` does not track Discord message IDs. Edited or deleted user messages may remain in memory until `/reset`, idle eviction, or token/length trimming. Deleting a **bot** reply removes the matching last assistant turn when content still matches.
+- **SVG images** are excluded from vision (raster formats only).
+- Set `FALLBACK_MODEL_NAME` to a lighter model if your primary model often returns rate-limit or overload errors.
 
 ---
 
@@ -173,7 +181,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 
 ### Interacting with the bot
 
-- **Mention:** `@AI What is the capital of France?`
+- **Mention:** `@AI What is the capital of France?` (direct user mention or a **role** that includes the bot)
 - **Reply:** Use Discord’s reply feature on a bot message to continue a thread.
 - The bot ignores `@here` and `@everyone` unless it is also mentioned.
 - **Reply style:** Answers default to short TLDR form (direct answer first). Ask for more detail, steps, or code if you need a longer reply.
@@ -186,15 +194,13 @@ Attach an image with a caption such as `@AI describe this chart` for multimodal 
 
 | Command | Description | Permission |
 | :--- | :--- | :--- |
-| `/reset` | Clear conversation history for a channel or the whole server | Administrator |
+| `/reset` | Clear history for a channel (including threads) or **this server only** | Administrator |
 
 Deploy or refresh slash commands after changes:
 
 ```bash
 pnpm commands:deploy
 ```
-
-Context menu commands are supported by the client handler when command modules are added under `commands/`.
 
 ---
 

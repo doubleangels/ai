@@ -195,6 +195,61 @@ test('should accepts current Gemini GA models', () => {
   }
 });
 
+test('should falls back when integer env values are invalid', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    USER_COOLDOWN_MS: 'not-a-number'
+  });
+  expect(config.userCooldownMs).toBe(4000);
+});
+
+test('should allows zero cooldown env values', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    USER_COOLDOWN_MS: '0',
+    CHANNEL_COOLDOWN_MS: '0',
+    MAX_PENDING_PER_CHANNEL: '0'
+  });
+  expect(config.userCooldownMs).toBe(0);
+  expect(config.channelCooldownMs).toBe(0);
+  expect(config.maxPendingPerChannel).toBe(0);
+});
+
+test('should reports invalid AI_PROVIDER in-process before exit', () => {
+  const exitCodes = [];
+  const originalExit = process.exit;
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  process.exit = code => {
+    exitCodes.push(code);
+    throw new Error('process.exit');
+  };
+
+  try {
+    reloadModule(configPath, () => {
+      process.env.AI_PROVIDER = 'gemeni';
+    });
+  } catch (error) {
+    expect(error.message).toBe('process.exit');
+  } finally {
+    process.exit = originalExit;
+    errorSpy.mockRestore();
+    delete process.env.AI_PROVIDER;
+  }
+
+  expect(exitCodes).toEqual([1]);
+});
+
+test('should exits for invalid AI_PROVIDER', () => {
+  const result = spawnSync(process.execPath, ['-e', "process.env.AI_PROVIDER='gemeni'; require('./config');"], {
+    cwd: path.resolve(__dirname, '..'),
+    encoding: 'utf8'
+  });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toMatch(/Invalid AI_PROVIDER/);
+});
+
 test('should exits for unsupported models', () => {
   const result = spawnSync(process.execPath, ['-e', "process.env.AI_PROVIDER='openai'; process.env.OPENAI_MODEL_NAME='bogus-model'; require('./config');"], {
     cwd: path.resolve(__dirname, '..'),
@@ -275,4 +330,65 @@ test('should falls back to defaults when model env vars are whitespace only', ()
     OPENAI_MODEL_NAME: '   '
   });
   expect(openaiWs.modelName).toBe('gpt-5.4-nano');
+});
+
+test('should configures fallback model and shard count from env', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    FALLBACK_MODEL_NAME: 'gpt-5.4-mini',
+    DISCORD_SHARD_COUNT: 'auto'
+  });
+  expect(config.fallbackModelName).toBe('gpt-5.4-mini');
+  expect(config.discordShardCount).toBe('auto');
+
+  const numericShards = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    DISCORD_SHARD_COUNT: '4'
+  });
+  expect(numericShards.discordShardCount).toBe(4);
+
+  const invalidShards = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    DISCORD_SHARD_COUNT: 'not-a-number'
+  });
+  expect(invalidShards.discordShardCount).toBe(0);
+});
+
+test('should disables fallback when model is unsupported or matches primary', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const unsupported = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      FALLBACK_MODEL_NAME: 'not-a-real-model'
+    });
+    expect(unsupported.fallbackModelName).toBeNull();
+
+    const sameModel = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      FALLBACK_MODEL_NAME: 'gpt-5.4-nano'
+    });
+    expect(sameModel.fallbackModelName).toBeNull();
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('ALLOWED_GUILD_IDS') || String(args[0]).includes('FALLBACK'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should warns on invalid ALLOWED_GUILD_IDS entries', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      ALLOWED_GUILD_IDS: 'not-a-snowflake'
+    });
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('ALLOWED_GUILD_IDS'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
 });

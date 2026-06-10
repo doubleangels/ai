@@ -6,10 +6,12 @@ const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
+const discordApiPath = path.resolve(__dirname, '..', 'utils', 'discordApi.js');
 const realAiUtils = require(aiUtilsPath);
 
 function loadMessageCreate({ generateAIResponse, config = {}, instrument = {}, aiUtils = null } = {}) {
   return reloadModule(messageCreatePath, () => {
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
     stubModule(configPath, {
       ...DEFAULT_CONFIG,
       userCooldownMs: 0,
@@ -33,6 +35,7 @@ function loadMessageCreate({ generateAIResponse, config = {}, instrument = {}, a
 }
 
 function createBaseMessage(overrides = {}) {
+  const { client: clientOverrides, ...messageOverrides } = overrides;
   const replies = [];
   const message = {
     id: 'msg-1',
@@ -53,23 +56,39 @@ function createBaseMessage(overrides = {}) {
     },
     client: {
       user: { id: 'bot-123', tag: 'AI#0001' },
+      discordReady: true,
       channelLocks: new Map(),
       channelQueueDepth: new Map(),
       userCooldowns: new Map(),
       channelCooldowns: new Map(),
       conversationHistory: new Map(),
-      guilds: { cache: new Map() }
+      guilds: { cache: new Map() },
+      ...clientOverrides
     },
     author: { bot: false, id: 'user-1', tag: 'User#0001', username: 'user' },
     mentions: {
       has: () => true,
       users: { has: () => true },
+      roles: { size: 0, some: () => false },
       everyone: false,
       size: 1,
       values: () => [{ id: '123' }]
     },
+    guild: {
+      members: {
+        cache: {
+          get: () => ({ roles: { cache: { has: () => false } } })
+        }
+      }
+    },
     reference: null,
     attachments: new Map(),
+    fetchReference: async function fetchReference() {
+      if (!this.reference?.messageId) {
+        throw new Error('No reference.');
+      }
+      return this.channel.messages.fetch(this.reference.messageId);
+    },
     reply: async payload => {
       replies.push(payload);
       if (payload.content === '*Thinking...*') {
@@ -77,7 +96,7 @@ function createBaseMessage(overrides = {}) {
       }
       return { edit: async () => {} };
     },
-    ...overrides
+    ...messageOverrides
   };
   message._replies = replies;
   message.getReplyTexts = () => replies.map(entry => {
@@ -87,6 +106,76 @@ function createBaseMessage(overrides = {}) {
   }).filter(Boolean);
   return message;
 }
+
+test('should ignores messages before the Discord client is ready', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
+  let replied = false;
+  const message = createBaseMessage({
+    client: { discordReady: false },
+    reply: async () => {
+      replied = true;
+      return { edit: async () => {} };
+    }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});
+
+test('should ignores role mentions when bot member is not cached', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'should not run' });
+  let replied = false;
+  const message = createBaseMessage({
+    content: '<@&999> ping',
+    mentions: {
+      has: () => false,
+      users: { has: () => false },
+      roles: { size: 1, some: () => true },
+      everyone: false,
+      size: 1,
+      values: () => []
+    },
+    guild: {
+      members: {
+        cache: {
+          get: () => undefined
+        }
+      }
+    },
+    reply: async () => {
+      replied = true;
+      return { edit: async () => {} };
+    }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});
+
+test('should responds when a mentioned role includes the bot', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'role ok' });
+  const message = createBaseMessage({
+    content: '<@&999> ping',
+    mentions: {
+      has: () => false,
+      users: { has: () => false },
+      roles: { size: 1, some: fn => fn({ id: 'role-1' }) },
+      everyone: false,
+      size: 1,
+      values: () => []
+    },
+    guild: {
+      members: {
+        cache: {
+          get: () => ({ roles: { cache: { has: roleId => roleId === 'role-1' } } })
+        }
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(message.getReplyTexts().some(text => text.includes('role ok'))).toBe(true);
+});
 
 test('should ignores messages outside allowed guilds', async () => {
   const mod = loadMessageCreate({ config: { allowedGuildIds: new Set(['other-guild']) } });
@@ -131,17 +220,58 @@ test('should handles backpressure and failed busy replies', async () => {
   expect(recordCalls >= 2).toBe(true);
 });
 
+test('should records backpressure rate limits when busy reply fails', async () => {
+  const rateLimitMetrics = [];
+  const mod = loadMessageCreate({
+    config: { maxPendingPerChannel: 1 },
+    instrument: {
+      recordCount: (_name, _value, attrs) => {
+        if (attrs?.location === 'messageCreate.backpressure_reply') {
+          rateLimitMetrics.push(attrs);
+        }
+      }
+    }
+  });
+
+  await mod.execute(createBaseMessage({
+    client: { channelQueueDepth: new Map([['chan-1', 1]]) },
+    reply: async () => {
+      const err = new Error('rate limited');
+      err.status = 429;
+      throw err;
+    }
+  }));
+
+  expect(rateLimitMetrics.length).toBeGreaterThanOrEqual(1);
+});
+
 test('should applies user and channel cooldowns', async () => {
   const mod = loadMessageCreate({
     config: { userCooldownMs: 60_000, channelCooldownMs: 60_000 }
   });
 
   const message = createBaseMessage();
-  message.client.userCooldowns.set('user-1', Date.now());
+  message.client.userCooldowns.set('user-1:chan-1', Date.now());
   message.client.channelCooldowns.set('chan-1', Date.now());
 
   await mod.execute(message);
   expect(message.getReplyTexts().some(text => text.includes('wait') || text.includes('Give me'))).toBeTruthy();
+});
+
+test('should initializes missing client maps before processing', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'ok' });
+  const message = createBaseMessage({
+    client: {
+      channelLocks: undefined,
+      channelQueueDepth: undefined,
+      userCooldowns: undefined,
+      channelCooldowns: undefined
+    }
+  });
+
+  await mod.execute(message);
+  expect(message.client.channelLocks).toBeInstanceOf(Map);
+  expect(message.client.channelQueueDepth).toBeInstanceOf(Map);
 });
 
 test('should logs when channel cooldown reply fails', async () => {
@@ -296,6 +426,97 @@ test('should handles multi-chunk replies, empty chunks, and chunk failures', asy
   const emptyMessage = createBaseMessage();
   await emptyChunks.execute(emptyMessage);
   expect(emptyMessage.getReplyTexts().some(text => text.startsWith('⚠️'))).toBeTruthy();
+
+  let respondedMetrics = [];
+  const emptySendFail = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    aiUtils: {
+      splitMessage: () => [],
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    },
+    instrument: {
+      recordCount: (name, _value, attrs) => {
+        if (name === 'discord.message.responded') respondedMetrics.push(attrs?.outcome);
+      }
+    }
+  });
+  const failMessage = createBaseMessage({
+    reply: async payload => {
+      if (payload.content === '*Thinking...*') {
+        return { edit: async () => { throw new Error('edit failed'); } };
+      }
+      throw new Error('reply failed');
+    }
+  });
+  await emptySendFail.execute(failMessage);
+  expect(respondedMetrics).toContain('delivery_failed');
+
+  let partialErrorMetrics = [];
+  const partialErrorReply = loadMessageCreate({
+    generateAIResponse: async () => `⚠️ ${'e'.repeat(4100)}`,
+    aiUtils: {
+      splitMessage: text => [text.slice(0, 2000), text.slice(2000)],
+      processImageAttachments: async () => [],
+      createMessageContent: text => [{ type: 'input_text', text }],
+      trimConversationHistory: history => history,
+      createSystemMessage: () => ({ role: 'system', content: 'system' }),
+      SYSTEM_MESSAGES: { IMAGE_ANALYSIS: 'image', BASE: () => 'system', BASE_GENERIC: 'system', IMAGE_DESCRIPTION_PROMPT: 'describe' }
+    },
+    instrument: {
+      recordCount: (name, _value, attrs) => {
+        if (name === 'discord.message.responded') partialErrorMetrics.push(attrs?.outcome);
+      }
+    }
+  });
+  const partialErrorMessage = createBaseMessage({
+    reply: async payload => {
+      if (payload.content === '*Thinking...*') {
+        return { edit: async () => {} };
+      }
+      throw new Error('chunk failed');
+    }
+  });
+  await partialErrorReply.execute(partialErrorMessage);
+  expect(partialErrorMetrics).toContain('error');
+});
+
+test('should applyCooldownStamps uses default prune age when cooldown config is invalid', async () => {
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => 'ok',
+    config: { userCooldownMs: 0, channelCooldownMs: Number.NaN }
+  });
+  const message = createBaseMessage();
+  message.client.userCooldowns.set('stale-user:chan-1', Date.now() - 999_999);
+
+  await mod.execute(message);
+
+  expect(message.client.userCooldowns.has('stale-user:chan-1')).toBe(false);
+});
+
+test('should generates AI response when Sentry conversation id is unavailable', async () => {
+  const mod = reloadModule(messageCreatePath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      userCooldownMs: 0,
+      channelCooldownMs: 0,
+      allowedGuildIds: new Set()
+    });
+    stubModule(aiServicePath, { generateAIResponse: async () => 'ok' });
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+    stubModule(aiUtilsPath, realAiUtils);
+  });
+  await expect(mod.execute(createBaseMessage())).resolves.not.toThrow();
 });
 
 test('should strips prior image data and records conversation id', async () => {
@@ -494,12 +715,12 @@ test('should includes reply-chain parent attachments and prunes stale cooldown e
       }
     }
   });
-  message.client.userCooldowns.set('stale-user', Date.now() - 999_999);
+  message.client.userCooldowns.set('stale-user:chan-1', Date.now() - 999_999);
   message.client.channelCooldowns.set('stale-channel', Date.now() - 999_999);
 
   await mod.execute(message);
   expect(imageCalls).toBe(2);
-  expect(message.client.userCooldowns.has('stale-user')).toBe(false);
+  expect(message.client.userCooldowns.has('stale-user:chan-1')).toBe(false);
   expect(message.client.channelCooldowns.has('stale-channel')).toBe(false);
 });
 
@@ -570,8 +791,8 @@ test('should uses image-only prompt and stops when primary chunk cannot be sent'
 
   await mod.execute(message);
   const history = message.client.conversationHistory.get('chan-1');
-  const userTurn = history.find(entry => entry.role === 'user');
-  expect(userTurn.content[0].text).toBe('describe this image');
+  const userTurn = history.find(entry => entry.role === 'user' && entry.content?.[0]?.text === 'describe this image');
+  expect(userTurn).toBeUndefined();
 });
 
 test('should records chunk metric failures and send errors', async () => {
@@ -663,12 +884,16 @@ test('should swallows metric failures in backpressure catch blocks', async () =>
 
 test('should falls back to a normal reply when the thinking message cannot be edited', async () => {
   const messageReplies = [];
+  let thinkingDeleted = false;
   const mod = loadMessageCreate({ generateAIResponse: async () => 'final answer' });
   const message = createBaseMessage({
     reply: async payload => {
       messageReplies.push(payload.content);
       if (messageReplies.length === 1) {
-        return { edit: async () => { throw new Error('cannot edit placeholder'); } };
+        return {
+          edit: async () => { throw new Error('cannot edit placeholder'); },
+          delete: async () => { thinkingDeleted = true; }
+        };
       }
       return { edit: async () => {} };
     }
@@ -677,6 +902,7 @@ test('should falls back to a normal reply when the thinking message cannot be ed
   await mod.execute(message);
   expect(messageReplies[0]).toBe('*Thinking...*');
   expect(messageReplies[1]).toBe('final answer');
+  expect(thinkingDeleted).toBe(true);
   expect(message.client.conversationHistory.get('chan-1').at(-1).content).toBe('final answer');
 });
 

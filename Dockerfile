@@ -64,7 +64,7 @@ ENV DOPPLER_CONFIG_DIR=/tmp
 
 # Add health check - verify the bot process is running (pidof from busybox; no procps)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD pidof node > /dev/null || exit 1
+  CMD test -f /tmp/discord-bot-ready && pidof node > /dev/null || exit 1
 
 # Doppler injects secrets as env vars at runtime. Pass DOPPLER_TOKEN when running the container.
 ENTRYPOINT ["dumb-init", "--", "doppler", "run", "--"]

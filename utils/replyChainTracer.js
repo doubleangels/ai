@@ -102,8 +102,24 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
         break;
       }
 
-      // Fetch the parent message
-      const parentMessage = await fetchMessageCached(channel, currentMessage.reference.messageId);
+      let parentMessage = null;
+      if (typeof currentMessage.fetchReference === 'function') {
+        try {
+          parentMessage = await currentMessage.fetchReference();
+          setCachedMessage(`${parentMessage.channelId}:${parentMessage.id}`, parentMessage);
+        } catch {
+          parentMessage = null;
+        }
+      }
+      if (!parentMessage) {
+        const refChannelId = currentMessage.reference.channelId;
+        const refChannel = refChannelId && refChannelId !== channel.id
+          ? await channel.client.channels.fetch(refChannelId).catch(() => null)
+          : channel;
+        if (refChannel) {
+          parentMessage = await fetchMessageCached(refChannel, currentMessage.reference.messageId);
+        }
+      }
 
       if (!parentMessage) {
         // Can't fetch parent, stop here
