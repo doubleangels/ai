@@ -25,7 +25,10 @@
       "@sentry-internal/node-cpu-profiler",
       "protobufjs",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "tar": ">=7.5.11"
+    }
   },
   "repository": {
     "type": "git",
@@ -37,7 +40,7 @@
   },
   "homepage": "https://github.com/doubleangels/ai#readme",
   "overrides": {
-    "tar": ">=7.5.8",
+    "tar": ">=7.5.11",
     "minimatch": ">=10.2.1",
     "brace-expansion": ">=5.0.6",
     "ip-address": ">=10.1.1"
