@@ -3,6 +3,7 @@ const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
 const { pruneChannelAuxMaps } = require('../utils/aiUtils');
 const logger = require('../logger')(path.basename(__filename));
+const { serializeError } = require('../utils/logSanitize');
 
 function channelBelongsToGuild(client, channelId, guildId) {
   return (client.channelGuildIds?.get(channelId) ?? null) === (guildId ?? null);
@@ -79,15 +80,22 @@ module.exports = {
     const guildName = interaction.guild?.name || 'unknown';
     const startedAt = Date.now();
 
-    logger.info(`Reset command initiated by ${interaction.user.tag} in guild ${guildName}.`, {
+    const scope = interaction.options.getChannel('channel') ? 'channel' : 'guild';
+    const targetChannel = interaction.options.getChannel('channel');
+
+    logger.info('Reset command initiated.', {
+      user: interaction.user.tag,
       userId,
-      guildId: interaction.guildId
+      guildId: interaction.guildId,
+      guildName,
+      interactionId: interaction.id,
+      channelId: targetChannel?.id || null,
+      scope
     });
 
     let resetOutcome = 'success';
 
     try {
-      const targetChannel = interaction.options.getChannel('channel');
       const channelLocks = client.channelLocks || (client.channelLocks = new Map());
       const channelQueueDepth = client.channelQueueDepth || (client.channelQueueDepth = new Map());
       const channelLastActivity = client.channelLastActivity;
@@ -97,19 +105,19 @@ module.exports = {
           await interaction.editReply({ embeds: [embed] });
         } catch (editError) {
           logger.warn('Failed to edit reset reply, attempting follow-up.', {
-            error: editError.stack,
-            message: editError.message,
             userId,
-            guildId: interaction.guildId
+            guildId: interaction.guildId,
+            interactionId: interaction.id,
+            ...serializeError(editError, { includeStack: true })
           });
           try {
             await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
           } catch (followUpError) {
             logger.error('Failed to send reset follow-up reply.', {
-              error: followUpError.stack,
-              message: followUpError.message,
               userId,
-              guildId: interaction.guildId
+              guildId: interaction.guildId,
+              interactionId: interaction.id,
+              ...serializeError(followUpError, { includeStack: true })
             });
           }
         }
@@ -138,7 +146,12 @@ module.exports = {
         await runUnderChannelLocks([channelId], async () => {
           if (!client.conversationHistory.has(channelId)) {
             resetOutcome = 'no_history';
-            logger.debug(`Reset command failed - no conversation history found for channel ${channelId}.`);
+            logger.debug('Reset command found no conversation history for channel.', {
+              channelId,
+              channelName,
+              scope: 'channel',
+              outcome: 'no_history'
+            });
             recordCount('discord.reset.executed', 1, {
               scope: 'channel',
               outcome: 'no_history'
@@ -159,8 +172,13 @@ module.exports = {
           client.channelCooldowns?.delete(channelId);
           pruneChannelAuxMaps(channelId, channelLocks, channelQueueDepth, client.channelGuildIds);
 
-          logger.info(`Conversation history deleted for channel ${channelId} (#${channelName}).`, {
-            previousLength: currentLength
+          logger.info('Conversation history deleted for channel.', {
+            channelId,
+            channelName,
+            guildId: interaction.guildId,
+            previousLength: currentLength,
+            scope: 'channel',
+            outcome: 'success'
           });
           recordCount('discord.reset.executed', 1, {
             scope: 'channel',
@@ -186,7 +204,11 @@ module.exports = {
 
           if (totalChannels === 0) {
             resetOutcome = 'no_history';
-            logger.debug('Reset command failed - no conversation history found in this server.');
+            logger.debug('Reset command found no conversation history in guild.', {
+              guildId: interaction.guildId,
+              scope: 'guild',
+              outcome: 'no_history'
+            });
             recordCount('discord.reset.executed', 1, {
               scope: 'guild',
               outcome: 'no_history'
@@ -202,10 +224,12 @@ module.exports = {
           clearGuildChannelState(client, guildChannelIds, channelLocks, channelQueueDepth);
           client.userCooldowns?.clear();
 
-          logger.info(`Conversation history cleared for guild ${interaction.guildId}.`, {
+          logger.info('Conversation history cleared for guild.', {
             totalChannels,
             totalMessages,
-            guildId: interaction.guildId
+            guildId: interaction.guildId,
+            scope: 'guild',
+            outcome: 'success'
           });
           recordCount('discord.reset.executed', 1, {
             scope: 'guild',
@@ -223,9 +247,18 @@ module.exports = {
       recordDistribution('discord.reset.duration_ms', Date.now() - startedAt, {
         unit: 'millisecond',
         attributes: {
-          scope: targetChannel ? 'channel' : 'guild',
+          scope,
           outcome: resetOutcome
         }
+      });
+      logger.info('Reset command completed.', {
+        userId,
+        guildId: interaction.guildId,
+        interactionId: interaction.id,
+        channelId: targetChannel?.id || null,
+        scope,
+        durationMs: Date.now() - startedAt,
+        outcome: resetOutcome
       });
     } catch (error) {
       resetOutcome = 'error';
@@ -241,10 +274,14 @@ module.exports = {
           outcome: 'error'
         }
       });
-      logger.error(`Error executing reset command.`, {
-        error: error.stack,
+      logger.error('Error executing reset command.', {
         userId,
-        message: error.message
+        guildId: interaction.guildId,
+        interactionId: interaction.id,
+        scope,
+        durationMs: Date.now() - startedAt,
+        outcome: 'error',
+        ...serializeError(error, { includeStack: true })
       });
 
       const embed = new EmbedBuilder()
@@ -258,9 +295,9 @@ module.exports = {
           await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
         } catch (followUpError) {
           logger.error('Failed to send reset error reply.', {
-            error: followUpError.stack,
             userId,
-            message: followUpError.message
+            interactionId: interaction.id,
+            ...serializeError(followUpError, { includeStack: true })
           });
         }
       }

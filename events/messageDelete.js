@@ -31,11 +31,27 @@ module.exports = {
     const stored = typeof last.content === 'string' ? last.content.trim() : '';
     if (!stored) return;
 
-    if (stored === deletedContent || stored.startsWith(deletedContent) || deletedContent.startsWith(stored)) {
+    const historyLengthBefore = channelHistory.length;
+    let matchType = null;
+
+    if (stored === deletedContent) {
+      matchType = 'exact';
+    } else if (stored.startsWith(deletedContent)) {
+      matchType = 'stored_prefix';
+    } else if (deletedContent.startsWith(stored)) {
+      matchType = 'deleted_prefix';
+    }
+
+    if (matchType) {
       channelHistory.pop();
-      logger.debug('Removed deleted bot reply from conversation history.', {
+      logger.info('Removed deleted bot reply from conversation history.', {
         channelId: message.channelId,
-        messageId: message.id
+        messageId: message.id,
+        matchType,
+        historyLengthBefore,
+        historyLengthAfter: channelHistory.length,
+        deletedContentLength: deletedContent.length,
+        outcome: 'success'
       });
     }
   }

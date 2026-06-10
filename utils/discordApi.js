@@ -1,3 +1,7 @@
+const path = require('path');
+const logger = require('../logger')(path.basename(__filename));
+const { serializeError } = require('./logSanitize');
+
 /**
  * Runs a Discord API call with exponential backoff on HTTP 429 rate limits.
  * @param {() => Promise<*>} fn
@@ -17,6 +21,14 @@ async function withDiscordRetry(fn, options = {}) {
       lastError = error;
       const httpStatus = error?.status || error?.statusCode || error?.httpStatus;
       if (httpStatus !== 429 || attempt >= maxRetries) {
+        if (httpStatus === 429 && attempt >= maxRetries) {
+          logger.warn('Discord API rate limit retries exhausted.', {
+            label,
+            attempts: attempt + 1,
+            maxRetries,
+            ...serializeError(error)
+          });
+        }
         throw error;
       }
 
@@ -24,6 +36,14 @@ async function withDiscordRetry(fn, options = {}) {
       const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
         ? retryAfterSec * 1000
         : baseDelayMs * (2 ** attempt);
+
+      logger.debug('Discord API rate limited; retrying.', {
+        label,
+        attempt: attempt + 1,
+        maxRetries,
+        delayMs,
+        httpStatus
+      });
 
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }

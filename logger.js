@@ -2,23 +2,26 @@ const pino = require('pino');
 
 const { Sentry } = require('./instrument');
 const config = require('./config');
-
-// Create base logger with configuration
-const PII_META_KEYS = new Set(['user', 'guildList', 'channelName']);
-
-function sanitizeMetaForSentry(meta) {
-  if (!meta || typeof meta !== 'object') return meta;
-  const sanitized = { ...meta };
-  for (const key of PII_META_KEYS) {
-    if (key in sanitized) {
-      delete sanitized[key];
-    }
-  }
-  return sanitized;
-}
+const { sanitizeLogMeta } = require('./utils/logSanitize');
 
 const baseLogger = pino({
   level: config.logLevel || 'info',
+  redact: {
+    paths: [
+      'token',
+      'apiKey',
+      '*.apiKey',
+      'openaiApiKey',
+      'geminiApiKey',
+      'anthropicApiKey',
+      'discordBotToken',
+      'headers.authorization',
+      'authorization',
+      'password',
+      'secret'
+    ],
+    censor: '[REDACTED]'
+  },
   formatters: {
     level: (label) => {
       return { level: label.toUpperCase() };
@@ -39,7 +42,6 @@ function getLogger(label) {
   }
 
   try {
-    // Create a child logger with the label as context
     const childLogger = baseLogger.child({ label });
 
     function sendToSentry(level, message, meta) {
@@ -50,7 +52,7 @@ function getLogger(label) {
 
       try {
         if (meta && typeof meta === 'object') {
-          sentryLogger[level](message, sanitizeMetaForSentry(meta));
+          sentryLogger[level](message, meta);
         } else {
           sentryLogger[level](message);
         }
@@ -60,7 +62,6 @@ function getLogger(label) {
     }
 
     function write(level, message, meta) {
-      // Ensure message is a full sentence with ending punctuation when it's a string.
       if (typeof message === 'string' && message.trim().length > 0) {
         const trimmed = message.trim();
         const last = trimmed[trimmed.length - 1];
@@ -71,17 +72,17 @@ function getLogger(label) {
         }
       }
 
-      if (meta && typeof meta === 'object') {
-        childLogger[level](meta, message);
+      const sanitizedMeta = meta && typeof meta === 'object' ? sanitizeLogMeta(meta) : meta;
+
+      if (sanitizedMeta && typeof sanitizedMeta === 'object') {
+        childLogger[level](sanitizedMeta, message);
       } else {
         childLogger[level](message);
       }
 
-      sendToSentry(level, message, meta);
+      sendToSentry(level, message, sanitizedMeta);
     }
 
-    // Wrap the logger methods to maintain compatibility with winston-style usage
-    // where metadata objects are passed as second parameter
     return {
       info: (message, meta) => {
         write('info', message, meta);
@@ -101,7 +102,6 @@ function getLogger(label) {
       fatal: (message, meta) => {
         write('fatal', message, meta);
       },
-      // Expose the raw pino logger for advanced usage if needed
       _pino: childLogger
     };
   } catch (error) {
@@ -113,5 +113,6 @@ function getLogger(label) {
   }
 }
 
-getLogger.sanitizeMetaForSentry = sanitizeMetaForSentry;
+getLogger.sanitizeLogMeta = sanitizeLogMeta;
+getLogger.sanitizeMetaForSentry = sanitizeLogMeta;
 module.exports = getLogger;

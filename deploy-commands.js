@@ -4,6 +4,7 @@ const path = require('path');
 const { captureError, recordCount, recordDistribution, startSpan } = require('./instrument');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
+const { serializeError } = require('./utils/logSanitize');
 
 /**
  * Deploys slash commands to Discord.
@@ -31,9 +32,9 @@ async function deployCommands() {
         logger.debug(`Loaded command ${file}.`);
       } catch (err) {
         captureError(err, { source: 'deployCommands', handler: 'commandLoad', file });
-        logger.error(`Failed to load command file ${file}; skipping.`, {
-          error: err?.stack,
-          message: err?.message
+        logger.error('Failed to load command file; skipping.', {
+          file,
+          ...serializeError(err, { includeStack: true })
         });
       }
     }
@@ -46,15 +47,21 @@ async function deployCommands() {
   const rest = new REST({ version: '10' }).setToken(config.token);
   
   const clientId = process.env.DISCORD_CLIENT_ID || config.clientId;
-  logger.info(`Deploying commands for application ID ${clientId}.`);
-  
-  try {    
+  logger.info('Deploying slash commands.', { clientId, commandCount: commands.length });
+
+  try {
     await rest.put(
-      Routes.applicationCommands(clientId), 
+      Routes.applicationCommands(clientId),
       { body: commands }
     );
-    
-    logger.info(`Successfully registered ${commands.length} application (/) commands.`);
+
+    const durationMs = Date.now() - startedAt;
+    logger.info('Successfully registered application commands.', {
+      clientId,
+      commandCount: commands.length,
+      durationMs,
+      outcome: 'success'
+    });
     recordCount('discord.deploy_commands', 1, {
       outcome: 'success'
     });
@@ -76,8 +83,11 @@ async function deployCommands() {
       }
     });
     logger.error('Failed to deploy commands.', {
-      error: error?.stack,
-      message: error?.message
+      clientId,
+      commandCount: commands.length,
+      durationMs: Date.now() - startedAt,
+      outcome: 'error',
+      ...serializeError(error, { includeStack: true })
     });
     try {
       const httpStatus = error?.status || error?.statusCode || error?.httpStatus;
@@ -105,10 +115,7 @@ function runDeployCli() {
     .then(() => logger.info('Command deployment completed successfully.'))
     .catch(err => {
       captureError(err, { source: 'deployCommands', handler: 'main' });
-      logger.error('Failed to deploy commands.', {
-        error: err?.stack,
-        message: err?.message
-      });
+      logger.error('Failed to deploy commands.', serializeError(err, { includeStack: true }));
       process.exit(1);
     });
 }

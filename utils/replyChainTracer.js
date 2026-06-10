@@ -1,5 +1,6 @@
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
+const { serializeError } = require('./logSanitize');
 const { messageCacheMaxSize, messageCacheTtlMs } = require('../config');
 
 /** Default maximum depth for reply chain traversal (prevent infinite loops). */
@@ -70,7 +71,8 @@ async function fetchMessageCached(channel, messageId) {
     logger.debug('Failed to fetch message for chain traversal.', {
       channelId: channel.id,
       messageId,
-      error: error.message
+      cacheHit: false,
+      ...serializeError(error)
     });
     return null;
   }
@@ -89,22 +91,23 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
   const chain = [];
   let currentMessage = startMessage;
   let depth = 0;
+  let fetchCount = 0;
+  let cacheHits = 0;
+  let stoppedReason = 'complete';
 
   try {
-    // Traverse backwards through the reply chain
     while (currentMessage && depth < maxDepth) {
-      // Add current message to the beginning (we'll reverse at the end)
       chain.unshift(currentMessage);
 
-      // Check if there's a parent message to fetch
       if (!currentMessage.reference || !currentMessage.reference.messageId) {
-        // No parent - we've reached the start of the chain
+        stoppedReason = 'chain_start';
         break;
       }
 
       let parentMessage = null;
       if (typeof currentMessage.fetchReference === 'function') {
         try {
+          fetchCount += 1;
           parentMessage = await currentMessage.fetchReference();
           setCachedMessage(`${parentMessage.channelId}:${parentMessage.id}`, parentMessage);
         } catch {
@@ -117,16 +120,29 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
           ? await channel.client.channels.fetch(refChannelId).catch(() => null)
           : channel;
         if (refChannel) {
-          parentMessage = await fetchMessageCached(refChannel, currentMessage.reference.messageId);
+          const cacheKey = `${refChannel.id}:${currentMessage.reference.messageId}`;
+          const cached = MESSAGE_CACHE.get(cacheKey);
+          if (cached && cached.expiresAt > Date.now()) {
+            cacheHits += 1;
+            parentMessage = cached.message;
+          } else {
+            fetchCount += 1;
+            parentMessage = await fetchMessageCached(refChannel, currentMessage.reference.messageId);
+          }
         }
       }
 
       if (!parentMessage) {
-        // Can't fetch parent, stop here
+        stoppedReason = 'fetch_fail';
         logger.debug('Could not fetch parent message; stopping chain traversal.', {
           channelId: channel.id,
+          startMessageId: startMessage.id,
           messageId: currentMessage.reference.messageId,
-          chainDepth: depth
+          refChannelId: currentMessage.reference.channelId || channel.id,
+          chainDepth: depth,
+          fetchCount,
+          cacheHits,
+          stoppedReason
         });
         break;
       }
@@ -136,26 +152,38 @@ async function traceReplyChain(startMessage, channel, maxDepth = DEFAULT_MAX_CHA
     }
 
     if (depth >= maxDepth) {
+      stoppedReason = 'depth_limit';
       logger.warn('Reply chain depth limit reached.', {
         channelId: channel.id,
-        depth: maxDepth
+        startMessageId: startMessage.id,
+        depth: maxDepth,
+        fetchCount,
+        cacheHits,
+        stoppedReason
       });
     }
 
     logger.debug('Reply chain traced.', {
       channelId: channel.id,
+      startMessageId: startMessage.id,
       chainLength: chain.length,
-      depth
+      depth,
+      fetchCount,
+      cacheHits,
+      stoppedReason
     });
 
     return chain;
   } catch (error) {
     logger.error('Error occurred while tracing reply chain.', {
-      error: error.message,
       channelId: channel.id,
-      chainLength: chain.length
+      startMessageId: startMessage.id,
+      chainLength: chain.length,
+      fetchCount,
+      cacheHits,
+      stoppedReason: 'error',
+      ...serializeError(error, { includeStack: true })
     });
-    // Return what we have so far
     return chain.length > 0 ? chain : [startMessage];
   }
 }

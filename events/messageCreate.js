@@ -16,6 +16,7 @@ const {
 } = require('../utils/aiUtils');
 const { traceReplyChain } = require('../utils/replyChainTracer');
 const { withDiscordRetry } = require('../utils/discordApi');
+const { serializeError } = require('../utils/logSanitize');
 const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -99,6 +100,11 @@ module.exports = {
 
     if (allowedGuildIds.size > 0) {
       if (!message.guildId || !allowedGuildIds.has(message.guildId)) {
+        logger.debug('Ignoring message from disallowed guild.', {
+          guildId: message.guildId || null,
+          channelId,
+          messageId: message.id
+        });
         return;
       }
     }
@@ -113,7 +119,10 @@ module.exports = {
       return;
     }
 
-    if (!hasBotPing && !hasReference) return;
+    if (!hasBotPing && !hasReference) {
+      logger.debug('Ignoring message without bot mention or reply reference.', { channelId, messageId: message.id });
+      return;
+    }
 
     let prefetchedReferencedMessage = null;
     if (hasReference) {
@@ -126,7 +135,14 @@ module.exports = {
     }
 
     if (!hasBotPing) {
-      if (!prefetchedReferencedMessage || prefetchedReferencedMessage.author.id !== client.user.id) return;
+      if (!prefetchedReferencedMessage || prefetchedReferencedMessage.author.id !== client.user.id) {
+        logger.debug('Ignoring reply that does not target the bot.', {
+          channelId,
+          messageId: message.id,
+          referencedMessageId: message.reference?.messageId || null
+        });
+        return;
+      }
     }
 
     // Initialize channel locks if not already present
@@ -156,18 +172,24 @@ module.exports = {
           }),
           { label: 'messageCreate.backpressure_reply' }
         );
+        logger.debug('Sent backpressure busy message.', {
+          channelId,
+          messageId: message.id,
+          queueDepth: pending
+        });
       } catch (err) {
-        const errorMessage = err?.message;
-        const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
         logger.warn('Failed to send busy/backpressure message.', {
           channelId,
-          errorMessage
+          messageId: message.id,
+          label: 'messageCreate.backpressure_reply',
+          ...serializeError(err)
         });
         try {
+          const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
           recordCount('discord.api.failure', 1, {
             location: 'messageCreate.backpressure_reply',
             channelId,
-            errorMessage,
+            errorMessage: err?.message,
             httpStatus
           });
           if (httpStatus === 429) {
@@ -196,19 +218,19 @@ module.exports = {
             );
             return true;
           } catch (err) {
-            const errorMessage = err?.message;
-            const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
             logger.warn('Failed to edit thinking message; falling back to a normal reply.', {
               channelId,
               messageId: message.id,
-              errorMessage
+              label: 'messageCreate.edit_thinking',
+              ...serializeError(err)
             });
             try {
+              const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
               recordCount('discord.api.failure', 1, {
                 location: 'messageCreate.edit_thinking',
                 channelId,
                 messageId: message.id,
-                errorMessage,
+                errorMessage: err?.message,
                 httpStatus
               });
               if (httpStatus === 429) {
@@ -241,20 +263,19 @@ module.exports = {
           );
           return true;
         } catch (err) {
-          const errorMessage = err?.message;
-          const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
           logger.error('Failed to send fallback reply.', {
             channelId,
             messageId: message.id,
-            error: err?.stack,
-            errorMessage
+            label: 'messageCreate.reply_fallback',
+            ...serializeError(err, { includeStack: true })
           });
           try {
+            const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
             recordCount('discord.api.failure', 1, {
               location: 'messageCreate.reply_fallback',
               channelId,
               messageId: message.id,
-              errorMessage,
+              errorMessage: err?.message,
               httpStatus
             });
             if (httpStatus === 429) {
@@ -278,7 +299,11 @@ module.exports = {
         botReferencedMessage = prefetchedReferencedMessage;
         isReplyToBot = botReferencedMessage.author.id === client.user.id;
         if (isReplyToBot) {
-          logger.debug(`Message ${message.id} is a reply to the bot's message ${botReferencedMessage.id}.`);
+          logger.debug('Message is a reply to the bot.', {
+            channelId,
+            messageId: message.id,
+            referencedMessageId: botReferencedMessage.id
+          });
         }
       }
 
@@ -297,7 +322,12 @@ module.exports = {
             { label: 'messageCreate.user_cooldown_reply' }
           );
         } catch (err) {
-          logger.warn('Failed to send cooldown reply.', { userId, channelId, errorMessage: err?.message });
+          logger.warn('Failed to send cooldown reply.', {
+            userId,
+            channelId,
+            label: 'messageCreate.user_cooldown_reply',
+            ...serializeError(err)
+          });
         }
         return;
       }
@@ -314,7 +344,11 @@ module.exports = {
             { label: 'messageCreate.channel_cooldown_reply' }
           );
         } catch (err) {
-          logger.warn('Failed to send channel cooldown reply.', { channelId, errorMessage: err?.message });
+          logger.warn('Failed to send channel cooldown reply.', {
+            channelId,
+            label: 'messageCreate.channel_cooldown_reply',
+            ...serializeError(err)
+          });
         }
         return;
       }
@@ -329,22 +363,38 @@ module.exports = {
           { label: 'messageCreate.thinking_reply' }
         );
       } catch (err) {
-        logger.warn(`Failed to send thinking message in channel ${channelId}.`, {
-          errorMessage: err?.message,
-          channelId
+        logger.warn('Failed to send thinking message.', {
+          channelId,
+          messageId: message.id,
+          label: 'messageCreate.thinking_reply',
+          ...serializeError(err)
         });
       }
 
+      const trigger = hasBotPing ? 'mention' : 'reply';
       logger.info('Message received.', {
+        user: message.author.tag,
+        userId,
+        guildId: message.guildId || null,
+        channelId,
+        channelName,
+        messageId: message.id,
+        contentLength: message.content?.length || 0,
+        attachmentCount: message.attachments?.size || 0,
+        isReplyToBot,
+        trigger,
+        provider: aiProvider,
+        model: modelName,
+        queueDepth: pending + 1
+      });
+      logger.debug('Processing incoming message.', {
         user: message.author.tag,
         userId,
         channelId,
         channelName,
-        contentLength: message.content?.length || 0,
-        attachmentCount: message.attachments?.size || 0,
-        isReplyToBot: isReplyToBot
+        messageId: message.id,
+        trigger
       });
-      logger.debug(`Processing message from ${message.author.tag} in ${channelName}.`);
       recordCount('discord.message.received', 1, {
         provider: aiProvider,
         trigger: hasBotPing ? 'mention' : 'reply'
@@ -374,13 +424,23 @@ module.exports = {
       );
 
       if (!client.conversationHistory.has(channelId)) {
-        logger.debug(`No conversation history found for channel ${channelId}.`);
+        logger.debug('No conversation history found for channel.', { channelId, messageId: message.id });
         const systemMessage = createSystemMessage(modelName, aiProvider === 'openai');
         client.conversationHistory.set(channelId, [systemMessage]);
-        logger.info(`Created new conversation history for channel ${channelId}.`);
+        logger.info('Created new conversation history for channel.', {
+          channelId,
+          guildId: message.guildId || null,
+          messageId: message.id,
+          historyLength: 1
+        });
       }
 
       const channelHistory = client.conversationHistory.get(channelId);
+      logger.debug('Loaded conversation history for channel.', {
+        channelId,
+        messageId: message.id,
+        historyLength: channelHistory.length
+      });
 
       // Trace full reply chain for complete context
       let replyChain = [message];
@@ -390,7 +450,11 @@ module.exports = {
           replyChain = await traceReplyChain(message, message.channel, maxReplyChainDepth);
           logger.debug('Reply chain was traced.', { messageCount: replyChain.length, channelId });
         } catch (error) {
-          logger.warn('Error occurred while tracing reply chain.', { channelId, error: error.message });
+          logger.warn('Error occurred while tracing reply chain.', {
+            channelId,
+            messageId: message.id,
+            ...serializeError(error)
+          });
           replyChain = [message];
         }
       }
@@ -446,7 +510,11 @@ module.exports = {
       if (isReplyToBot && botReferencedMessage) {
         const lastAssistant = [...channelHistory].reverse().find(m => m.role === 'assistant');
         if (!lastAssistant || lastAssistant.content !== botReferencedMessage.content) {
-          logger.debug(`Adding bot's previous response to conversation history for channel ${channelId}.`);
+          logger.debug('Adding bot previous response to conversation history.', {
+            channelId,
+            messageId: message.id,
+            referencedMessageId: botReferencedMessage.id
+          });
           channelHistory.push({
             role: 'assistant',
             content: botReferencedMessage.content
@@ -454,7 +522,14 @@ module.exports = {
         }
       }
 
-      logger.debug(`Adding user message (${message.id}) from ${message.author.tag} to conversation history for channel ${channelId}.`);
+      const userTurnIndex = channelHistory.length;
+      logger.debug('Adding user message to conversation history.', {
+        channelId,
+        messageId: message.id,
+        userId,
+        user: message.author.tag,
+        historyLengthBefore: userTurnIndex
+      });
 
       const messageContent = createMessageContent(userText, imageContents);
       let finalMessageContent = messageContent;
@@ -468,14 +543,17 @@ module.exports = {
         ];
       }
 
-      const userTurnIndex = channelHistory.length;
       channelHistory.push({
         role: 'user',
         content: finalMessageContent
       });
 
       trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTokens);
-      logger.debug(`Updated conversation history for channel ${channelId}.`);
+      logger.debug('Updated conversation history for channel.', {
+        channelId,
+        messageId: message.id,
+        historyLength: channelHistory.length
+      });
 
       const rollbackUserTurn = () => {
         while (channelHistory.length > userTurnIndex) {
@@ -497,9 +575,18 @@ module.exports = {
       };
 
       let aiWasInvoked = false;
+      const aiStartedAt = Date.now();
 
       try {
-        logger.info(`Generating AI response for message ${message.id} from ${message.author.tag}.`);
+        logger.info('Generating AI response.', {
+          channelId,
+          messageId: message.id,
+          userId,
+          provider: aiProvider,
+          model: modelName,
+          historyLength: channelHistory.length,
+          imageCount: imageContents.length
+        });
         aiWasInvoked = true;
         const reply = await startSpan({
           op: 'discord.message',
@@ -519,7 +606,15 @@ module.exports = {
         });
 
         if (!reply?.trim()) {
-          logger.warn('No reply generated from AI service.');
+          const durationMs = Date.now() - aiStartedAt;
+          logger.warn('No reply generated from AI service.', {
+            channelId,
+            messageId: message.id,
+            provider: aiProvider,
+            model: modelName,
+            durationMs,
+            outcome: 'empty'
+          });
           rollbackUserTurn();
           recordCount('discord.message.responded', 1, {
             provider: aiProvider,
@@ -531,7 +626,16 @@ module.exports = {
         }
 
         const replyIsError = isAIUserErrorMessage(reply);
-        logger.info(`Sending AI response (${reply.length} chars) for message ${message.id} in channel ${channelId}.`);
+        const durationMs = Date.now() - aiStartedAt;
+        logger.info('Sending AI response.', {
+          channelId,
+          messageId: message.id,
+          provider: aiProvider,
+          model: modelName,
+          responseCharCount: reply.length,
+          durationMs,
+          outcome: replyIsError ? 'error' : 'success'
+        });
 
         const messageChunks = splitMessage(reply);
         const deliveredChunks = [];
@@ -566,22 +670,21 @@ module.exports = {
                 deliveredChunks.push(messageChunks[i]);
               } catch (err) {
                 deliveryFailed = true;
-                const errorMessage = err?.message;
-                const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
                 logger.error('Failed to send additional response chunk.', {
                   channelId,
                   messageId: message.id,
                   chunkIndex: i,
-                  error: err?.stack,
-                  errorMessage
+                  label: 'messageCreate.additional_chunk',
+                  ...serializeError(err, { includeStack: true })
                 });
                 try {
+                  const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
                   recordCount('discord.api.failure', 1, {
                     location: 'messageCreate.additional_chunk',
                     channelId,
                     messageId: message.id,
                     chunkIndex: i,
-                    errorMessage,
+                    errorMessage: err?.message,
                     httpStatus
                   });
                   if (httpStatus === 429) {
@@ -612,7 +715,11 @@ module.exports = {
           && deliveredChunks.length < messageChunks.length;
 
         if (!replyIsError && deliveredContent) {
-          logger.debug(`Adding AI response to conversation history for channel ${channelId}.`);
+          logger.debug('Adding AI response to conversation history.', {
+            channelId,
+            messageId: message.id,
+            responseCharCount: deliveredContent.length
+          });
           channelHistory.push({
             role: 'assistant',
             content: deliveredContent
@@ -620,28 +727,43 @@ module.exports = {
         }
 
         if (deliveryFailed && deliveredChunks.length === 0) {
-          logger.warn(`Failed to deliver AI response to ${message.author.tag} in channel ${channelName}.`, {
+          logger.warn('Failed to deliver AI response.', {
+            user: message.author.tag,
             channelId,
+            channelName,
             messageId: message.id,
-            chunkCount: messageChunks.length
+            chunkCount: messageChunks.length,
+            outcome: 'delivery_failed'
           });
           recordCount('discord.message.responded', 1, {
             provider: aiProvider,
             outcome: 'delivery_failed'
           });
         } else if (partiallyDelivered) {
-          logger.warn(`Partially delivered AI response to ${message.author.tag} in channel ${channelName}.`, {
+          logger.warn('Partially delivered AI response.', {
+            user: message.author.tag,
             channelId,
+            channelName,
             messageId: message.id,
             deliveredChunks: deliveredChunks.length,
-            totalChunks: messageChunks.length
+            totalChunks: messageChunks.length,
+            outcome: replyIsError ? 'error' : 'partial'
           });
           recordCount('discord.message.responded', 1, {
             provider: aiProvider,
             outcome: replyIsError ? 'error' : 'partial'
           });
         } else {
-          logger.info(`Reply sent successfully to ${message.author.tag} in channel ${channelName}.`);
+          logger.info('Reply sent successfully.', {
+            user: message.author.tag,
+            channelId,
+            channelName,
+            messageId: message.id,
+            responseCharCount: deliveredContent.length,
+            chunkCount: messageChunks.length,
+            durationMs: Date.now() - messageStartedAt,
+            outcome: replyIsError ? 'error' : 'success'
+          });
           recordCount('discord.message.responded', 1, {
             provider: aiProvider,
             outcome: replyIsError ? 'error' : 'success'
@@ -674,10 +796,14 @@ module.exports = {
           outcome: 'error'
         });
         logger.error('Error occurred while processing message.', {
-          error: error.stack,
-          message: error.message,
           userId,
-          channelId
+          channelId,
+          messageId: message.id,
+          guildId: message.guildId || null,
+          provider: aiProvider,
+          model: modelName,
+          outcome: 'error',
+          ...serializeError(error, { includeStack: true })
         });
 
         await sendPrimaryResponse(formatAIUserMessage({ error, provider: aiProvider }));
@@ -686,12 +812,21 @@ module.exports = {
         }
       } finally {
         stripImagesFromHistory(channelHistory);
-        recordDistribution('discord.message.processing_ms', Date.now() - messageStartedAt, {
+        const durationMs = Date.now() - messageStartedAt;
+        recordDistribution('discord.message.processing_ms', durationMs, {
           unit: 'millisecond',
           attributes: {
             provider: aiProvider,
             trigger: hasBotPing ? 'mention' : 'reply'
           }
+        });
+        logger.info('Finished processing message.', {
+          channelId,
+          messageId: message.id,
+          guildId: message.guildId || null,
+          provider: aiProvider,
+          trigger: hasBotPing ? 'mention' : 'reply',
+          durationMs
         });
       }
     };

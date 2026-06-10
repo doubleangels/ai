@@ -1,5 +1,6 @@
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
+const { safeAttachmentLabel, serializeError } = require('./logSanitize');
 const https = require('https');
 const { URL } = require('url');
 const { imageDownloadTimeoutMs, maxImageBytes, maxOutputTokens } = require('../config');
@@ -135,10 +136,9 @@ function splitMessage(text, limit = MESSAGE_CONFIG.defaultLimit) {
     
     return chunks;
   } catch (error) {
-    logger.error('Error in splitMessage function.', { 
-      error: error.stack,
-      message: error.message,
-      textLength: text?.length
+    logger.error('Error in splitMessage function.', {
+      textLength: text?.length,
+      ...serializeError(error, { includeStack: true })
     });
     return [MESSAGE_CONFIG.errorMessage];
   }
@@ -470,15 +470,23 @@ async function processImageAttachments(attachments) {
     list.map(async (attachment, index) => {
       if (!isSupportedVisionImageType(attachment.contentType)) return { index, item: null };
 
-      const attachmentLabel = attachment.name || attachment.filename || attachment.url || 'unknown';
+      const attachmentLabel = safeAttachmentLabel(attachment);
+      const startedAt = Date.now();
       try {
-        logger.debug(`Processing image attachment ${attachmentLabel}.`, { contentType: attachment.contentType });
+        logger.debug('Processing image attachment.', {
+          label: attachmentLabel,
+          contentType: attachment.contentType
+        });
         const mediaUrl = normalizeMediaUrl(attachment);
         if (!mediaUrl) {
           return { index, item: null };
         }
         const base64Image = await downloadImageAsBase64(mediaUrl);
-        logger.debug(`Successfully processed image ${attachmentLabel}.`);
+        logger.debug('Successfully processed image attachment.', {
+          label: attachmentLabel,
+          contentType: attachment.contentType,
+          durationMs: Date.now() - startedAt
+        });
         return {
           index,
           item: {
@@ -487,9 +495,11 @@ async function processImageAttachments(attachments) {
           }
         };
       } catch (error) {
-        logger.error(`Failed to process image attachment ${attachmentLabel}.`, {
-          error: error.stack,
-          message: error.message
+        logger.error('Failed to process image attachment.', {
+          label: attachmentLabel,
+          contentType: attachment.contentType,
+          durationMs: Date.now() - startedAt,
+          ...serializeError(error, { includeStack: true })
         });
         return { index, item: null };
       }

@@ -26,6 +26,7 @@ const {
 const { captureError, recordCount, recordDistribution, startSpan } = require('../instrument');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
+const { serializeError } = require('./logSanitize');
 const {
   hasImages,
   SYSTEM_MESSAGES,
@@ -320,6 +321,7 @@ function conversationToClaudeFormat(conversation) {
  * @returns {Promise<string>} Generated reply or empty string on failure
  */
 async function generateGeminiResponse(conversation, activeModel = modelName) {
+  const startedAt = Date.now();
   if (!genAI) {
     logger.error('Gemini API key not configured (GEMINI_API_KEY).');
     return formatAIUserMessage({ reason: 'missing_api_key', provider: 'gemini' });
@@ -419,13 +421,24 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
 
     const text = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
     if (!text || !text.trim()) {
-      logger.warn('Gemini response is empty.');
+      logger.warn('Gemini response is empty.', {
+        provider: 'gemini',
+        model: activeModel,
+        inputMessageCount: conversation.length,
+        durationMs: Date.now() - startedAt,
+        outcome: 'empty'
+      });
       return formatAIUserMessage({ reason: 'empty_response' });
     }
 
     logger.info('Generated AI response successfully (Gemini).', {
+      provider: 'gemini',
+      model: activeModel,
       charCount: text.length,
-      model: activeModel
+      inputMessageCount: conversation.length,
+      hasImages: hasImages(conversation),
+      durationMs: Date.now() - startedAt,
+      outcome: 'success'
     });
     return text.trim();
   } catch (apiError) {
@@ -456,8 +469,11 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
         const retryText = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
         if (retryText && retryText.trim()) {
           logger.info('Generated AI response successfully (Gemini, retry without cache).', {
+            provider: 'gemini',
+            model: activeModel,
             charCount: retryText.length,
-            model: activeModel
+            durationMs: Date.now() - startedAt,
+            outcome: 'success'
           });
           return retryText.trim();
         }
@@ -465,9 +481,11 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
         rethrowIfBusyForFallback(retryErr, 'gemini', activeModel);
         captureError(retryErr, { provider: 'gemini', handler: 'retryWithoutCache' });
         logger.error('Gemini API retry without cache failed.', {
-          error: retryErr?.stack,
-          message: retryErr?.message,
-          model: activeModel
+          provider: 'gemini',
+          model: activeModel,
+          durationMs: Date.now() - startedAt,
+          outcome: 'error',
+          ...serializeError(retryErr, { includeStack: true })
         });
         return formatAIUserMessage({ error: retryErr, provider: 'gemini' });
       }
@@ -476,9 +494,11 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
     rethrowIfBusyForFallback(apiError, 'gemini', activeModel);
     captureError(apiError, { provider: 'gemini' });
     logger.error('Gemini API request failed.', {
-      error: apiError?.stack,
-      message: apiError?.message,
-      model: activeModel
+      provider: 'gemini',
+      model: activeModel,
+      durationMs: Date.now() - startedAt,
+      outcome: 'error',
+      ...serializeError(apiError, { includeStack: true })
     });
     return formatAIUserMessage({ error: apiError, provider: 'gemini' });
   }
@@ -490,6 +510,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
  * @returns {Promise<string>} Generated reply or empty string on failure
  */
 async function generateClaudeResponse(conversation, activeModel = modelName) {
+  const startedAt = Date.now();
   if (!anthropic) {
     logger.error('Anthropic API key not configured (ANTHROPIC_API_KEY).');
     return formatAIUserMessage({ reason: 'missing_api_key', provider: 'claude' });
@@ -563,13 +584,23 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
         const textBlock = response.content && response.content.find(b => b.type === 'text');
         const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
         if (!text) {
-          logger.warn('Claude response is empty.');
+          logger.warn('Claude response is empty.', {
+            provider: 'claude',
+            model: activeModel,
+            toolRounds: round,
+            durationMs: Date.now() - startedAt,
+            outcome: 'empty'
+          });
           return formatAIUserMessage({ reason: 'empty_response' });
         }
         logger.info('Generated AI response successfully (Claude).', {
-          charCount: text.length,
+          provider: 'claude',
           model: activeModel,
-          toolRounds: round
+          charCount: text.length,
+          toolRounds: round,
+          inputMessageCount: conversation.length,
+          durationMs: Date.now() - startedAt,
+          outcome: 'success'
         });
         return text;
       }
@@ -589,15 +620,23 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
     const textBlock = response.content && response.content.find(b => b.type === 'text');
     const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
     if (text) return text;
-    logger.warn('Claude hit max tool rounds without final text.');
+    logger.warn('Claude hit max tool rounds without final text.', {
+      provider: 'claude',
+      model: activeModel,
+      toolRounds: round,
+      durationMs: Date.now() - startedAt,
+      outcome: 'empty'
+    });
     return formatAIUserMessage({ reason: 'api_error' });
   } catch (apiError) {
     rethrowIfBusyForFallback(apiError, 'claude', activeModel);
     captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
-      error: apiError?.stack,
-      message: apiError?.message,
-      model: activeModel
+      provider: 'claude',
+      model: activeModel,
+      durationMs: Date.now() - startedAt,
+      outcome: 'error',
+      ...serializeError(apiError, { includeStack: true })
     });
     return formatAIUserMessage({ error: apiError, provider: 'claude' });
   }
@@ -610,6 +649,7 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
  * @returns {Promise<string>} The generated AI response, or empty string if generation fails
  */
 async function generateOpenAIResponse(conversation, activeModel = modelName) {
+  const startedAt = Date.now();
   if (!openai) {
     logger.error('OpenAI API key not configured (OPENAI_API_KEY).');
     return formatAIUserMessage({ reason: 'missing_api_key', provider: 'openai' });
@@ -686,10 +726,11 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       rethrowIfBusyForFallback(apiError, 'openai', activeModel);
       captureError(apiError, { provider: 'openai' });
       logger.error('API request failed.', {
-        error: apiError?.stack,
-        message: apiError?.message,
+        provider: 'openai',
         model: activeModel,
-        statusCode: apiError?.status ?? 'unknown'
+        durationMs: Date.now() - startedAt,
+        outcome: 'error',
+        ...serializeError(apiError, { includeStack: true })
       });
       return formatAIUserMessage({ error: apiError, provider: 'openai' });
     }
@@ -704,11 +745,14 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
 
     if (response.status !== 'completed') {
       logger.warn('OpenAI API response was not completed.', {
+        provider: 'openai',
         model: activeModel,
         responseStatus: response.status,
         responseId: response.id,
         incompleteDetails: response.incomplete_details || undefined,
-        hasOutputText: Boolean(reply && reply.trim())
+        hasOutputText: Boolean(reply && reply.trim()),
+        durationMs: Date.now() - startedAt,
+        outcome: 'partial'
       });
 
       if (reply && reply.trim()) return reply;
@@ -716,14 +760,25 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
     }
 
     if (!reply || reply.trim() === '') {
-      logger.warn('Response is empty.');
+      logger.warn('Response is empty.', {
+        provider: 'openai',
+        model: activeModel,
+        responseId: response.id,
+        durationMs: Date.now() - startedAt,
+        outcome: 'empty'
+      });
       return formatAIUserMessage({ reason: 'empty_response' });
     }
 
     logger.info('Generated AI response successfully.', {
+      provider: 'openai',
+      model: activeModel,
       responseId: response.id,
       charCount: reply.length,
-      tokensUsed: response.usage?.total_tokens
+      tokensUsed: response.usage?.total_tokens,
+      inputMessageCount: conversation.length,
+      durationMs: Date.now() - startedAt,
+      outcome: 'success'
     });
 
     return reply;
@@ -731,12 +786,13 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
     if (isProviderBusyError(error)) throw error;
     captureError(error, { provider: aiProvider || 'unknown' });
     logger.error('Error occurred while generating AI response.', {
-      error: error?.stack,
-      message: error?.message,
+      provider: 'openai',
       model: activeModel,
+      durationMs: Date.now() - startedAt,
+      outcome: 'error',
       errorType: error?.type ?? 'unknown',
       errorCode: error?.code ?? 'unknown',
-      statusCode: error?.status ?? 'unknown'
+      ...serializeError(error, { includeStack: true })
     });
     return formatAIUserMessage({ error, provider: aiProvider || 'openai' });
   }
@@ -778,12 +834,25 @@ async function generateAIResponse(conversation) {
         reply = await invokeProvider(modelName);
       } catch (error) {
         if (isProviderBusyError(error) && fallbackModelName) {
-          logger.warn(`Primary model ${error.attemptedModel} returned ${error.reason}; retrying with fallback model ${fallbackModelName}.`);
+          logger.warn('Primary model busy; retrying with fallback model.', {
+            provider: aiProvider,
+            attemptedModel: error.attemptedModel,
+            fallbackModel: fallbackModelName,
+            reason: error.reason,
+            inputMessageCount: conversation.length
+          });
           recordCount('ai.generate.fallback', 1, {
             provider: aiProvider,
             reason: error.reason
           });
           reply = await invokeProvider(fallbackModelName);
+          logger.info('Fallback model response completed.', {
+            provider: aiProvider,
+            attemptedModel: error.attemptedModel,
+            fallbackModel: fallbackModelName,
+            durationMs: Date.now() - startedAt,
+            outcome: isAIUserErrorMessage(reply) ? 'error_user_message' : 'success'
+          });
         } else {
           throw error;
         }
@@ -791,6 +860,13 @@ async function generateAIResponse(conversation) {
 
       const isErrorReply = isAIUserErrorMessage(reply);
       const outcome = isErrorReply ? 'error_user_message' : 'success';
+      logger.info('AI generation completed.', {
+        provider: aiProvider,
+        model: modelName,
+        inputMessageCount: conversation.length,
+        durationMs: Date.now() - startedAt,
+        outcome
+      });
       recordCount('ai.generate.requests', 1, {
         provider: aiProvider,
         outcome

@@ -62,7 +62,7 @@ test('should sanitizeMetaForSentry returns non-object metadata unchanged', () =>
   expect(getLogger.sanitizeMetaForSentry('plain')).toBe('plain');
 });
 
-test('should logger redacts PII fields from Sentry metadata', () => {
+test('should logger redacts secret fields from log metadata', () => {
   const sentryCalls = [];
   const getLoggerReloaded = reloadModule(loggerPath, () => {
     stubModule(instrumentPath, {
@@ -75,13 +75,18 @@ test('should logger redacts PII fields from Sentry metadata', () => {
     stubModule(path.resolve(__dirname, '..', 'config.js'), { logLevel: 'info' });
   });
 
-  const logger = getLoggerReloaded('pii');
-  logger.info('Message received.', { user: 'User#0001', guildList: 'secret', channelName: 'general', userId: '1' });
+  const logger = getLoggerReloaded('secrets');
+  logger.info('Message received.', {
+    user: 'User#0001',
+    channelName: 'general',
+    userId: '1',
+    token: 'secret-token'
+  });
 
-  expect(sentryCalls[0].user).toBeUndefined();
-  expect(sentryCalls[0].guildList).toBeUndefined();
-  expect(sentryCalls[0].channelName).toBeUndefined();
+  expect(sentryCalls[0].user).toBe('User#0001');
+  expect(sentryCalls[0].channelName).toBe('general');
   expect(sentryCalls[0].userId).toBe('1');
+  expect(sentryCalls[0].token).toBe('[REDACTED]');
 });
 
 test('should logger swallows Sentry forwarding failures (coverage merged)', () => {

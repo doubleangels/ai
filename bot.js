@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
+const { serializeError } = require('./utils/logSanitize');
 
 function interactionAllowedInGuild(interaction) {
   const ids = config.allowedGuildIds;
@@ -54,9 +55,9 @@ for (const file of commandFiles) {
     client.commands.set(command.data.name, command);
     logger.info(`Loaded command ${command.data.name}.`);
   } catch (error) {
-    logger.error(`Error occurred while loading command file ${file}.`, {
-      error: error.stack,
-      message: error.message
+    logger.error('Error occurred while loading command file.', {
+      file,
+      ...serializeError(error, { includeStack: true })
     });
   }
 }
@@ -74,9 +75,9 @@ for (const file of eventFiles) {
           .then(() => event.execute(...args, client))
           .catch(error => {
             captureError(error, { event: event.name, source: 'eventExecute' });
-            logger.error(`Error executing once event ${event.name}.`, {
-              error: error.stack,
-              message: error.message
+            logger.error('Error executing once event.', {
+              event: event.name,
+              ...serializeError(error, { includeStack: true })
             });
           });
       });
@@ -87,18 +88,18 @@ for (const file of eventFiles) {
           .then(() => event.execute(...args, client))
           .catch(error => {
             captureError(error, { event: event.name, source: 'eventExecute' });
-            logger.error(`Error executing event ${event.name}.`, {
-              error: error.stack,
-              message: error.message
+            logger.error('Error executing event.', {
+              event: event.name,
+              ...serializeError(error, { includeStack: true })
             });
           });
       });
     }
     logger.info(`Loaded event ${event.name}.`);
   } catch (error) {
-    logger.error(`Error occurred while loading event file ${file}.`, {
-      error: error.stack,
-      message: error.message
+    logger.error('Error occurred while loading event file.', {
+      file,
+      ...serializeError(error, { includeStack: true })
     });
   }
 }
@@ -121,16 +122,28 @@ client.on('interactionCreate', async interaction => {
   const startedAt = Date.now();
 
   try {
-    logger.debug(`Executing command ${interaction.commandName}.`, { 
+    logger.debug('Executing command.', {
+      command: interaction.commandName,
       user: interaction.user.tag,
       userId: interaction.user.id,
-      guildId: interaction.guildId
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      interactionId: interaction.id
     });
     await startSpan({
       op: 'discord.command',
       name: `/${interaction.commandName}`
     }, async () => {
       await command.execute(interaction);
+    });
+    logger.debug('Command executed successfully.', {
+      command: interaction.commandName,
+      userId: interaction.user.id,
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      interactionId: interaction.id,
+      durationMs: Date.now() - startedAt,
+      outcome: 'success'
     });
     recordCount('discord.command.executed', 1, {
       command: interaction.commandName,
@@ -156,10 +169,16 @@ client.on('interactionCreate', async interaction => {
         outcome: 'error'
       }
     });
-    logger.error(`Error executing command ${interaction.commandName}.`, {
-      error: error.stack,
-      message: error.message,
-      user: interaction.user.tag
+    logger.error('Error executing command.', {
+      command: interaction.commandName,
+      user: interaction.user.tag,
+      userId: interaction.user.id,
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      interactionId: interaction.id,
+      durationMs: Date.now() - startedAt,
+      outcome: 'error',
+      ...serializeError(error, { includeStack: true })
     });
     try {
       if (interaction.replied || interaction.deferred) {
@@ -169,9 +188,11 @@ client.on('interactionCreate', async interaction => {
       }
     } catch (replyError) {
       logger.error('Error sending error response.', {
-        error: replyError?.stack,
-        message: replyError?.message,
-        originalError: error.message
+        command: interaction.commandName,
+        interactionId: interaction.id,
+        guildId: interaction.guildId,
+        ...serializeError(replyError, { includeStack: true }),
+        originalErrorMessage: error.message
       });
       try {
         const httpStatus = replyError?.status || replyError?.statusCode || replyError?.httpStatus;
@@ -200,24 +221,24 @@ client.on('interactionCreate', async interaction => {
 
 client.on('error', (error) => {
   captureError(error, { source: 'discordClient', handler: 'error' });
-  logger.error('Discord client error.', {
-    error: error.stack,
-    message: error.message
-  });
+  logger.error('Discord client error.', serializeError(error, { includeStack: true }));
 });
 
 client.on('shardDisconnect', (_event, shardId) => {
   client.discordReady = false;
-  logger.warn('Discord shard disconnected.', { shardId });
+  logger.warn('Discord shard disconnected.', {
+    shardId,
+    shardCount: client.shard?.count ?? 1
+  });
   recordCount('discord.gateway', 1, { outcome: 'disconnect', shardId });
 });
 
 client.on('shardError', (error, shardId) => {
   captureError(error, { source: 'discordClient', handler: 'shardError', shardId });
   logger.error('Discord shard error.', {
-    error: error.stack,
-    message: error.message,
-    shardId
+    shardId,
+    shardCount: client.shard?.count ?? 1,
+    ...serializeError(error, { includeStack: true })
   });
 });
 
@@ -237,10 +258,7 @@ async function shutdown(exitCode = 0) {
   try {
     await closeSentry();
   } catch (err) {
-    logger.error('Error flushing Sentry on shutdown.', {
-      error: err.stack,
-      message: err.message
-    });
+    logger.error('Error flushing Sentry on shutdown.', serializeError(err, { includeStack: true }));
   }
   process.exit(exitCode);
 }
@@ -253,29 +271,20 @@ startSpan({
   recordCount('discord.login', 1, {
     outcome: 'error'
   });
-  logger.error('Error logging in.', {
-    error: error.stack,
-    message: error.message
-  });
+  logger.error('Error logging in.', serializeError(error, { includeStack: true }));
   closeSentry().finally(() => process.exit(1));
 });
 
 process.on('uncaughtException', (error) => {
   captureError(error, { handler: 'uncaughtException' });
-  logger.error('Uncaught Exception.', {
-    error: error.stack,
-    message: error.message
-  });
+  logger.error('Uncaught Exception.', serializeError(error, { includeStack: true }));
   closeSentry().finally(() => process.exit(1));
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   const error = reason instanceof Error ? reason : new Error(String(reason));
   captureError(error, { handler: 'unhandledRejection' });
-  logger.error('Unhandled Promise Rejection.', {
-    error: error.stack,
-    message: error.message
-  });
+  logger.error('Unhandled Promise Rejection.', serializeError(error, { includeStack: true }));
   closeSentry().finally(() => process.exit(1));
 });
 
