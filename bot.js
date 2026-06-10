@@ -1,5 +1,5 @@
 const { captureError, closeSentry, recordCount, recordDistribution, startSpan } = require('./instrument');
-const { Client, Collection, GatewayIntentBits, Options } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, MessageFlags, Options } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
@@ -111,7 +111,7 @@ client.on('interactionCreate', async interaction => {
 
   if (!interactionAllowedInGuild(interaction)) {
     try {
-      await interaction.reply({ content: 'This bot is not enabled in this server.', ephemeral: true });
+      await interaction.reply({ content: 'This bot is not enabled in this server.', flags: MessageFlags.Ephemeral });
     } catch (_) {
       /* ignore */
     }
@@ -163,9 +163,9 @@ client.on('interactionCreate', async interaction => {
     });
     try {
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content: '⚠️ There was an error executing that command!', ephemeral: true });
+        await interaction.followUp({ content: '⚠️ There was an error executing that command!', flags: MessageFlags.Ephemeral });
       } else {
-        await interaction.reply({ content: '⚠️ There was an error executing that command!', ephemeral: true });
+        await interaction.reply({ content: '⚠️ There was an error executing that command!', flags: MessageFlags.Ephemeral });
       }
     } catch (replyError) {
       logger.error('Error sending error response.', {

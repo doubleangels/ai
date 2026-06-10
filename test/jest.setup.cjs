@@ -15,8 +15,9 @@ function registerCoreStubs() {
   register('discord.js', {
     Client: class { constructor() { this.on = () => {}; this.once = () => {}; } },
     Collection: class extends Map {},
-    GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
-    ActivityType: { Watching: 3 },
+  GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+  MessageFlags: { Ephemeral: 64 },
+  ActivityType: { Watching: 3 },
     Events: { ClientReady: 'ready', MessageCreate: 'messageCreate' },
     SlashCommandBuilder: class {
       constructor() { this._data = {}; }

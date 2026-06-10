@@ -35,6 +35,7 @@ function loadMessageCreate(overrides = {}) {
       Client: class {},
       Collection: class extends Map {},
       GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+      MessageFlags: { Ephemeral: 64 },
       Events: { ClientReady: 'ready', MessageCreate: 'messageCreate' },
       ActivityType: { Watching: 3 }
     };
@@ -94,6 +95,7 @@ function loadIndexHarness(recordCountImpl, configOverrides = {}, options = {}) {
       Client: FakeClient,
       Collection: Map,
       GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+      MessageFlags: { Ephemeral: 64 },
       Options: { cacheWithLimits: limits => limits, DefaultMakeCacheSettings: {} },
       ActivityType: { Watching: 'Watching' }
     };
@@ -294,6 +296,7 @@ test('should records failures using statusCode and swallows metric errors', asyn
       EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
       ChannelType: { GuildText: 0 },
       PermissionFlagsBits: { Administrator: 0 },
+      MessageFlags: { Ephemeral: 64 },
       REST: class {
         setToken() { return this; }
         async put() {
@@ -328,6 +331,7 @@ test('should records failures using statusCode and swallows metric errors', asyn
       EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
       ChannelType: { GuildText: 0 },
       PermissionFlagsBits: { Administrator: 0 },
+      MessageFlags: { Ephemeral: 64 },
       REST: class {
         setToken() { return this; }
         async put() {
@@ -422,7 +426,34 @@ function reloadAiServiceWith(setup) {
 }
 
 function loadResetCommand() {
-  return reloadModule(resetPath);
+  return reloadModule(resetPath, () => {
+    stubModule(require.resolve('discord.js'), {
+      SlashCommandBuilder: class {
+        setName() { return this; }
+        setDescription() { return this; }
+        setDefaultMemberPermissions() { return this; }
+        addChannelOption(cb) {
+          const option = {
+            setName: () => option,
+            setDescription: () => option,
+            addChannelTypes: () => option,
+            setRequired: () => option
+          };
+          try { cb(option); } catch (_) {}
+          return this;
+        }
+        toJSON() { return {}; }
+      },
+      EmbedBuilder: class {
+        setColor() { return this; }
+        setTitle() { return this; }
+        setDescription() { return this; }
+      },
+      ChannelType: { GuildText: 0 },
+      PermissionFlagsBits: { Administrator: 0 },
+      MessageFlags: { Ephemeral: 64 }
+    });
+  });
 }
 
 test('should records metrics without attributes', () => {
@@ -1361,6 +1392,7 @@ test('should records rate limit metrics and swallows metric failures', async () 
     EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
     ChannelType: { GuildText: 0 },
     PermissionFlagsBits: { Administrator: 0 },
+    MessageFlags: { Ephemeral: 64 },
     REST: class { setToken() { return this; } async put() { const err = new Error('rate limited'); err.status = 429; throw err; } },
     Routes: { applicationCommands: id => `/apps/${id}/cmds` }
   });
@@ -1423,6 +1455,7 @@ test('should index command reply failures record rate limits and metric errors',
     Client: FakeClient,
     Collection: Map,
     GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+    MessageFlags: { Ephemeral: 64 },
     Options: { cacheWithLimits: limits => limits, DefaultMakeCacheSettings: {} },
     ActivityType: { Watching: 'Watching' }
   });

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType, PermissionFlagsBits } = require('discord.js'); 
+const { SlashCommandBuilder, EmbedBuilder, ChannelType, MessageFlags, PermissionFlagsBits } = require('discord.js'); 
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
 const { pruneChannelAuxMaps } = require('../utils/aiUtils');
@@ -73,7 +73,7 @@ module.exports = {
    * @returns {Promise<void>}
    */
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const client = interaction.client;
     const userId = interaction.user.id;
     const guildName = interaction.guild?.name || 'unknown';
@@ -103,7 +103,7 @@ module.exports = {
             guildId: interaction.guildId
           });
           try {
-            await interaction.followUp({ embeds: [embed], ephemeral: true });
+            await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
           } catch (followUpError) {
             logger.error('Failed to send reset follow-up reply.', {
               error: followUpError.stack,
@@ -255,7 +255,7 @@ module.exports = {
         await interaction.editReply({ embeds: [embed] });
       } catch (_) {
         try {
-          await interaction.followUp({ embeds: [embed], ephemeral: true });
+          await interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
         } catch (followUpError) {
           logger.error('Failed to send reset error reply.', {
             error: followUpError.stack,

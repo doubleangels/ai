@@ -125,6 +125,7 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
       Client: FakeClient,
       Collection: FakeCollection,
       GatewayIntentBits: { Guilds: 1, GuildMessages: 2, MessageContent: 4 },
+      MessageFlags: { Ephemeral: 64 },
       Options: {
         cacheWithLimits: limits => {
           capturedCacheLimits = limits;
