@@ -332,14 +332,17 @@ test('should falls back to defaults when model env vars are whitespace only', ()
   expect(openaiWs.modelName).toBe('gpt-5.4-nano');
 });
 
-test('should configures fallback model and shard count from env', () => {
+test('should configures secondary model and shard count from env', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: 'gpt-5.4-nano',
-    FALLBACK_MODEL_NAME: 'gpt-5.4-mini',
+    OPENAI_API_KEY: 'sk-test',
+    SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
     DISCORD_SHARD_COUNT: 'auto'
   });
-  expect(config.fallbackModelName).toBe('gpt-5.4-mini');
+  expect(config.secondaryModelName).toBe('gpt-5.4-mini');
+  expect(config.secondaryProvider).toBe('openai');
+  expect(config.backupModels).toEqual([{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }]);
   expect(config.discordShardCount).toBe('auto');
 
   const numericShards = loadConfig({
@@ -357,26 +360,113 @@ test('should configures fallback model and shard count from env', () => {
   expect(invalidShards.discordShardCount).toBe(0);
 });
 
-test('should disables fallback when model is unsupported or matches primary', () => {
+test('should disables secondary model when unsupported or matches primary', () => {
   const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     const unsupported = loadConfig({
       AI_PROVIDER: 'openai',
       OPENAI_MODEL_NAME: 'gpt-5.4-nano',
-      FALLBACK_MODEL_NAME: 'not-a-real-model'
+      OPENAI_API_KEY: 'sk-test',
+      SECONDARY_MODEL_NAME: 'not-a-real-model'
     });
-    expect(unsupported.fallbackModelName).toBeNull();
+    expect(unsupported.secondaryModelName).toBeNull();
+    expect(unsupported.secondaryProvider).toBeNull();
+    expect(unsupported.backupModels).toEqual([]);
 
     const sameModel = loadConfig({
       AI_PROVIDER: 'openai',
       OPENAI_MODEL_NAME: 'gpt-5.4-nano',
-      FALLBACK_MODEL_NAME: 'gpt-5.4-nano'
+      OPENAI_API_KEY: 'sk-test',
+      SECONDARY_MODEL_NAME: 'gpt-5.4-nano'
     });
-    expect(sameModel.fallbackModelName).toBeNull();
-    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('ALLOWED_GUILD_IDS') || String(args[0]).includes('FALLBACK'))).toBe(true);
+    expect(sameModel.secondaryModelName).toBeNull();
+    expect(sameModel.secondaryProvider).toBeNull();
+    expect(sameModel.backupModels).toEqual([]);
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('ALLOWED_GUILD_IDS') || String(args[0]).includes('SECONDARY_MODEL_NAME'))).toBe(true);
   } finally {
     warnSpy.mockRestore();
   }
+});
+
+test('should configures cross-provider secondary model when model and API key are available', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'gemini',
+    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_API_KEY: 'gem-test',
+    OPENAI_API_KEY: 'sk-test',
+    SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
+  });
+  expect(config.secondaryModelName).toBe('gpt-5.4-mini');
+  expect(config.secondaryProvider).toBe('openai');
+  expect(config.backupModels).toEqual([{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }]);
+});
+
+test('should configures tertiary model and provider', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_API_KEY: 'sk-test',
+    ANTHROPIC_API_KEY: 'ant-test',
+    SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
+    TERTIARY_MODEL_NAME: 'claude-haiku-4-5',
+    TERTIARY_AI_PROVIDER: 'claude'
+  });
+  expect(config.backupModels).toEqual([
+    { model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' },
+    { model: 'claude-haiku-4-5', provider: 'claude', tier: 'tertiary' }
+  ]);
+  expect(config.secondaryModelName).toBe('gpt-5.4-mini');
+  expect(config.secondaryProvider).toBe('openai');
+  expect(config.tertiaryModelName).toBe('claude-haiku-4-5');
+  expect(config.tertiaryProvider).toBe('claude');
+});
+
+test('should disables duplicate tertiary model', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_API_KEY: 'sk-test',
+      SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
+      TERTIARY_MODEL_NAME: 'gpt-5.4-mini'
+    });
+    expect(config.backupModels).toEqual([{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }]);
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('duplicates'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should disables cross-provider secondary model when API key is missing', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'gemini',
+      GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+      GEMINI_API_KEY: 'gem-test',
+      SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
+    });
+    expect(config.secondaryModelName).toBeNull();
+    expect(config.secondaryProvider).toBeNull();
+    expect(config.backupModels).toEqual([]);
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('API key'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should honors explicit SECONDARY_AI_PROVIDER', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_API_KEY: 'sk-test',
+    ANTHROPIC_API_KEY: 'ant-test',
+    SECONDARY_AI_PROVIDER: 'claude',
+    SECONDARY_MODEL_NAME: 'claude-haiku-4-5'
+  });
+  expect(config.secondaryModelName).toBe('claude-haiku-4-5');
+  expect(config.secondaryProvider).toBe('claude');
 });
 
 test('should warns on invalid ALLOWED_GUILD_IDS entries', () => {

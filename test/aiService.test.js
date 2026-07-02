@@ -1073,7 +1073,7 @@ test('should ProviderBusyError stores busy metadata', () => {
     stubModule(configPath, {
       openaiApiKey: 'fake',
       modelName: 'gpt-5.4-nano',
-      fallbackModelName: null,
+      backupModels: [],
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
@@ -1117,7 +1117,7 @@ test('should retries with fallback model when primary is overloaded', async () =
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
       modelName: 'gpt-5.4-nano',
-      fallbackModelName: 'gpt-5.4-mini',
+      backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
@@ -1171,6 +1171,161 @@ test('should retries with fallback model when primary is overloaded', async () =
   expect(modelsUsed).toEqual(['gpt-5.4-nano', 'gpt-5.4-mini']);
 });
 
+test('should retries with cross-provider fallback when primary is overloaded', async () => {
+  const providersUsed = [];
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: 'fake',
+      anthropicApiKey: undefined,
+      modelName: 'gemini-3-flash-preview',
+      backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'gemini',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__googleGenaiStub = {
+      GoogleGenAI: class {
+        constructor() {
+          this.models = {
+            generateContent: async () => {
+              providersUsed.push('gemini');
+              const err = new Error('resource exhausted');
+              err.status = 429;
+              throw err;
+            }
+          };
+        }
+      }
+    };
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async ({ model }) => {
+              providersUsed.push('openai');
+              return {
+                status: 'completed',
+                output_text: 'cross-provider ok',
+                id: 'r-cross',
+                usage: { total_tokens: 1 }
+              };
+            }
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const reply = await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hi' }
+  ]);
+  expect(reply).toBe('cross-provider ok');
+  expect(providersUsed).toEqual(['gemini', 'openai']);
+});
+
+test('should retries through two fallback tiers when each is overloaded', async () => {
+  const attempts = [];
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: 'fake',
+      modelName: 'gpt-5.4-nano',
+      backupModels: [
+        { model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' },
+        { model: 'claude-haiku-4-5', provider: 'claude', tier: 'tertiary' }
+      ],
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'openai',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async ({ model }) => {
+              attempts.push(`openai:${model}`);
+              if (model !== 'claude-haiku-4-5') {
+                const err = new Error('overloaded');
+                err.status = 503;
+                throw err;
+              }
+              return {
+                status: 'completed',
+                output_text: 'unused',
+                id: 'r-unused',
+                usage: { total_tokens: 1 }
+              };
+            }
+          };
+        }
+      }
+    };
+    global.__anthropicStub = class {
+      constructor() {
+        this.messages = {
+          create: async ({ model }) => {
+            attempts.push(`claude:${model}`);
+            return {
+              content: [{ type: 'text', text: 'second fallback ok' }]
+            };
+          }
+        };
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(reply).toBe('second fallback ok');
+  expect(attempts).toEqual([
+    'openai:gpt-5.4-nano',
+    'openai:gpt-5.4-mini',
+    'claude:claude-haiku-4-5'
+  ]);
+});
+
 test('should rethrows busy errors when fallback model is disabled', async () => {
   const aiService = reloadModule(aiServicePath, () => {
     stubModule(configPath, {
@@ -1178,7 +1333,7 @@ test('should rethrows busy errors when fallback model is disabled', async () => 
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
       modelName: 'gpt-5.4-nano',
-      fallbackModelName: null,
+      backupModels: [],
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',

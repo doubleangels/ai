@@ -147,7 +147,10 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `MAX_HISTORY_TOKENS` | Channel history token cap (`0` = disabled) | `0` |
 | `MAX_HISTORY_LENGTH` | Max messages per channel (plus system); minimum `1` | `20` |
 | `USER_COOLDOWN_MS` | Per-user **per-channel** cooldown (`0` = disabled) | `4000` |
-| `FALLBACK_MODEL_NAME` | Optional model retry when the primary returns busy/overloaded errors | *unset* |
+| `SECONDARY_MODEL_NAME` | Secondary model when the primary returns busy/overloaded errors | *unset* |
+| `SECONDARY_AI_PROVIDER` | Provider for `SECONDARY_MODEL_NAME`; auto-detected from model ID when unset | *auto* |
+| `TERTIARY_MODEL_NAME` | Tertiary model (tried after the secondary model fails) | *unset* |
+| `TERTIARY_AI_PROVIDER` | Provider for `TERTIARY_MODEL_NAME`; auto-detected when unset | *auto* |
 | `DISCORD_SHARD_COUNT` | Shard count (`auto`, `2`, …); omit or `1` for single process | *single process* |
 | `CHANNEL_COOLDOWN_MS` | Per-channel cooldown (`0` = disabled) | `1500` |
 | `MAX_PENDING_PER_CHANNEL` | Queue depth before a “busy” reply (`0` = disabled) | `3` |
@@ -173,7 +176,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 - With `ENABLE_CONTEXT_CACHE=true`, each bot **process** creates its own Gemini cache entry; multiple replicas each pay a one-time cache-creation cost on cold start.
 - **History staleness:** `conversationHistory` does not track Discord message IDs. Edited or deleted user messages may remain in memory until `/reset`, idle eviction, or token/length trimming. Deleting a **bot** reply removes the matching last assistant turn when content still matches.
 - **SVG images** are excluded from vision (raster formats only).
-- Set `FALLBACK_MODEL_NAME` to a lighter model if your primary model often returns rate-limit or overload errors.
+- Set `SECONDARY_MODEL_NAME` (and optionally `TERTIARY_MODEL_NAME`) to lighter models if your primary often returns rate-limit or overload errors. Provider is inferred from the model ID; override with `SECONDARY_AI_PROVIDER` / `TERTIARY_AI_PROVIDER`. Each backup can use a different provider; its API key must be configured.
 
 ---
 

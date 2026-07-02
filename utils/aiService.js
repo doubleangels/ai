@@ -6,7 +6,7 @@ const {
   geminiApiKey,
   anthropicApiKey,
   modelName,
-  fallbackModelName,
+  backupModels,
   getTemperature,
   reasoningEffort,
   responsesVerbosity,
@@ -66,10 +66,10 @@ class ProviderBusyError extends Error {
  * @param {string} provider
  * @param {string} attemptedModel
  */
-function rethrowIfBusyForFallback(apiError, provider, attemptedModel) {
+function rethrowIfBusyForBackup(apiError, provider, attemptedModel) {
   if (isProviderBusyError(apiError)) throw apiError;
   const reason = classifyAIError(apiError, provider);
-  if (fallbackModelName && isBusyAIErrorReason(reason)) {
+  if ((backupModels ?? []).length > 0 && isBusyAIErrorReason(reason)) {
     throw new ProviderBusyError(apiError, reason, attemptedModel);
   }
 }
@@ -478,7 +478,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
           return retryText.trim();
         }
       } catch (retryErr) {
-        rethrowIfBusyForFallback(retryErr, 'gemini', activeModel);
+        rethrowIfBusyForBackup(retryErr, 'gemini', activeModel);
         captureError(retryErr, { provider: 'gemini', handler: 'retryWithoutCache' });
         logger.error('Gemini API retry without cache failed.', {
           provider: 'gemini',
@@ -491,7 +491,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
       }
       return formatAIUserMessage({ reason: 'empty_response' });
     }
-    rethrowIfBusyForFallback(apiError, 'gemini', activeModel);
+    rethrowIfBusyForBackup(apiError, 'gemini', activeModel);
     captureError(apiError, { provider: 'gemini' });
     logger.error('Gemini API request failed.', {
       provider: 'gemini',
@@ -629,7 +629,7 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
     });
     return formatAIUserMessage({ reason: 'api_error' });
   } catch (apiError) {
-    rethrowIfBusyForFallback(apiError, 'claude', activeModel);
+    rethrowIfBusyForBackup(apiError, 'claude', activeModel);
     captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
       provider: 'claude',
@@ -723,7 +723,7 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
     try {
       response = await openai.responses.create(requestParams);
     } catch (apiError) {
-      rethrowIfBusyForFallback(apiError, 'openai', activeModel);
+      rethrowIfBusyForBackup(apiError, 'openai', activeModel);
       captureError(apiError, { provider: 'openai' });
       logger.error('API request failed.', {
         provider: 'openai',
@@ -823,38 +823,58 @@ async function generateAIResponse(conversation) {
     try {
       const conversationForApi = prepareConversationForApi(conversation);
 
-      const invokeProvider = async (activeModel) => {
-        if (aiProvider === 'gemini') return generateGeminiResponse(conversationForApi, activeModel);
-        if (aiProvider === 'claude') return generateClaudeResponse(conversationForApi, activeModel);
+      const invokeProviderFor = async (provider, activeModel) => {
+        if (provider === 'gemini') return generateGeminiResponse(conversationForApi, activeModel);
+        if (provider === 'claude') return generateClaudeResponse(conversationForApi, activeModel);
         return generateOpenAIResponse(conversationForApi, activeModel);
       };
 
+      const attempts = [
+        { provider: aiProvider, model: modelName, tier: 'primary' },
+        ...(backupModels ?? []).map(backup => ({
+          provider: backup.provider,
+          model: backup.model,
+          tier: backup.tier
+        }))
+      ];
+
       let reply;
-      try {
-        reply = await invokeProvider(modelName);
-      } catch (error) {
-        if (isProviderBusyError(error) && fallbackModelName) {
-          logger.warn('Primary model busy; retrying with fallback model.', {
+      for (let i = 0; i < attempts.length; i++) {
+        const { provider, model, tier } = attempts[i];
+        try {
+          reply = await invokeProviderFor(provider, model);
+          if (i > 0) {
+            logger.info('Backup model response completed.', {
+              provider: aiProvider,
+              backupProvider: provider,
+              backupModel: model,
+              backupTier: tier,
+              durationMs: Date.now() - startedAt,
+              outcome: isAIUserErrorMessage(reply) ? 'error_user_message' : 'success'
+            });
+          }
+          break;
+        } catch (error) {
+          const nextAttempt = attempts[i + 1];
+          if (!isProviderBusyError(error) || !nextAttempt) {
+            throw error;
+          }
+          logger.warn('Model busy; retrying with backup model.', {
             provider: aiProvider,
-            attemptedModel: error.attemptedModel,
-            fallbackModel: fallbackModelName,
+            attemptedProvider: provider,
+            attemptedModel: error.attemptedModel || model,
+            backupProvider: nextAttempt.provider,
+            backupModel: nextAttempt.model,
+            backupTier: nextAttempt.tier,
             reason: error.reason,
             inputMessageCount: conversation.length
           });
           recordCount('ai.generate.fallback', 1, {
             provider: aiProvider,
+            backupProvider: nextAttempt.provider,
+            backupTier: nextAttempt.tier,
             reason: error.reason
           });
-          reply = await invokeProvider(fallbackModelName);
-          logger.info('Fallback model response completed.', {
-            provider: aiProvider,
-            attemptedModel: error.attemptedModel,
-            fallbackModel: fallbackModelName,
-            durationMs: Date.now() - startedAt,
-            outcome: isAIUserErrorMessage(reply) ? 'error_user_message' : 'success'
-          });
-        } else {
-          throw error;
         }
       }
 

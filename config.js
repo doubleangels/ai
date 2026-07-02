@@ -49,6 +49,87 @@ const SUPPORTED_CLAUDE_MODELS = [
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 const SUPPORTED_AI_PROVIDERS = ['openai', 'gemini', 'claude'];
+const PROVIDER_MODEL_LISTS = {
+  openai: SUPPORTED_MODELS,
+  gemini: SUPPORTED_GEMINI_MODELS,
+  claude: SUPPORTED_CLAUDE_MODELS
+};
+
+/**
+ * @param {string} modelName
+ * @returns {'openai'|'gemini'|'claude'|null}
+ */
+function resolveProviderForModel(modelName) {
+  const matches = SUPPORTED_AI_PROVIDERS.filter(provider => PROVIDER_MODEL_LISTS[provider].includes(modelName));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * @param {string} provider
+ * @returns {string|undefined}
+ */
+function apiKeyForProvider(provider) {
+  if (provider === 'gemini') return process.env.GEMINI_API_KEY;
+  if (provider === 'claude') return process.env.ANTHROPIC_API_KEY;
+  return process.env.OPENAI_API_KEY;
+}
+
+/**
+ * @param {string} envModel
+ * @param {string} envProvider
+ * @param {string} modelEnvName
+ * @param {string} providerEnvName
+ * @param {Set<string>} reservedKeys
+ * @param {string} primaryModel
+ * @param {string} primaryProvider
+ * @returns {{ model: string, provider: 'openai'|'gemini'|'claude' } | null}
+ */
+function resolveBackupModelEntry(envModel, envProvider, modelEnvName, providerEnvName, reservedKeys, primaryModel, primaryProvider) {
+  if (!envModel) return null;
+
+  let resolvedFallbackProvider = null;
+  if (envProvider) {
+    if (!SUPPORTED_AI_PROVIDERS.includes(envProvider)) {
+      console.warn(
+        `${providerEnvName} "${envProvider}" is invalid; supported values are ${SUPPORTED_AI_PROVIDERS.join(', ')}. Entry disabled.`
+      );
+    } else if (!PROVIDER_MODEL_LISTS[envProvider].includes(envModel)) {
+      console.warn(
+        `${modelEnvName} "${envModel}" is not supported for ${providerEnvName} "${envProvider}"; entry disabled.`
+      );
+    } else {
+      resolvedFallbackProvider = envProvider;
+    }
+  } else {
+    resolvedFallbackProvider = resolveProviderForModel(envModel);
+    if (!resolvedFallbackProvider) {
+      console.warn(`${modelEnvName} "${envModel}" is not a supported model; entry disabled.`);
+    }
+  }
+
+  if (!resolvedFallbackProvider) return null;
+
+  const key = `${resolvedFallbackProvider}:${envModel}`;
+  if (envModel === primaryModel && resolvedFallbackProvider === primaryProvider) {
+    console.warn(`${modelEnvName} matches the primary model; entry disabled.`);
+    return null;
+  }
+  if (reservedKeys.has(key)) {
+    console.warn(`${modelEnvName} duplicates an earlier model/provider pair; entry disabled.`);
+    return null;
+  }
+
+  if (!apiKeyForProvider(resolvedFallbackProvider)) {
+    console.warn(
+      `Backup provider "${resolvedFallbackProvider}" requires an API key but none is configured; entry disabled.`
+    );
+    return null;
+  }
+
+  reservedKeys.add(key);
+  return { model: envModel, provider: resolvedFallbackProvider };
+}
+
 const aiProvider = (process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
 if (!SUPPORTED_AI_PROVIDERS.includes(aiProvider)) {
   console.error(`Invalid AI_PROVIDER "${process.env.AI_PROVIDER}". Supported values are ${SUPPORTED_AI_PROVIDERS.join(', ')}.`);
@@ -124,19 +205,40 @@ for (const guildId of allowedGuildIdList) {
 
 const allowedGuildIds = new Set(allowedGuildIdList);
 
-const envFallbackModel = (process.env.FALLBACK_MODEL_NAME || '').trim();
-let fallbackModelName = null;
-if (envFallbackModel) {
-  if (!supportedList.includes(envFallbackModel)) {
-    console.warn(
-      `FALLBACK_MODEL_NAME "${envFallbackModel}" is not supported for AI_PROVIDER "${resolvedProvider}"; fallback disabled.`
-    );
-  } else if (envFallbackModel === resolvedModel) {
-    console.warn('FALLBACK_MODEL_NAME matches the primary model; fallback disabled.');
-  } else {
-    fallbackModelName = envFallbackModel;
+const reservedBackupKeys = new Set();
+const backupModels = [];
+const backupModelSlots = [
+  {
+    model: (process.env.SECONDARY_MODEL_NAME || '').trim(),
+    provider: (process.env.SECONDARY_AI_PROVIDER || '').trim().toLowerCase(),
+    modelEnvName: 'SECONDARY_MODEL_NAME',
+    providerEnvName: 'SECONDARY_AI_PROVIDER',
+    tier: 'secondary'
+  },
+  {
+    model: (process.env.TERTIARY_MODEL_NAME || '').trim(),
+    provider: (process.env.TERTIARY_AI_PROVIDER || '').trim().toLowerCase(),
+    modelEnvName: 'TERTIARY_MODEL_NAME',
+    providerEnvName: 'TERTIARY_AI_PROVIDER',
+    tier: 'tertiary'
   }
+];
+for (const slot of backupModelSlots) {
+  const entry = resolveBackupModelEntry(
+    slot.model,
+    slot.provider,
+    slot.modelEnvName,
+    slot.providerEnvName,
+    reservedBackupKeys,
+    resolvedModel,
+    resolvedProvider
+  );
+  if (entry) backupModels.push({ ...entry, tier: slot.tier });
 }
+const secondaryModelName = backupModels.find(entry => entry.tier === 'secondary')?.model ?? null;
+const secondaryProvider = backupModels.find(entry => entry.tier === 'secondary')?.provider ?? null;
+const tertiaryModelName = backupModels.find(entry => entry.tier === 'tertiary')?.model ?? null;
+const tertiaryProvider = backupModels.find(entry => entry.tier === 'tertiary')?.provider ?? null;
 
 const shardCountRaw = (process.env.DISCORD_SHARD_COUNT || '').trim().toLowerCase();
 let discordShardCount = 0;
@@ -159,7 +261,11 @@ const config = {
   // If unset/invalid, token trimming is effectively disabled.
   maxHistoryTokens: parseEnvInt(process.env.MAX_HISTORY_TOKENS, 0),
   modelName: resolvedModel,
-  fallbackModelName,
+  backupModels,
+  secondaryModelName,
+  secondaryProvider,
+  tertiaryModelName,
+  tertiaryProvider,
   discordShardCount,
   openaiApiKey: process.env.OPENAI_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,

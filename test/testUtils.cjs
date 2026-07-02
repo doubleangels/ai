@@ -42,7 +42,11 @@ const DEFAULT_CONFIG = {
   openaiMaxRetries: 2,
   conversationHistoryMaxChannels: 500,
   conversationHistoryIdleMs: 86_400_000,
-  fallbackModelName: null,
+  backupModels: [],
+  secondaryModelName: null,
+  secondaryProvider: null,
+  tertiaryModelName: null,
+  tertiaryProvider: null,
   discordShardCount: 0,
   getTemperature: () => 1
 };
