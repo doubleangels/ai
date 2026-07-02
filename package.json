@@ -21,8 +21,9 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "@google/genai",
-      "@sentry/profiling-node",
       "@sentry-internal/node-cpu-profiler",
+      "@sentry/node-cpu-profiler",
+      "@sentry/profiling-node",
       "protobufjs",
       "unrs-resolver"
     ],
@@ -46,14 +47,14 @@
     "ip-address": ">=10.1.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
+    "@anthropic-ai/sdk": "^0.104.2",
     "@discordjs/rest": "^2.6.1",
-    "@google/genai": "^2.8.0",
-    "@sentry/node": "^10.57.0",
-    "@sentry/profiling-node": "^10.57.0",
+    "@google/genai": "^2.10.0",
+    "@sentry/node": "^10.63.0",
+    "@sentry/profiling-node": "^10.63.0",
     "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
-    "openai": "^6.42.0",
+    "openai": "^6.45.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {
