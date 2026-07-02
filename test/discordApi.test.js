@@ -71,3 +71,12 @@ test('should withDiscordRetry uses exponential backoff without retry_after', asy
   expect(attempts).toBe(2);
   jest.useRealTimers();
 });
+
+test('should withDiscordRetry logs when rate limit retries are exhausted', async () => {
+  const err429 = new Error('rate limited');
+  err429.status = 429;
+
+  await expect(withDiscordRetry(async () => {
+    throw err429;
+  }, { maxRetries: 0 })).rejects.toThrow(/rate limited/);
+});

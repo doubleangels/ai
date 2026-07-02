@@ -408,3 +408,32 @@ test('should exports DEFAULT_MAX_CHAIN_DEPTH', () => {
   const tracer = loadTracer();
   expect(tracer.DEFAULT_MAX_CHAIN_DEPTH).toBe(15);
 });
+
+test('should traceReplyChain uses cached parent message without refetching', async () => {
+  const tracer = loadTracer();
+  const parent = makeMessage({ id: 'm1', content: 'cached parent' });
+  const channel = {
+    id: 'chan-1',
+    messages: {
+      fetch: async (messageId) => makeMessage({ id: messageId, content: 'cached parent' })
+    }
+  };
+
+  await tracer.fetchMessageCached(channel, 'm1');
+
+  let fetchCount = 0;
+  channel.messages.fetch = async (messageId) => {
+    fetchCount += 1;
+    return parent;
+  };
+
+  const start = makeMessage({
+    id: 'm2',
+    content: 'current',
+    reference: { messageId: 'm1' }
+  });
+
+  const chain = await tracer.traceReplyChain(start, channel);
+  expect(chain.map(m => m.id)).toEqual(['m1', 'm2']);
+  expect(fetchCount).toBe(0);
+});

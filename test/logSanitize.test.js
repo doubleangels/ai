@@ -3,6 +3,8 @@ const {
   serializeError,
   safeAttachmentLabel,
   stripUrlQuery,
+  isSecretKey,
+  isUrlKey,
   REDACTED
 } = require('../utils/logSanitize');
 
@@ -72,4 +74,70 @@ test('should safeAttachmentLabel avoids raw URLs', () => {
 
 test('should stripUrlQuery removes query portion', () => {
   expect(stripUrlQuery('https://a.com/b?x=1')).toBe('https://a.com/b');
+});
+
+test('should stripUrlQuery falls back for invalid URLs', () => {
+  expect(stripUrlQuery('/relative/path?x=1')).toBe('/relative/path');
+  expect(stripUrlQuery('plain-text')).toBe('plain-text');
+});
+
+test('should sanitizeLogMeta handles arrays and nested error objects', () => {
+  const err = new Error('nested fail');
+  err.stack = 'Error: nested fail\n    at x';
+  const result = sanitizeLogMeta({
+    items: [{ token: 'secret' }],
+    error: err
+  });
+  expect(result.items[0].token).toBe(REDACTED);
+  expect(result.error.errorMessage).toBe('nested fail');
+  expect(result.error.stack).toBeDefined();
+});
+
+test('should sanitizeLogMeta handles top-level arrays', () => {
+  const result = sanitizeLogMeta([{ url: 'https://a.com/x?y=1' }, { token: 'secret' }]);
+  expect(result[0].url).toBe('https://a.com/x');
+  expect(result[1].token).toBe(REDACTED);
+});
+
+test('should safeAttachmentLabel uses name and default fallbacks', () => {
+  expect(safeAttachmentLabel({ name: 'pic.png' })).toBe('file:pic.png');
+  expect(safeAttachmentLabel({})).toBe('attachment');
+  expect(safeAttachmentLabel(null)).toBe('attachment');
+});
+
+test('should serializeError returns empty object for falsy errors', () => {
+  expect(serializeError(null)).toEqual({});
+  expect(serializeError(undefined)).toEqual({});
+});
+
+test('should stripUrlQuery returns empty values unchanged', () => {
+  expect(stripUrlQuery('')).toBe('');
+});
+
+function containsRedacted(value) {
+  if (value === REDACTED) return true;
+  if (Array.isArray(value)) return value.some(containsRedacted);
+  if (value && typeof value === 'object') {
+    return Object.values(value).some(containsRedacted);
+  }
+  return false;
+}
+
+test('should sanitizeLogMeta truncates deeply nested metadata', () => {
+  expect(sanitizeLogMeta({ token: 'secret' }, 9)).toEqual({ truncated: true });
+});
+
+test('should sanitizeLogMeta redacts values beyond max sanitize depth', () => {
+  let obj = ['deep-value'];
+  for (let i = 0; i < 5; i += 1) {
+    obj = { child: obj };
+  }
+  const result = sanitizeLogMeta(obj);
+  expect(containsRedacted(result)).toBe(true);
+  expect(sanitizeLogMeta({ keep: 'value' }, 8)).toEqual({ keep: REDACTED });
+});
+
+test('should isSecretKey and isUrlKey reject non-string keys', () => {
+  expect(isSecretKey(null)).toBe(false);
+  expect(isUrlKey(undefined)).toBe(false);
 });

@@ -138,5 +138,7 @@ module.exports = {
   sanitizeLogMeta,
   serializeError,
   safeAttachmentLabel,
-  stripUrlQuery
+  stripUrlQuery,
+  isSecretKey,
+  isUrlKey
 };

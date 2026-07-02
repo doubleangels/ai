@@ -1078,3 +1078,69 @@ test('should records queue depth gauge on successful mention', async () => {
   await mod.execute(createBaseMessage());
   expect(gaugeCalls.some(call => call.name === 'discord.channel.queue_depth' && call.value >= 1)).toBeTruthy();
 });
+
+test('should ignores DM messages when allowed guild list is configured', async () => {
+  const mod = loadMessageCreate({ config: { allowedGuildIds: new Set(['allowed-guild']) } });
+  let replied = false;
+  const message = createBaseMessage({
+    guildId: null,
+    reply: async () => { replied = true; return { edit: async () => {} }; }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});
+
+test('should ignores replies that do not target the bot without a mention', async () => {
+  const mod = loadMessageCreate();
+  let replied = false;
+  const message = createBaseMessage({
+    content: 'just a reply',
+    mentions: { has: () => false, users: { has: () => false }, roles: { size: 0, some: () => false }, everyone: false, size: 0, values: () => [] },
+    reference: { messageId: 'ref-1' },
+    reply: async () => { replied = true; return { edit: async () => {} }; },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'ref-1',
+          author: { id: 'user-2', username: 'other' },
+          content: 'not the bot',
+          reference: null,
+          attachments: { size: 0, values: () => [] }
+        })
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});
+
+test('should ignores replies without a referenced message id', async () => {
+  const mod = loadMessageCreate();
+  let replied = false;
+  const message = createBaseMessage({
+    content: 'reply without id',
+    mentions: { has: () => false, users: { has: () => false }, roles: { size: 0, some: () => false }, everyone: false, size: 0, values: () => [] },
+    reference: {},
+    reply: async () => { replied = true; return { edit: async () => {} }; }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});
+
+test('should logs guildId null on processing errors in DMs', async () => {
+  const mod = loadMessageCreate({
+    generateAIResponse: async () => {
+      throw new Error('ai failed');
+    }
+  });
+  const message = createBaseMessage({
+    guildId: null,
+    guild: null
+  });
+
+  await mod.execute(message);
+});

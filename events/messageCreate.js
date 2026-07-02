@@ -139,7 +139,7 @@ module.exports = {
         logger.debug('Ignoring reply that does not target the bot.', {
           channelId,
           messageId: message.id,
-          referencedMessageId: message.reference?.messageId || null
+          referencedMessageId: message.reference?.messageId
         });
         return;
       }

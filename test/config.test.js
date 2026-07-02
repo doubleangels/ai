@@ -482,3 +482,84 @@ test('should warns on invalid ALLOWED_GUILD_IDS entries', () => {
     warnSpy.mockRestore();
   }
 });
+
+test('should resolves NVIDIA image generation settings', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    NVIDIA_API_KEY: 'nvapi-test',
+    NVIDIA_IMAGE_MODEL: 'flux.1-dev',
+    NVIDIA_IMAGE_TIMEOUT_MS: '90000',
+    IMAGE_USER_COOLDOWN_MS: '15000'
+  });
+
+  expect(config.nvidiaApiKey).toBe('nvapi-test');
+  expect(config.nvidiaImageModel).toBe('flux.1-dev');
+  expect(config.nvidiaImageTimeoutMs).toBe(90000);
+  expect(config.imageUserCooldownMs).toBe(15000);
+  expect(config.NVIDIA_IMAGE_MODELS['flux.1-schnell'].apiPath).toBe('black-forest-labs/flux.1-schnell');
+  expect(config.NVIDIA_ASPECT_RATIOS['16:9']).toEqual({ width: 1344, height: 768 });
+});
+
+test('should fall back to default NVIDIA image model when env model is invalid', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      NVIDIA_IMAGE_MODEL: 'not-a-model'
+    });
+    expect(config.nvidiaImageModel).toBe('flux.1-schnell');
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('NVIDIA_IMAGE_MODEL'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should warn when SECONDARY_AI_PROVIDER is invalid', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_API_KEY: 'fake',
+      SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
+      SECONDARY_AI_PROVIDER: 'not-a-provider'
+    });
+    expect(config.backupModels.length).toBe(0);
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('SECONDARY_AI_PROVIDER'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should warn when backup model is unsupported for explicit provider', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_API_KEY: 'fake',
+      SECONDARY_MODEL_NAME: 'claude-sonnet-4-6',
+      SECONDARY_AI_PROVIDER: 'openai'
+    });
+    expect(config.backupModels.length).toBe(0);
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('not supported for SECONDARY_AI_PROVIDER'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should resolve gemini backup provider api key path', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_API_KEY: 'fake',
+    GEMINI_API_KEY: 'gemini-key',
+    SECONDARY_MODEL_NAME: 'gemini-3-flash-preview',
+    SECONDARY_AI_PROVIDER: 'gemini'
+  });
+  expect(config.backupModels).toEqual([
+    { model: 'gemini-3-flash-preview', provider: 'gemini', tier: 'secondary' }
+  ]);
+});

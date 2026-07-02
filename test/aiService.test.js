@@ -1427,3 +1427,124 @@ test('should gemini times out long requests', async () => {
   expect(reply).toMatch(/^⚠️/);
   jest.useRealTimers();
 });
+
+test('should logs backup model error_user_message outcome after fallback', async () => {
+  const outcomes = [];
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'openai',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async ({ model }) => {
+              if (model === 'gpt-5.4-nano') {
+                const err = new Error('overloaded');
+                err.status = 503;
+                throw err;
+              }
+              return {
+                status: 'completed',
+                output_text: '⚠️ backup user error',
+                id: 'r-fallback',
+                usage: { total_tokens: 1 }
+              };
+            }
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: (_name, _value, attrs) => {
+        if (attrs?.outcome) outcomes.push(attrs.outcome);
+      },
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(reply).toBe('⚠️ backup user error');
+  expect(outcomes).toContain('error_user_message');
+});
+
+test('should busy retry logging falls back when attemptedModel is missing', async () => {
+  const aiService = reloadModule(aiServicePath, () => {
+    stubModule(configPath, {
+      openaiApiKey: 'fake',
+      geminiApiKey: undefined,
+      anthropicApiKey: undefined,
+      modelName: 'gpt-5.4-nano',
+      backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
+      getTemperature: () => 1,
+      reasoningEffort: 'none',
+      responsesVerbosity: 'low',
+      aiProvider: 'openai',
+      enableWebSearch: false,
+      enableGoogleMaps: false,
+      enableContextCache: false,
+      geminiCacheTtlSeconds: 3600,
+      maxOutputTokens: 1024,
+      claudeThinkingBudgetTokens: 0,
+      openaiTimeoutMs: 60000,
+      openaiMaxRetries: 2,
+      geminiTimeoutMs: 60000,
+      claudeTimeoutMs: 60000
+    });
+    global.__openaiStub = {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async ({ model }) => {
+              if (model === 'gpt-5.4-nano') {
+                const { ProviderBusyError } = require(aiServicePath);
+                throw new ProviderBusyError('busy', 'overloaded');
+              }
+              return {
+                status: 'completed',
+                output_text: 'fallback ok',
+                id: 'r-fallback',
+                usage: { total_tokens: 1 }
+              };
+            }
+          };
+        }
+      }
+    };
+    clearStubModuleCaches();
+    stubModule(instrumentPath, {
+      Sentry: { isEnabled: () => false },
+      captureError: () => {},
+      recordCount: () => {},
+      recordGauge: () => {},
+      recordDistribution: () => {},
+      startSpan: async (_opts, cb) => cb()
+    });
+  });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(reply).toBe('fallback ok');
+});

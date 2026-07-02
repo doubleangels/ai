@@ -57,3 +57,21 @@ test('should ready logs when ready marker write fails', () => {
   expect(client.discordReady).toBe(true);
   writeSpy.mockRestore();
 });
+
+test('should ready logs shard metadata when sharding is enabled', () => {
+  const ready = reloadModule(readyPath);
+  const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+  const client = {
+    discordReady: false,
+    shard: { ids: [2], count: 4 },
+    user: {
+      id: 'bot-1',
+      tag: 'Bot#0001',
+      setPresence: () => {}
+    },
+    guilds: { cache: new Map() }
+  };
+
+  expect(() => ready.execute(client)).not.toThrow();
+  writeSpy.mockRestore();
+});

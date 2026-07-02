@@ -31,6 +31,7 @@
 
 - **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via `AI_PROVIDER`.
 - **Vision** — Analyze images and GIFs from your message and the reply chain (file attachments and embed previews; capped per request).
+- **Image generation** — `/image` slash command using free [NVIDIA NIM](https://build.nvidia.com) models (FLUX, Stable Diffusion, Qwen Image).
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
 - **Reply-chain context** — Traces Discord reply chains and injects quoted parent-message text alongside per-channel history when you reply to the bot.
 - **Web search and maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
@@ -168,6 +169,17 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `MAX_IMAGE_BYTES` | Max bytes per downloaded image | `6000000` | — |
 | `MAX_REPLY_CHAIN_IMAGES` | Max images/GIFs collected from a reply chain per request | `4` | 1–10 |
 
+### NVIDIA image generation (`/image`)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `NVIDIA_API_KEY` | API key from [build.nvidia.com](https://build.nvidia.com) (Profile → API Keys) | *unset* |
+| `NVIDIA_IMAGE_MODEL` | Default model: `flux.1-schnell`, `flux.1-dev`, `flux.2-klein-4b`, `stable-diffusion-3.5-large`, `qwen-image` | `flux.1-schnell` |
+| `NVIDIA_IMAGE_TIMEOUT_MS` | Image request timeout (10000–300000) | `120000` |
+| `IMAGE_USER_COOLDOWN_MS` | Per-user per-channel cooldown for `/image` (`0` = disabled) | `30000` |
+
+The bot starts without `NVIDIA_API_KEY`; only `/image` is disabled until the key is set. NVIDIA’s free tier has rate limits suitable for experimentation.
+
 **Behavior notes:**
 
 - When you **reply** to the bot, quoted text from the reply chain is prepended to your message **in addition to** stored `conversationHistory` (useful for translation and thread grounding).
@@ -193,10 +205,13 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 
 Attach an image with a caption such as `@AI describe this chart` for multimodal analysis.
 
+Generate an image with `/image prompt:a sunset over mountains` (requires `NVIDIA_API_KEY` from [build.nvidia.com](https://build.nvidia.com)). Optional `model` and `size` (aspect ratio) parameters are available.
+
 ### Slash commands
 
 | Command | Description | Permission |
 | :--- | :--- | :--- |
+| `/image` | Generate an image from a text prompt (NVIDIA NIM) | Everyone |
 | `/reset` | Clear history for a channel (including threads) or **this server only** | Administrator |
 
 Deploy or refresh slash commands after changes:

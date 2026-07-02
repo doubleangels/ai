@@ -232,3 +232,43 @@ test('should messageDelete skips when deleted content is blank', async () => {
 
   expect(history.length).toBe(2);
 });
+
+test('should messageDelete removes history on stored prefix and deleted prefix matches', async () => {
+  const handler = reloadModule(messageDeletePath);
+
+  const storedPrefixHistory = [
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: 'hello there extra chunk' }
+  ];
+  const storedPrefixClient = {
+    discordReady: true,
+    user: { id: 'bot-123' },
+    conversationHistory: new Map([['chan-1', storedPrefixHistory]])
+  };
+  await handler.execute({
+    id: 'deleted-prefix-1',
+    channelId: 'chan-1',
+    content: 'hello there',
+    author: { id: 'bot-123' },
+    client: storedPrefixClient
+  });
+  expect(storedPrefixHistory.length).toBe(1);
+
+  const deletedPrefixHistory = [
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: 'hello' }
+  ];
+  const deletedPrefixClient = {
+    discordReady: true,
+    user: { id: 'bot-123' },
+    conversationHistory: new Map([['chan-2', deletedPrefixHistory]])
+  };
+  await handler.execute({
+    id: 'deleted-prefix-2',
+    channelId: 'chan-2',
+    content: 'hello there extra chunk',
+    author: { id: 'bot-123' },
+    client: deletedPrefixClient
+  });
+  expect(deletedPrefixHistory.length).toBe(1);
+});

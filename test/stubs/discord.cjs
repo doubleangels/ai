@@ -11,10 +11,30 @@ const defaultExports = {
   ActivityType: { Watching: 3 },
   Events: { ClientReady: 'ready', MessageCreate: 'messageCreate' },
   SlashCommandBuilder: class {
-    constructor() { this._data = {}; }
-    setName() { return this; }
-    setDescription() { return this; }
+    constructor() { this._data = { name: '', description: '', options: [] }; }
+    setName(name) { this._data.name = name; return this; }
+    setDescription(description) { this._data.description = description; return this; }
     setDefaultMemberPermissions() { return this; }
+    addStringOption(cb) {
+      const option = {
+        type: 3,
+        name: '',
+        description: '',
+        required: false,
+        choices: [],
+        setName(name) { option.name = name; return option; },
+        setDescription(desc) { option.description = desc; return option; },
+        setRequired(required) { option.required = required; return option; },
+        setMaxLength() { return option; },
+        addChoices(...choices) {
+          option.choices.push(...choices);
+          return option;
+        }
+      };
+      try { cb(option); } catch (_) {}
+      this._data.options.push(option);
+      return this;
+    }
     addChannelOption(cb) {
       const option = {
         setName: () => option,
@@ -25,13 +45,37 @@ const defaultExports = {
       try { cb(option); } catch (_) {}
       return this;
     }
-    toJSON() { return this._data; }
+    toJSON() {
+      return {
+        name: this._data.name,
+        description: this._data.description,
+        options: this._data.options.map(o => ({
+          name: o.name,
+          description: o.description,
+          type: o.type,
+          required: o.required,
+          choices: o.choices
+        }))
+      };
+    }
+  },
+  AttachmentBuilder: class {
+    constructor(data, meta = {}) {
+      this.data = data;
+      this.name = meta.name;
+    }
   },
   EmbedBuilder: class {
     constructor() { this.data = {}; }
     setColor(c) { this.data.color = c; return this; }
     setTitle(t) { this.data.title = t; return this; }
     setDescription(d) { this.data.description = d; return this; }
+    addFields(...fields) {
+      this.data.fields = [...(this.data.fields || []), ...fields];
+      return this;
+    }
+    setFooter(footer) { this.data.footer = footer; return this; }
+    setImage(image) { this.data.image = { url: image }; return this; }
   },
   ChannelType: { GuildText: 0 },
   PermissionFlagsBits: { Administrator: 0 },
