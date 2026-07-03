@@ -175,21 +175,15 @@ test('should log when error editReply fails', async () => {
   expect(editCount).toBe(1);
 });
 
-test('should use model id fallback label for unknown models', async () => {
-  const command = loadImageCommand({
-    generateImageImpl: async () => ({
-      buffer: Buffer.from('jpeg-bytes'),
-      contentType: 'image/jpeg',
-      seed: 12,
-      modelId: 'unknown-model',
-      finishReason: 'SUCCESS',
-      aspectRatio: '1:1'
-    })
-  });
+test('should not include model, size, or seed fields in the success embed', async () => {
+  const command = loadImageCommand();
   const { interaction, calls } = createInteraction();
 
   await command.execute(interaction);
 
   const edit = calls.find(c => c.type === 'editReply');
-  expect(edit.payload.embeds[0].data.fields.some(f => f.name === 'Model' && f.value === 'unknown-model')).toBe(true);
+  const fields = edit.payload.embeds[0].data.fields ?? [];
+  expect(fields.some(f => f.name === 'Model')).toBe(false);
+  expect(fields.some(f => f.name === 'Size')).toBe(false);
+  expect(fields.some(f => f.name === 'Seed')).toBe(false);
 });

@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
-const { nvidiaApiKey, imageUserCooldownMs, nvidiaImageModel, NVIDIA_IMAGE_MODELS, NVIDIA_ASPECT_RATIOS } = require('../config');
+const { nvidiaApiKey, imageUserCooldownMs, nvidiaImageModel, NVIDIA_ASPECT_RATIOS } = require('../config');
 const { generateImage, formatImageUserMessage } = require('../utils/nvidiaImageService');
 const { pruneStaleMapEntries } = require('../utils/aiUtils');
 const logger = require('../logger')(path.basename(__filename));
@@ -109,17 +109,11 @@ module.exports = {
 
       const filename = `image-${result.seed}.jpg`;
       const attachment = new AttachmentBuilder(result.buffer, { name: filename });
-      const modelLabel = NVIDIA_IMAGE_MODELS[result.modelId]?.label || result.modelId;
 
       const embed = new EmbedBuilder()
         .setColor(0x76b900)
         .setTitle('Generated image')
         .setDescription(truncatePrompt(prompt))
-        .addFields(
-          { name: 'Model', value: modelLabel, inline: true },
-          { name: 'Size', value: result.aspectRatio, inline: true },
-          { name: 'Seed', value: String(result.seed), inline: true }
-        )
         .setFooter({ text: `Requested by ${interaction.user.tag}` })
         .setImage(`attachment://${filename}`);
 
