@@ -174,7 +174,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `NVIDIA_API_KEY` | API key from [build.nvidia.com](https://build.nvidia.com) (Profile → API Keys) | *unset* |
-| `NVIDIA_IMAGE_MODEL` | Default model: `flux.1-schnell`, `flux.1-dev`, `flux.2-klein-4b`, `stable-diffusion-3.5-large`, `qwen-image` | `flux.1-schnell` |
+| `NVIDIA_IMAGE_MODEL` | Model for `/image`: `flux.1-schnell`, `flux.1-dev`, `flux.2-klein-4b`, `stable-diffusion-3.5-large` | `flux.1-schnell` |
 | `NVIDIA_IMAGE_TIMEOUT_MS` | Image request timeout (10000–300000) | `120000` |
 | `IMAGE_USER_COOLDOWN_MS` | Per-user per-channel cooldown for `/image` (`0` = disabled) | `30000` |
 
@@ -205,7 +205,7 @@ The bot starts without `NVIDIA_API_KEY`; only `/image` is disabled until the key
 
 Attach an image with a caption such as `@AI describe this chart` for multimodal analysis.
 
-Generate an image with `/image prompt:a sunset over mountains` (requires `NVIDIA_API_KEY` from [build.nvidia.com](https://build.nvidia.com)). Optional `model` and `size` (aspect ratio) parameters are available.
+Generate an image with `/image prompt:a sunset over mountains` (requires `NVIDIA_API_KEY` from [build.nvidia.com](https://build.nvidia.com)). Optional `size` (aspect ratio) is available; the model is set via `NVIDIA_IMAGE_MODEL`.
 
 ### Slash commands
 

@@ -143,6 +143,13 @@ function mapHttpError(status, detail) {
       userMessage: '⚠️ The image service is temporarily unavailable. Please try again later.'
     });
   }
+  if (status === 404) {
+    return new NvidiaImageError(`NVIDIA API endpoint not found (${status}): ${detail}`, {
+      code: 'not_found',
+      status,
+      userMessage: '⚠️ That image model is not available on NVIDIA\'s hosted API. Try a different model.'
+    });
+  }
   return new NvidiaImageError(`NVIDIA API error (${status}): ${detail}`, {
     code: 'api_error',
     status,

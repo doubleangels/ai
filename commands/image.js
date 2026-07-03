@@ -16,11 +16,6 @@ function truncatePrompt(prompt, maxLen = 256) {
   return `${prompt.slice(0, maxLen - 1)}…`;
 }
 
-const modelChoices = Object.entries(NVIDIA_IMAGE_MODELS).map(([value, entry]) => ({
-  name: entry.label,
-  value
-}));
-
 const sizeChoices = [
   { name: 'Square 1:1', value: '1:1' },
   { name: 'Landscape 16:9', value: '16:9' },
@@ -44,16 +39,6 @@ module.exports = {
         .setRequired(true)
         .setMaxLength(1000)
     )
-    .addStringOption(option => {
-      const opt = option
-        .setName('model')
-        .setDescription('Image model to use')
-        .setRequired(false);
-      for (const choice of modelChoices) {
-        opt.addChoices(choice);
-      }
-      return opt;
-    })
     .addStringOption(option => {
       const opt = option
         .setName('size')
@@ -101,7 +86,7 @@ module.exports = {
     }
 
     const prompt = interaction.options.getString('prompt', true);
-    const modelId = interaction.options.getString('model') || nvidiaImageModel;
+    const modelId = nvidiaImageModel;
     const aspectRatio = interaction.options.getString('size') || '1:1';
 
     await interaction.deferReply();

@@ -55,7 +55,6 @@ function createInteraction({ apiKeyConfigured = true, cooldownMs = 0, lastUsed =
     options: {
       getString: name => {
         if (name === 'prompt') return 'a blue sky';
-        if (name === 'model') return null;
         if (name === 'size') return null;
         return null;
       }
@@ -129,8 +128,8 @@ test('should expose slash command metadata', () => {
   const json = command.data.toJSON();
   expect(json.name).toBe('image');
   expect(json.options.some(o => o.name === 'prompt')).toBe(true);
-  expect(json.options.some(o => o.name === 'model')).toBe(true);
   expect(json.options.some(o => o.name === 'size')).toBe(true);
+  expect(json.options.some(o => o.name === 'model')).toBe(false);
 });
 
 test('should truncate long prompts in the success embed', async () => {

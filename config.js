@@ -73,11 +73,6 @@ const NVIDIA_IMAGE_MODELS = {
     label: 'Stable Diffusion 3.5 Large',
     payloadFields: ['prompt', 'width', 'height', 'seed', 'steps'],
     defaultSteps: 30
-  },
-  'qwen-image': {
-    apiPath: 'qwen/qwen-image',
-    label: 'Qwen Image',
-    payloadFields: ['prompt', 'width', 'height', 'seed']
   }
 };
 

@@ -196,6 +196,7 @@ test('should reject unsupported model id', () => {
 test('should map HTTP 403, 422, 500, and generic API errors', async () => {
   const cases = [
     { status: 403, match: /API key/ },
+    { status: 404, match: /not available on NVIDIA/ },
     { status: 422, body: JSON.stringify({ detail: [{ msg: 'bad field' }] }), match: /could not be processed/ },
     { status: 500, body: 'server down', match: /temporarily unavailable/ },
     { status: 418, body: 'teapot', match: /failed/ }
