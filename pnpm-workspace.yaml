@@ -1,0 +1,7 @@
+onlyBuiltDependencies:
+  - '@google/genai'
+  - '@sentry-internal/node-cpu-profiler'
+  - '@sentry/node-cpu-profiler'
+  - '@sentry/profiling-node'
+  - protobufjs
+  - unrs-resolver
