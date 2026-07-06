@@ -108,9 +108,25 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
-  if (!command) return;
+  if (!command) {
+    logger.debug('Ignoring unknown slash command.', {
+      command: interaction.commandName,
+      userId: interaction.user.id,
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      interactionId: interaction.id
+    });
+    return;
+  }
 
   if (!interactionAllowedInGuild(interaction)) {
+    logger.debug('Ignoring slash command from disallowed guild.', {
+      command: interaction.commandName,
+      userId: interaction.user.id,
+      guildId: interaction.guildId,
+      channelId: interaction.channelId,
+      interactionId: interaction.id
+    });
     try {
       await interaction.reply({ content: 'This bot is not enabled in this server.', flags: MessageFlags.Ephemeral });
     } catch (_) {
@@ -136,7 +152,7 @@ client.on('interactionCreate', async interaction => {
     }, async () => {
       await command.execute(interaction);
     });
-    logger.debug('Command executed successfully.', {
+    logger.info('Command executed successfully.', {
       command: interaction.commandName,
       userId: interaction.user.id,
       guildId: interaction.guildId,

@@ -15,6 +15,7 @@ const ROOT = path.join(__dirname, '..');
 const SCAN_DIRS = ['commands', 'events', 'utils'];
 const SCAN_FILES = [
   'index.js',
+  'bot.js',
   'deploy-commands.js',
   'config.js',
   'logger.js'
@@ -111,7 +112,8 @@ function auditFile(filePath) {
   let match;
   CALL_RE.lastIndex = 0;
   while ((match = CALL_RE.exec(content)) !== null) {
-    const callStart = match.index + match[0].length - 1;
+    const parenIndex = match[0].indexOf('(');
+    const callStart = match.index + (parenIndex >= 0 ? parenIndex : match[0].length - 1);
     const extracted = findFirstArgString(content, callStart);
     if (!extracted || extracted.hasExpression) {
       if (extracted?.hasExpression) {

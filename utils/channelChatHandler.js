@@ -191,6 +191,8 @@ async function runChannelChat({
     channelName,
     messageId,
     contentLength: userText?.length || 0,
+    imageCount: extraImageAttachments.length,
+    replyChainLength: replyChain.length,
     isReplyToBot,
     trigger,
     provider: aiProvider,
@@ -229,6 +231,12 @@ async function runChannelChat({
   }
 
   const channelHistory = client.conversationHistory.get(channelId);
+  logger.debug('Loaded conversation history for channel.', {
+    channelId,
+    messageId,
+    historyLength: channelHistory.length,
+    trigger
+  });
 
   const quotedTextParts = [];
   for (let i = 0; i < replyChain.length - 1; i++) {
@@ -306,6 +314,12 @@ async function runChannelChat({
   });
 
   trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTokens);
+  logger.debug('Updated conversation history for channel.', {
+    channelId,
+    messageId,
+    historyLength: channelHistory.length,
+    trigger
+  });
 
   const rollbackUserTurn = () => {
     while (channelHistory.length > userTurnIndex) {
@@ -330,6 +344,16 @@ async function runChannelChat({
   const aiStartedAt = Date.now();
 
   try {
+    logger.info('Generating AI response.', {
+      channelId,
+      messageId,
+      userId,
+      provider: aiProvider,
+      model: modelName,
+      historyLength: channelHistory.length,
+      imageCount: imageContents.length,
+      trigger
+    });
     aiWasInvoked = true;
     const reply = await startSpan({
       op: 'discord.message',
@@ -349,6 +373,16 @@ async function runChannelChat({
     });
 
     if (!reply?.trim()) {
+      const durationMs = Date.now() - aiStartedAt;
+      logger.warn('No reply generated from AI service.', {
+        channelId,
+        messageId,
+        provider: aiProvider,
+        model: modelName,
+        durationMs,
+        outcome: 'empty',
+        trigger
+      });
       rollbackUserTurn();
       recordCount('discord.message.responded', 1, {
         provider: aiProvider,
@@ -363,6 +397,18 @@ async function runChannelChat({
     }
 
     const replyIsError = isAIUserErrorMessage(reply);
+    const durationMs = Date.now() - aiStartedAt;
+    logger.info('Sending AI response.', {
+      channelId,
+      messageId,
+      provider: aiProvider,
+      model: modelName,
+      responseCharCount: reply.length,
+      durationMs,
+      outcome: replyIsError ? 'error' : 'success',
+      trigger
+    });
+
     const messageChunks = splitMessage(reply);
     const deliveredChunks = [];
     let deliveryFailed = false;
@@ -410,16 +456,46 @@ async function runChannelChat({
     }
 
     if (deliveryFailed && deliveredChunks.length === 0) {
+      logger.warn('Failed to deliver AI response.', {
+        user: userTag,
+        channelId,
+        channelName,
+        messageId,
+        chunkCount: messageChunks.length,
+        outcome: 'delivery_failed',
+        trigger
+      });
       recordCount('discord.message.responded', 1, {
         provider: aiProvider,
         outcome: 'delivery_failed'
       });
     } else if (!fullyDelivered && deliveredChunks.length > 0) {
+      logger.warn('Partially delivered AI response.', {
+        user: userTag,
+        channelId,
+        channelName,
+        messageId,
+        deliveredChunks: deliveredChunks.length,
+        totalChunks: messageChunks.length,
+        outcome: replyIsError ? 'error' : 'partial',
+        trigger
+      });
       recordCount('discord.message.responded', 1, {
         provider: aiProvider,
         outcome: replyIsError ? 'error' : 'partial'
       });
     } else {
+      logger.info('Reply sent successfully.', {
+        user: userTag,
+        channelId,
+        channelName,
+        messageId,
+        responseCharCount: deliveredContent.length,
+        chunkCount: messageChunks.length,
+        durationMs: Date.now() - startedAt,
+        outcome: replyIsError ? 'error' : 'success',
+        trigger
+      });
       recordCount('discord.message.responded', 1, {
         provider: aiProvider,
         outcome: replyIsError ? 'error' : 'success'
@@ -471,12 +547,21 @@ async function runChannelChat({
     }
   } finally {
     stripImagesFromHistory(channelHistory);
-    recordDistribution('discord.message.processing_ms', Date.now() - startedAt, {
+    const durationMs = Date.now() - startedAt;
+    recordDistribution('discord.message.processing_ms', durationMs, {
       unit: 'millisecond',
       attributes: {
         provider: aiProvider,
         trigger
       }
+    });
+    logger.info('Finished processing chat request.', {
+      channelId,
+      messageId,
+      guildId: guildId || null,
+      provider: aiProvider,
+      trigger,
+      durationMs
     });
   }
 }

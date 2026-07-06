@@ -1,14 +1,19 @@
 const path = require('path');
 const config = require('./config');
 const deployCommands = require('./deploy-commands');
+const logger = require('./logger')(path.basename(__filename));
 
 const { discordShardCount } = config;
 
 async function start() {
   try {
     await deployCommands();
+    logger.info('Slash commands deployed on startup.');
   } catch (error) {
-    console.error('Failed to deploy slash commands on startup.', error);
+    logger.error('Failed to deploy slash commands on startup.', {
+      errorMessage: error?.message,
+      outcome: 'error'
+    });
     process.exit(1);
   }
 
@@ -21,11 +26,15 @@ async function start() {
     });
 
     manager.on('shardCreate', shard => {
-      console.log(`Launched Discord shard ${shard.id}.`);
+      logger.info('Launched Discord shard.', { shardId: shard.id, shardCount: discordShardCount });
     });
 
     manager.spawn().catch(error => {
-      console.error('Failed to spawn Discord shards.', error);
+      logger.error('Failed to spawn Discord shards.', {
+        shardCount: discordShardCount,
+        errorMessage: error?.message,
+        outcome: 'error'
+      });
       process.exit(1);
     });
   } else {
@@ -34,6 +43,9 @@ async function start() {
 }
 
 start().catch(error => {
-  console.error('Failed to start bot.', error);
+  logger.error('Failed to start bot.', {
+    errorMessage: error?.message,
+    outcome: 'error'
+  });
   process.exit(1);
 });

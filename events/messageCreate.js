@@ -186,6 +186,13 @@ module.exports = {
     const userText = (message.content || '').replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
 
     await enqueueChannelChat(client, channelId, async () => {
+      logger.debug('Processing message in channel queue.', {
+        channelId,
+        messageId: message.id,
+        userId,
+        trigger,
+        queueDepth: pending + 1
+      });
       await runChannelChat({
         client,
         channelId,

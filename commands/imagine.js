@@ -61,6 +61,13 @@ module.exports = {
     const startedAt = Date.now();
 
     if (!geminiApiKey) {
+      logger.warn('Imagine command rejected because Gemini API key is missing.', {
+        userId,
+        guildId: interaction.guildId,
+        channelId,
+        interactionId: interaction.id,
+        outcome: 'missing_api_key'
+      });
       await interaction.reply({
         content: '⚠️ Image generation is not configured (missing Gemini API key).',
         flags: MessageFlags.Ephemeral
@@ -77,6 +84,14 @@ module.exports = {
     const lastUsed = client.imagineCooldowns.get(cooldownKey) || 0;
     if (imageUserCooldownMs > 0 && now - lastUsed < imageUserCooldownMs) {
       const waitSec = Math.ceil((imageUserCooldownMs - (now - lastUsed)) / 1000);
+      logger.debug('Imagine command rejected because user cooldown is active.', {
+        userId,
+        guildId: interaction.guildId,
+        channelId,
+        interactionId: interaction.id,
+        waitSec,
+        outcome: 'cooldown'
+      });
       await interaction.reply({
         content: `⚠️ Please wait ${waitSec}s before generating another image.`,
         flags: MessageFlags.Ephemeral
@@ -118,6 +133,17 @@ module.exports = {
 
       await interaction.editReply({ embeds: [embed], files: [attachment] });
 
+      logger.info('Imagine command generated image.', {
+        userId,
+        guildId: interaction.guildId,
+        channelId,
+        interactionId: interaction.id,
+        modelId: result.modelId,
+        aspectRatio: result.aspectRatio,
+        bytes: result.buffer.length,
+        outcome: 'success'
+      });
+
       if (imageUserCooldownMs > 0) {
         pruneStaleMapEntries(client.imagineCooldowns, imageUserCooldownMs * 10);
         client.imagineCooldowns.set(cooldownKey, Date.now());
@@ -151,9 +177,13 @@ module.exports = {
       recordCount('discord.command.imagine', 1, { outcome });
       recordDistribution('discord.command.imagine.duration_ms', elapsedMs, { outcome });
       logger.info('Imagine command completed.', {
+        user: interaction.user.tag,
         userId,
         guildId: interaction.guildId,
         channelId,
+        interactionId: interaction.id,
+        aspectRatio,
+        promptLength: prompt.length,
         outcome,
         elapsedMs
       });

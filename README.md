@@ -32,6 +32,7 @@
 - **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via `AI_PROVIDER`.
 - **Vision** — Analyze images and GIFs from your message and the reply chain (file attachments and embed previews; capped per request).
 - **Image generation** — `/imagine` slash command using [Gemini Image](https://ai.google.dev/gemini-api/docs/image-generation) (`gemini-3.1-flash-image`).
+- **Slash chat** — `/chat` slash command with the same AI pipeline as @mentioning the bot (optional image attachment).
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
 - **Reply-chain context** — Traces Discord reply chains and injects quoted parent-message text alongside per-channel history when you reply to the bot.
 - **Web search and maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
@@ -249,7 +250,7 @@ Local variables on errors (`includeLocalVariables`) follow nova: enabled in non-
 
 ### Errors
 
-`captureError(error, tags)` from `instrument.js` attaches stringified tags and calls `captureException`. Used in `index.js`, `config.js`, `deploy-commands.js`, `aiService.js`, `messageCreate.js`, `ready.js`, and `reset.js`.
+`captureError(error, tags)` from `instrument.js` attaches stringified tags and calls `captureException`. Used across startup (`index.js`), the Discord client (`bot.js`), configuration (`config.js`), command deploy (`deploy-commands.js`), AI generation (`aiService.js`, `geminiImageService.js`), chat handling (`channelChatHandler.js`, `messageCreate.js`), slash commands (`chat.js`, `imagine.js`, `reset.js`), and lifecycle events (`ready.js`, `messageDelete.js`).
 
 ### Performance spans
 
@@ -257,10 +258,12 @@ Local variables on errors (`includeLocalVariables`) follow nova: enabled in non-
 
 | Span | Module | Purpose |
 | :--- | :--- | :--- |
-| Client ready / login | `index.js` | Bot lifecycle |
-| Slash and context menu handlers | `index.js` | Command execution |
-| Message AI response | `messageCreate.js` | End-to-end message handling |
+| Startup command deploy | `index.js` | Register slash commands before login |
+| Client login | `bot.js` | Discord gateway connection |
+| Slash command handler | `bot.js` | Outer wrapper per `/chat`, `/imagine`, `/reset` |
+| Chat / mention AI response | `channelChatHandler.js` | End-to-end text chat (mentions, replies, `/chat`) |
 | AI provider call | `aiService.js` | OpenAI / Gemini / Claude request |
+| Gemini image generation | `geminiImageService.js` | `/imagine` image API call |
 | Command deploy | `deploy-commands.js` | Slash command registration |
 | Client ready setup | `ready.js` | Post-login setup |
 
@@ -269,6 +272,27 @@ Profiling uses `@sentry/profiling-node` when available; if the integration fails
 ### Logs
 
 [`logger.js`](logger.js) wraps Pino and forwards `info`, `warn`, `error`, `debug`, `trace`, and `fatal` to `Sentry.logger` when logs are enabled. Forwarding failures are swallowed and logged locally at debug level.
+
+Set `LOG_LEVEL=debug` in development to see ignore/rejection reasons (disallowed guilds, messages without mentions, cooldown skips, and command validation failures).
+
+**Structured logging conventions**
+
+- Log messages use plain English with terminal punctuation (`.` `!` `?`). Context goes in the structured object, not in the message string.
+- **`info`** — request lifecycle: command initiated/completed, chat request received, AI generation started, reply delivered, history reset.
+- **`debug`** — skipped or rejected inputs, queue depth, history load/update, intermediate steps.
+- **`warn`** — recoverable failures: cooldown replies, partial delivery, empty AI responses, backpressure.
+- **`error`** — failures with `serializeError(...)` for stack traces; always paired with `captureError` where appropriate.
+
+**Per-surface log flow**
+
+| Surface | Initiated | In progress | Completed / outcome |
+| :--- | :--- | :--- | :--- |
+| @mention / reply | `messageCreate.js` (gate) → `channelChatHandler.js` | Generating/sending AI response | `Finished processing chat request.` |
+| `/chat` | `Chat command initiated.` | Same shared handler | `Chat command completed.` |
+| `/imagine` | `Imagine command initiated.` | `geminiImageService.js` | `Imagine command completed.` (+ image bytes/model on success) |
+| `/reset` | `Reset command initiated.` | Channel/guild lock + history delete | `Reset command completed.` |
+| Slash wrapper | `bot.js` `Executing command.` | Command `execute()` | `Command executed successfully.` |
+| Startup | `deploy-commands.js` | — | `Slash commands deployed on startup.` |
 
 ### Custom metrics
 
@@ -279,11 +303,15 @@ Metrics are no-ops when Sentry is disabled or metrics are turned off. Attributes
 | Metric | Attributes | Source |
 | :--- | :--- | :--- |
 | `ai.generate.requests` | `provider`, `outcome` | `aiService.js` |
-| `discord.message.received` | `provider`, `trigger` | `messageCreate.js` |
-| `discord.message.responded` | `provider`, `outcome` | `messageCreate.js` |
-| `discord.message.rejected` | `reason` | `messageCreate.js` |
-| `discord.command.executed` | `command`, `outcome` | `index.js` |
-| `discord.context_menu.executed` | `command`, `outcome` | `index.js` |
+| `discord.message.received` | `provider`, `trigger` (`mention`, `reply`, `slash`) | `channelChatHandler.js` |
+| `discord.message.responded` | `provider`, `outcome` | `channelChatHandler.js` |
+| `discord.message.rejected` | `reason` | `messageCreate.js`, `chat.js` |
+| `discord.command.executed` | `command`, `outcome` | `bot.js` |
+| `discord.command.chat` | `outcome` | `chat.js` |
+| `discord.command.chat.rejected` | `reason` | `chat.js` |
+| `discord.command.imagine` | `outcome` | `imagine.js` |
+| `discord.command.imagine.cooldown` | — | `imagine.js` |
+| `discord.context_menu.executed` | `command`, `outcome` | `bot.js` |
 | `discord.api.failure` | `location`, `httpStatus`, … | multiple |
 | `discord.api.rate_limit` | `location`, … | multiple |
 | `discord.login` | — | `index.js` |
@@ -295,17 +323,21 @@ Metrics are no-ops when Sentry is disabled or metrics are turned off. Attributes
 
 | Metric | Attributes | Source |
 | :--- | :--- | :--- |
-| `discord.channel.queue_depth` | `provider` | `messageCreate.js` |
+| `discord.channel.queue_depth` | `provider` | `channelChatHandler.js` |
 
 **Distributions (`recordDistribution`)**
 
 | Metric | Unit | Source |
 | :--- | :--- | :--- |
 | `ai.generate.duration_ms` | ms | `aiService.js` |
-| `discord.message.processing_ms` | ms | `messageCreate.js` |
-| `discord.message.response_chars` | — | `messageCreate.js` |
-| `discord.command.duration_ms` | ms | `index.js` |
-| `discord.context_menu.duration_ms` | ms | `index.js` |
+| `discord.message.processing_ms` | ms | `channelChatHandler.js` |
+| `discord.message.response_chars` | — | `channelChatHandler.js` |
+| `discord.command.duration_ms` | ms | `bot.js` |
+| `discord.command.chat.duration_ms` | ms | `chat.js` |
+| `discord.command.imagine.duration_ms` | ms | `imagine.js` |
+| `discord.context_menu.duration_ms` | ms | `bot.js` |
+| `gemini.image.success` / `.error` / `.filtered` / `.fallback` | `model`, … | `geminiImageService.js` |
+| `gemini.image.duration_ms` | ms | `geminiImageService.js` |
 | `discord.deploy_commands.duration_ms` | ms | `deploy-commands.js` |
 | `discord.reset.duration_ms` | ms | `reset.js` |
 | `discord.ready.duration_ms` | ms | `ready.js` |
@@ -400,14 +432,17 @@ The runtime stage contains application code and production dependencies only (`p
 
 | Path | Purpose |
 | :--- | :--- |
-| `index.js` | Discord client bootstrap, interaction handlers, shutdown |
+| `index.js` | Startup: deploy slash commands, then spawn shards or load `bot.js` |
+| `bot.js` | Discord client, command/event loading, slash interaction router |
 | `config.js` | Environment-driven configuration and model validation |
 | `instrument.js` | Sentry initialization, spans, metrics, `captureError` |
 | `logger.js` | Pino logging with optional Sentry log forwarding |
 | `deploy-commands.js` | Slash command registration with Discord REST API |
-| `events/` | Discord event handlers (`messageCreate`, `ready`) |
-| `commands/` | Slash commands (`reset`) |
+| `events/` | Discord event handlers (`messageCreate`, `messageDelete`, `ready`) |
+| `commands/` | Slash commands (`chat`, `imagine`, `reset`) |
+| `utils/channelChatHandler.js` | Shared chat pipeline for mentions, replies, and `/chat` |
 | `utils/aiService.js` | OpenAI, Gemini, and Claude response generation |
+| `utils/geminiImageService.js` | Gemini Image generation for `/imagine` |
 | `utils/aiUtils.js` | Message splitting, vision download, history trimming, error classification |
 | `utils/replyChainTracer.js` | Reply-chain traversal and message LRU cache |
 | `scripts/audit-log-messages.js` | Log message style audit (maintainer) |
