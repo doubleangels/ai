@@ -35,14 +35,14 @@ module.exports = {
     .addStringOption(option =>
       option
         .setName('prompt')
-        .setDescription('Describe the image you want to generate')
+        .setDescription('What do you want to see in the image?')
         .setRequired(true)
         .setMaxLength(1000)
     )
     .addStringOption(option => {
       const opt = option
         .setName('size')
-        .setDescription('Aspect ratio')
+        .setDescription('What size do you want the image to be?')
         .setRequired(false);
       for (const choice of sizeChoices) {
         opt.addChoices(choice);
@@ -111,7 +111,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setColor(0x4285f4)
-        .setTitle('Generated image')
+        .setTitle('Generated Image')
         .setDescription(truncatePrompt(prompt))
         .setFooter({ text: `Requested by ${interaction.user.tag}` })
         .setImage(`attachment://${filename}`);
