@@ -84,8 +84,55 @@ function prepareConversationForApi(conversation) {
   return normalizeConversationRoles(copy);
 }
 
-/** Gemini context cache minimum token count (API requirement; Flash 1024, Pro 4096 — use 2048 to be safe). */
-const GEMINI_MIN_CACHE_TOKENS = 2048;
+/** Gemini context cache minimum token count (API requirement; Flash 1024, Pro 4096). */
+const GEMINI_MIN_CACHE_TOKENS = 1024;
+
+/** Stable key so OpenAI routes repeat requests to cache-friendly servers. */
+const OPENAI_PROMPT_CACHE_KEY = 'ai-bot-system-v1';
+
+/**
+ * Marks the message before the latest user turn for prompt-cache reuse (Anthropic/OpenAI).
+ * @param {Array<{role: string, content: string|Array}>} messages
+ * @returns {Array<{role: string, content: string|Array}>}
+ */
+function applyConversationCacheBreakpoints(messages) {
+  if (!Array.isArray(messages) || messages.length < 2) return messages;
+
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx <= 0) return messages;
+
+  const breakpointIdx = lastUserIdx - 1;
+  if (messages[breakpointIdx]?.role === 'system') return messages;
+
+  return messages.map((msg, idx) => {
+    if (idx !== breakpointIdx) return msg;
+    return markMessageForPromptCache(msg);
+  });
+}
+
+/**
+ * @param {{ role: string, content: string|Array }} message
+ * @returns {{ role: string, content: string|Array }}
+ */
+function markMessageForPromptCache(message) {
+  const cacheControl = { type: 'ephemeral' };
+  if (typeof message.content === 'string') {
+    return {
+      ...message,
+      content: [{ type: 'text', text: message.content, cache_control: cacheControl }]
+    };
+  }
+  if (!Array.isArray(message.content) || message.content.length === 0) return message;
+  const content = message.content.map(part => ({ ...part }));
+  content[content.length - 1] = { ...content[content.length - 1], cache_control: cacheControl };
+  return { ...message, content };
+}
 
 /**
  * OpenAI client instance configured with API key, timeout, and retries (used when aiProvider === 'openai').
@@ -533,10 +580,11 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
   const claudeMaxTokens = extendedThinkingEnabled
     ? Math.min(65536, maxOutputTokens + claudeThinkingBudgetTokens)
     : maxOutputTokens;
+  const cachedMessages = enableContextCache ? applyConversationCacheBreakpoints(messages) : messages;
   const params = {
     model: activeModel,
     max_tokens: claudeMaxTokens,
-    messages
+    messages: cachedMessages
   };
   if (!extendedThinkingEnabled) {
     params.temperature = getTemperature();
@@ -573,8 +621,11 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
     let response;
 
     while (round < maxToolRounds) {
+      const roundMessages = enableContextCache
+        ? applyConversationCacheBreakpoints(currentMessages)
+        : currentMessages;
       response = await withRequestTimeout(
-        anthropic.messages.create({ ...params, messages: currentMessages }),
+        anthropic.messages.create({ ...params, messages: roundMessages }),
         claudeTimeoutMs,
         'Claude'
       );
@@ -673,11 +724,17 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       }
     }
 
+    const inputMessages = enableContextCache ? applyConversationCacheBreakpoints(messages) : messages;
     const requestParams = {
       model: activeModel,
-      input: messages,
+      input: inputMessages,
       max_output_tokens: maxOutputTokens
     };
+
+    if (enableContextCache) {
+      requestParams.prompt_cache_key = OPENAI_PROMPT_CACHE_KEY;
+      requestParams.prompt_cache_retention = '24h';
+    }
 
     const normalizedReasoningEffort = typeof reasoningEffort === 'string'
       ? reasoningEffort.trim().toLowerCase()
@@ -716,7 +773,8 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       reasoningEffort: normalizedReasoningEffort || undefined,
       verbosity: normalizedVerbosity || undefined,
       webSearch: enableWebSearch,
-      hasImages: hasImages(conversation)
+      hasImages: hasImages(conversation),
+      promptCacheEnabled: enableContextCache
     });
 
     let response;

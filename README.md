@@ -31,7 +31,7 @@
 
 - **Multi-model AI** — Switch between OpenAI, Gemini, and Claude via `AI_PROVIDER`.
 - **Vision** — Analyze images and GIFs from your message and the reply chain (file attachments and embed previews; capped per request).
-- **Image generation** — `/image` slash command using free [NVIDIA NIM](https://build.nvidia.com) models (FLUX, Stable Diffusion, Qwen Image).
+- **Image generation** — `/imagine` slash command using [Gemini Image](https://ai.google.dev/gemini-api/docs/image-generation) (`gemini-3.1-flash-image`).
 - **Shared channel memory** — Per-channel conversation history for collaborative threads.
 - **Reply-chain context** — Traces Discord reply chains and injects quoted parent-message text alongside per-channel history when you reply to the bot.
 - **Web search and maps** — Optional live search (OpenAI/Gemini) and Google Maps grounding (Gemini).
@@ -129,7 +129,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | :--- | :--- | :--- |
 | `ENABLE_WEB_SEARCH` | Live internet search (OpenAI/Gemini) | `false` |
 | `ENABLE_GOOGLE_MAPS` | Google Maps grounding (Gemini) | `false` |
-| `ENABLE_CONTEXT_CACHE` | Provider context / prompt caching | `false` |
+| `ENABLE_CONTEXT_CACHE` | Provider context / prompt caching (system + stable turns) | `true` |
 | `GEMINI_CACHE_TTL_SECONDS` | Gemini cache TTL (60–86400) | `3600` |
 | `GEMINI_SAFETY_SETTINGS` | JSON array of `{ category, threshold }` safety settings | *API defaults* |
 | `REASONING_EFFORT` | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh` | `none` |
@@ -146,7 +146,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | :--- | :--- | :--- |
 | `MAX_OUTPUT_TOKENS` | Response token cap (256–65536) | `1024` |
 | `MAX_HISTORY_TOKENS` | Channel history token cap (`0` = disabled) | `0` |
-| `MAX_HISTORY_LENGTH` | Max messages per channel (plus system); minimum `1` | `20` |
+| `MAX_HISTORY_LENGTH` | Max messages per channel (plus system); minimum `1` | `10` |
 | `USER_COOLDOWN_MS` | Per-user **per-channel** cooldown (`0` = disabled) | `4000` |
 | `SECONDARY_MODEL_NAME` | Secondary model when the primary returns busy/overloaded errors | *unset* |
 | `SECONDARY_AI_PROVIDER` | Provider for `SECONDARY_MODEL_NAME`; auto-detected from model ID when unset | *auto* |
@@ -169,23 +169,23 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `MAX_IMAGE_BYTES` | Max bytes per downloaded image | `6000000` | — |
 | `MAX_REPLY_CHAIN_IMAGES` | Max images/GIFs collected from a reply chain per request | `4` | 1–10 |
 
-### NVIDIA image generation (`/image`)
+### Image generation (`/imagine`)
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `NVIDIA_API_KEY` | API key from [build.nvidia.com](https://build.nvidia.com) (Profile → API Keys) | *unset* |
-| `NVIDIA_IMAGE_MODEL` | Model for `/image`: `flux.1-schnell`, `flux.1-dev`, `flux.2-klein-4b`, `stable-diffusion-3.5-large` | `flux.1-schnell` |
-| `NVIDIA_IMAGE_TIMEOUT_MS` | Image request timeout (10000–300000) | `120000` |
-| `IMAGE_USER_COOLDOWN_MS` | Per-user per-channel cooldown for `/image` (`0` = disabled) | `30000` |
+| `GEMINI_API_KEY` | API key from [Google AI Studio](https://aistudio.google.com/apikey) (also used when `AI_PROVIDER=gemini`) | *unset* |
+| `GEMINI_IMAGE_MODEL_NAME` | Gemini Image model for `/imagine` | `gemini-3.1-flash-image` |
+| `IMAGE_GENERATION_TIMEOUT_MS` | Image request timeout (10000–300000) | `120000` |
+| `IMAGE_USER_COOLDOWN_MS` | Per-user per-channel cooldown for `/imagine` (`0` = disabled) | `30000` |
 
-The bot starts without `NVIDIA_API_KEY`; only `/image` is disabled until the key is set. NVIDIA’s free tier has rate limits suitable for experimentation.
+The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`).
 
 **Behavior notes:**
 
 - When you **reply** to the bot, quoted text from the reply chain is prepended to your message **in addition to** stored `conversationHistory` (useful for translation and thread grounding).
 - **Images and GIFs** (attachments and embed previews) are collected from non-bot messages in the reply chain, oldest first, up to `MAX_REPLY_CHAIN_IMAGES`. Video attachments are not analyzed.
 - Set `MAX_HISTORY_TOKENS` in production for long threads to cap API payload size.
-- With `ENABLE_CONTEXT_CACHE=true`, each bot **process** creates its own Gemini cache entry; multiple replicas each pay a one-time cache-creation cost on cold start.
+- With `ENABLE_CONTEXT_CACHE=true` (default), the system prompt and prior turns are marked for provider prompt caching (~90% off cached input tokens). Each bot **process** creates its own Gemini cache entry; multiple replicas each pay a one-time cache-creation cost on cold start. Set `ENABLE_CONTEXT_CACHE=false` to disable.
 - **History staleness:** `conversationHistory` does not track Discord message IDs. Edited or deleted user messages may remain in memory until `/reset`, idle eviction, or token/length trimming. Deleting a **bot** reply removes the matching last assistant turn when content still matches.
 - **SVG images** are excluded from vision (raster formats only).
 - Set `SECONDARY_MODEL_NAME` (and optionally `TERTIARY_MODEL_NAME`) to lighter models if your primary often returns rate-limit or overload errors. Provider is inferred from the model ID; override with `SECONDARY_AI_PROVIDER` / `TERTIARY_AI_PROVIDER`. Each backup can use a different provider; its API key must be configured.
@@ -205,16 +205,16 @@ The bot starts without `NVIDIA_API_KEY`; only `/image` is disabled until the key
 
 Attach an image with a caption such as `@AI describe this chart` for multimodal analysis.
 
-Generate an image with `/image prompt:a sunset over mountains` (requires `NVIDIA_API_KEY` from [build.nvidia.com](https://build.nvidia.com)). Optional `size` (aspect ratio) is available; the model is set via `NVIDIA_IMAGE_MODEL`.
+Generate an image with `/imagine prompt:a sunset over mountains` (requires `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)). Optional `size` (aspect ratio) is available.
 
 ### Slash commands
 
 | Command | Description | Permission |
 | :--- | :--- | :--- |
-| `/image` | Generate an image from a text prompt (NVIDIA NIM) | Everyone |
+| `/imagine` | Generate an image from a text prompt (Gemini Image) | Everyone |
 | `/reset` | Clear history for a channel (including threads) or **this server only** | Administrator |
 
-Deploy or refresh slash commands after changes:
+Slash commands are registered automatically when the bot starts (`index.js` calls `deploy-commands.js` before connecting). To deploy without starting the bot:
 
 ```bash
 pnpm commands:deploy
@@ -340,8 +340,8 @@ With Doppler:
 
 ```bash
 pnpm dev                 # nodemon + Doppler
-pnpm start               # node index.js + Doppler
-pnpm commands:deploy     # register slash commands
+pnpm start               # deploy slash commands + start bot (Doppler)
+pnpm commands:deploy     # deploy slash commands only
 pnpm predeploy           # test + deploy commands
 ```
 

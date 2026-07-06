@@ -1,40 +1,37 @@
 const path = require('path');
 const { stubModule, reloadModule, defaultInstrumentStub } = require('./testUtils.cjs');
 
-const imagePath = path.resolve(__dirname, '..', 'commands', 'image.js');
+const imaginePath = path.resolve(__dirname, '..', 'commands', 'imagine.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
-const nvidiaServicePath = path.resolve(__dirname, '..', 'utils', 'nvidiaImageService.js');
+const geminiServicePath = path.resolve(__dirname, '..', 'utils', 'geminiImageService.js');
 const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
 
-function loadImageCommand(options = {}) {
-  const nvidiaApiKey = Object.prototype.hasOwnProperty.call(options, 'nvidiaApiKey')
-    ? options.nvidiaApiKey
-    : 'nvapi-test';
+function loadImagineCommand(options = {}) {
+  const geminiApiKey = Object.prototype.hasOwnProperty.call(options, 'geminiApiKey')
+    ? options.geminiApiKey
+    : 'gemini-test';
   const imageUserCooldownMs = options.imageUserCooldownMs ?? 0;
   const generateImageImpl = options.generateImageImpl;
 
-  return reloadModule(imagePath, () => {
+  return reloadModule(imaginePath, () => {
     stubModule(instrumentPath, defaultInstrumentStub());
     stubModule(configPath, {
-      nvidiaApiKey,
+      geminiApiKey,
       imageUserCooldownMs,
-      nvidiaImageModel: 'flux.1-schnell',
-      NVIDIA_IMAGE_MODELS: {
-        'flux.1-schnell': { apiPath: 'black-forest-labs/flux.1-schnell', label: 'FLUX.1 Schnell', payloadFields: ['prompt', 'width', 'height', 'seed'] }
-      },
-      NVIDIA_ASPECT_RATIOS: { '1:1': { width: 1024, height: 1024 } }
+      IMAGE_ASPECT_RATIOS: {
+        '1:1': '1:1',
+        '16:9': '16:9'
+      }
     });
     stubModule(aiUtilsPath, {
       pruneStaleMapEntries: () => {}
     });
-    stubModule(nvidiaServicePath, {
+    stubModule(geminiServicePath, {
       generateImage: generateImageImpl || (async () => ({
-        buffer: Buffer.from('jpeg-bytes'),
-        contentType: 'image/jpeg',
-        seed: 99,
-        modelId: 'flux.1-schnell',
-        finishReason: 'SUCCESS',
+        buffer: Buffer.from('png-bytes'),
+        contentType: 'image/png',
+        modelId: 'gemini-3.1-flash-image',
         aspectRatio: '1:1'
       })),
       formatImageUserMessage: error => error.userMessage || '⚠️ Image generation failed. Please try again.'
@@ -42,7 +39,7 @@ function loadImageCommand(options = {}) {
   });
 }
 
-function createInteraction({ apiKeyConfigured = true, cooldownMs = 0, lastUsed = 0 } = {}) {
+function createInteraction({ lastUsed = 0 } = {}) {
   const calls = [];
   const interaction = {
     user: { id: 'user-1', tag: 'User#0001' },
@@ -50,7 +47,7 @@ function createInteraction({ apiKeyConfigured = true, cooldownMs = 0, lastUsed =
     channelId: 'chan-1',
     id: 'interaction-1',
     client: {
-      imageCooldowns: lastUsed ? new Map([[`image:user-1:chan-1`, lastUsed]]) : new Map()
+      imagineCooldowns: lastUsed ? new Map([[`imagine:user-1:chan-1`, lastUsed]]) : new Map()
     },
     options: {
       getString: name => {
@@ -70,11 +67,11 @@ function createInteraction({ apiKeyConfigured = true, cooldownMs = 0, lastUsed =
     }
   };
 
-  return { interaction, calls, apiKeyConfigured };
+  return { interaction, calls };
 }
 
-test('should reject when NVIDIA API key is missing', async () => {
-  const command = loadImageCommand({ nvidiaApiKey: undefined });
+test('should reject when Gemini API key is missing', async () => {
+  const command = loadImagineCommand({ geminiApiKey: undefined });
   const { interaction, calls } = createInteraction();
 
   await command.execute(interaction);
@@ -83,8 +80,8 @@ test('should reject when NVIDIA API key is missing', async () => {
   expect(calls.some(c => c.type === 'deferReply')).toBe(false);
 });
 
-test('should block when image cooldown is active', async () => {
-  const command = loadImageCommand({ imageUserCooldownMs: 30_000 });
+test('should block when imagine cooldown is active', async () => {
+  const command = loadImagineCommand({ imageUserCooldownMs: 30_000 });
   const { interaction, calls } = createInteraction({ lastUsed: Date.now() });
 
   await command.execute(interaction);
@@ -94,7 +91,7 @@ test('should block when image cooldown is active', async () => {
 });
 
 test('should defer and reply with attachment on success', async () => {
-  const command = loadImageCommand({ imageUserCooldownMs: 30_000 });
+  const command = loadImagineCommand({ imageUserCooldownMs: 30_000 });
   const { interaction, calls } = createInteraction();
 
   await command.execute(interaction);
@@ -104,11 +101,11 @@ test('should defer and reply with attachment on success', async () => {
   expect(edit).toBeTruthy();
   expect(edit.payload.files).toHaveLength(1);
   expect(edit.payload.embeds).toHaveLength(1);
-  expect(interaction.client.imageCooldowns.has('image:user-1:chan-1')).toBe(true);
+  expect(interaction.client.imagineCooldowns.has('imagine:user-1:chan-1')).toBe(true);
 });
 
 test('should edit reply with error message on generation failure', async () => {
-  const command = loadImageCommand({
+  const command = loadImagineCommand({
     generateImageImpl: async () => {
       const error = new Error('fail');
       error.userMessage = '⚠️ Rate limited.';
@@ -124,16 +121,16 @@ test('should edit reply with error message on generation failure', async () => {
 });
 
 test('should expose slash command metadata', () => {
-  const command = loadImageCommand();
+  const command = loadImagineCommand();
   const json = command.data.toJSON();
-  expect(json.name).toBe('image');
+  expect(json.name).toBe('imagine');
   expect(json.options.some(o => o.name === 'prompt')).toBe(true);
   expect(json.options.some(o => o.name === 'size')).toBe(true);
   expect(json.options.some(o => o.name === 'model')).toBe(false);
 });
 
 test('should truncate long prompts in the success embed', async () => {
-  const command = loadImageCommand();
+  const command = loadImagineCommand();
   const longPrompt = 'x'.repeat(300);
   const { interaction, calls } = createInteraction();
   interaction.options.getString = name => {
@@ -148,18 +145,18 @@ test('should truncate long prompts in the success embed', async () => {
   expect(edit.payload.embeds[0].data.description.endsWith('…')).toBe(true);
 });
 
-test('should initialize imageCooldowns when client map is missing', async () => {
-  const command = loadImageCommand({ imageUserCooldownMs: 30_000 });
+test('should initialize imagineCooldowns when client map is missing', async () => {
+  const command = loadImagineCommand({ imageUserCooldownMs: 30_000 });
   const { interaction } = createInteraction();
-  delete interaction.client.imageCooldowns;
+  delete interaction.client.imagineCooldowns;
 
   await command.execute(interaction);
 
-  expect(interaction.client.imageCooldowns).toBeInstanceOf(Map);
+  expect(interaction.client.imagineCooldowns).toBeInstanceOf(Map);
 });
 
 test('should log when error editReply fails', async () => {
-  const command = loadImageCommand({
+  const command = loadImagineCommand({
     generateImageImpl: async () => {
       throw new Error('generation failed');
     }
@@ -176,7 +173,7 @@ test('should log when error editReply fails', async () => {
 });
 
 test('should not include model, size, or seed fields in the success embed', async () => {
-  const command = loadImageCommand();
+  const command = loadImagineCommand();
   const { interaction, calls } = createInteraction();
 
   await command.execute(interaction);

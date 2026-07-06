@@ -1,14 +1,14 @@
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
-const { nvidiaApiKey, imageUserCooldownMs, nvidiaImageModel, NVIDIA_ASPECT_RATIOS } = require('../config');
-const { generateImage, formatImageUserMessage } = require('../utils/nvidiaImageService');
+const { geminiApiKey, imageUserCooldownMs, IMAGE_ASPECT_RATIOS } = require('../config');
+const { generateImage, formatImageUserMessage } = require('../utils/geminiImageService');
 const { pruneStaleMapEntries } = require('../utils/aiUtils');
 const logger = require('../logger')(path.basename(__filename));
 const { serializeError } = require('../utils/logSanitize');
 
-function imageCooldownKey(userId, channelId) {
-  return `image:${userId}:${channelId}`;
+function imagineCooldownKey(userId, channelId) {
+  return `imagine:${userId}:${channelId}`;
 }
 
 function truncatePrompt(prompt, maxLen = 256) {
@@ -20,18 +20,18 @@ const sizeChoices = [
   { name: 'Square 1:1', value: '1:1' },
   { name: 'Landscape 16:9', value: '16:9' },
   { name: 'Portrait 9:16', value: '9:16' },
-  { name: 'Portrait 4:5', value: '4:5' },
-  { name: 'Landscape 3:2', value: '3:2' }
-].filter(choice => NVIDIA_ASPECT_RATIOS[choice.value]);
+  { name: 'Portrait 3:4', value: '3:4' },
+  { name: 'Landscape 4:3', value: '4:3' }
+].filter(choice => IMAGE_ASPECT_RATIOS[choice.value]);
 
 /**
- * /image slash command — text-to-image via NVIDIA NIM.
- * @module commands/image
+ * /imagine slash command — text-to-image via Gemini Image.
+ * @module commands/imagine
  */
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('image')
-    .setDescription('Generate an image from a text prompt using NVIDIA NIM')
+    .setName('imagine')
+    .setDescription('Generate an image from a text prompt using Gemini Image')
     .addStringOption(option =>
       option
         .setName('prompt')
@@ -60,44 +60,42 @@ module.exports = {
     const channelId = interaction.channelId;
     const startedAt = Date.now();
 
-    if (!nvidiaApiKey) {
+    if (!geminiApiKey) {
       await interaction.reply({
-        content: '⚠️ Image generation is not configured (missing NVIDIA API key).',
+        content: '⚠️ Image generation is not configured (missing Gemini API key).',
         flags: MessageFlags.Ephemeral
       });
       return;
     }
 
-    if (!client.imageCooldowns) {
-      client.imageCooldowns = new Map();
+    if (!client.imagineCooldowns) {
+      client.imagineCooldowns = new Map();
     }
 
-    const cooldownKey = imageCooldownKey(userId, channelId);
+    const cooldownKey = imagineCooldownKey(userId, channelId);
     const now = Date.now();
-    const lastUsed = client.imageCooldowns.get(cooldownKey) || 0;
+    const lastUsed = client.imagineCooldowns.get(cooldownKey) || 0;
     if (imageUserCooldownMs > 0 && now - lastUsed < imageUserCooldownMs) {
       const waitSec = Math.ceil((imageUserCooldownMs - (now - lastUsed)) / 1000);
       await interaction.reply({
         content: `⚠️ Please wait ${waitSec}s before generating another image.`,
         flags: MessageFlags.Ephemeral
       });
-      recordCount('discord.command.image.cooldown', 1);
+      recordCount('discord.command.imagine.cooldown', 1);
       return;
     }
 
     const prompt = interaction.options.getString('prompt', true);
-    const modelId = nvidiaImageModel;
     const aspectRatio = interaction.options.getString('size') || '1:1';
 
     await interaction.deferReply();
 
-    logger.info('Image command initiated.', {
+    logger.info('Imagine command initiated.', {
       user: interaction.user.tag,
       userId,
       guildId: interaction.guildId,
       channelId,
       interactionId: interaction.id,
-      modelId,
       aspectRatio,
       promptLength: prompt.length
     });
@@ -105,13 +103,14 @@ module.exports = {
     let outcome = 'success';
 
     try {
-      const result = await generateImage({ prompt, modelId, aspectRatio });
+      const result = await generateImage({ prompt, aspectRatio });
 
-      const filename = `image-${result.seed}.jpg`;
+      const ext = result.contentType === 'image/jpeg' ? 'jpg' : 'png';
+      const filename = `image-${Date.now()}.${ext}`;
       const attachment = new AttachmentBuilder(result.buffer, { name: filename });
 
       const embed = new EmbedBuilder()
-        .setColor(0x76b900)
+        .setColor(0x4285f4)
         .setTitle('Generated image')
         .setDescription(truncatePrompt(prompt))
         .setFooter({ text: `Requested by ${interaction.user.tag}` })
@@ -120,30 +119,28 @@ module.exports = {
       await interaction.editReply({ embeds: [embed], files: [attachment] });
 
       if (imageUserCooldownMs > 0) {
-        pruneStaleMapEntries(client.imageCooldowns, imageUserCooldownMs * 10);
-        client.imageCooldowns.set(cooldownKey, Date.now());
+        pruneStaleMapEntries(client.imagineCooldowns, imageUserCooldownMs * 10);
+        client.imagineCooldowns.set(cooldownKey, Date.now());
       }
     } catch (error) {
       outcome = 'error';
       captureError(error, {
-        source: 'commands/image',
+        source: 'commands/imagine',
         userId,
         guildId: interaction.guildId,
-        channelId,
-        modelId
+        channelId
       });
-      logger.error('Image command failed.', {
+      logger.error('Imagine command failed.', {
         userId,
         guildId: interaction.guildId,
         channelId,
-        modelId,
         ...serializeError(error, { includeStack: true })
       });
 
       try {
         await interaction.editReply({ content: formatImageUserMessage(error) });
       } catch (editError) {
-        logger.error('Failed to send image error reply.', {
+        logger.error('Failed to send imagine error reply.', {
           userId,
           channelId,
           ...serializeError(editError, { includeStack: true })
@@ -151,9 +148,9 @@ module.exports = {
       }
     } finally {
       const elapsedMs = Date.now() - startedAt;
-      recordCount('discord.command.image', 1, { outcome });
-      recordDistribution('discord.command.image.duration_ms', elapsedMs, { outcome });
-      logger.info('Image command completed.', {
+      recordCount('discord.command.imagine', 1, { outcome });
+      recordDistribution('discord.command.imagine.duration_ms', elapsedMs, { outcome });
+      logger.info('Imagine command completed.', {
         userId,
         guildId: interaction.guildId,
         channelId,

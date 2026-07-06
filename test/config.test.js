@@ -131,6 +131,26 @@ test('should clamps MAX_HISTORY_LENGTH to at least 1', () => {
   expect(config.maxHistoryLength).toBe(1);
 });
 
+test('should default MAX_HISTORY_LENGTH to 10 and enable context cache', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    MAX_HISTORY_LENGTH: undefined,
+    ENABLE_CONTEXT_CACHE: undefined
+  });
+  expect(config.maxHistoryLength).toBe(10);
+  expect(config.enableContextCache).toBe(true);
+});
+
+test('should disable context cache when ENABLE_CONTEXT_CACHE is false', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    ENABLE_CONTEXT_CACHE: 'false'
+  });
+  expect(config.enableContextCache).toBe(false);
+});
+
 test('should resolves conversation history memory bounds from env', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
@@ -483,37 +503,30 @@ test('should warns on invalid ALLOWED_GUILD_IDS entries', () => {
   }
 });
 
-test('should resolves NVIDIA image generation settings', () => {
+test('should resolves Gemini Image generation settings', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: 'gpt-5.4-nano',
-    NVIDIA_API_KEY: 'nvapi-test',
-    NVIDIA_IMAGE_MODEL: 'flux.1-dev',
-    NVIDIA_IMAGE_TIMEOUT_MS: '90000',
+    GEMINI_API_KEY: 'gemini-test',
+    GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
+    IMAGE_GENERATION_TIMEOUT_MS: '90000',
     IMAGE_USER_COOLDOWN_MS: '15000'
   });
 
-  expect(config.nvidiaApiKey).toBe('nvapi-test');
-  expect(config.nvidiaImageModel).toBe('flux.1-dev');
-  expect(config.nvidiaImageTimeoutMs).toBe(90000);
+  expect(config.geminiApiKey).toBe('gemini-test');
+  expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
+  expect(config.imageGenerationTimeoutMs).toBe(90000);
   expect(config.imageUserCooldownMs).toBe(15000);
-  expect(config.NVIDIA_IMAGE_MODELS['flux.1-schnell'].apiPath).toBe('black-forest-labs/flux.1-schnell');
-  expect(config.NVIDIA_ASPECT_RATIOS['16:9']).toEqual({ width: 1344, height: 768 });
+  expect(config.IMAGE_ASPECT_RATIOS['16:9']).toBe('16:9');
 });
 
-test('should fall back to default NVIDIA image model when env model is invalid', () => {
-  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  try {
-    const config = loadConfig({
-      AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
-      NVIDIA_IMAGE_MODEL: 'not-a-model'
-    });
-    expect(config.nvidiaImageModel).toBe('flux.1-schnell');
-    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('NVIDIA_IMAGE_MODEL'))).toBe(true);
-  } finally {
-    warnSpy.mockRestore();
-  }
+test('should default Gemini Image model when env model is unset', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    GEMINI_IMAGE_MODEL_NAME: undefined
+  });
+  expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
 });
 
 test('should warn when SECONDARY_AI_PROVIDER is invalid', () => {

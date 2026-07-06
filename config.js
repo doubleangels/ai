@@ -26,6 +26,7 @@ const SUPPORTED_GEMINI_MODELS = [
   'gemini-3.1-flash-lite-preview',
   'gemini-3-pro-image-preview',
   'gemini-3.1-flash-image-preview',
+  'gemini-3.1-flash-image',
   // Gemini 2.5 (still widely used; some have published shutdown windows in 2026)
   'gemini-2.5-pro',
   'gemini-2.5-flash',
@@ -48,41 +49,15 @@ const SUPPORTED_CLAUDE_MODELS = [
 ];
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
-const DEFAULT_NVIDIA_IMAGE_MODEL = 'flux.1-schnell';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 
-/** NVIDIA NIM cloud text-to-image models (build.nvidia.com). */
-const NVIDIA_IMAGE_MODELS = {
-  'flux.1-schnell': {
-    apiPath: 'black-forest-labs/flux.1-schnell',
-    label: 'FLUX.1 Schnell',
-    payloadFields: ['prompt', 'width', 'height', 'seed']
-  },
-  'flux.1-dev': {
-    apiPath: 'black-forest-labs/flux.1-dev',
-    label: 'FLUX.1 Dev',
-    payloadFields: ['prompt', 'width', 'height', 'seed', 'steps'],
-    defaultSteps: 28
-  },
-  'flux.2-klein-4b': {
-    apiPath: 'black-forest-labs/flux.2-klein-4b',
-    label: 'FLUX.2 Klein 4B',
-    payloadFields: ['prompt', 'width', 'height', 'seed']
-  },
-  'stable-diffusion-3.5-large': {
-    apiPath: 'stabilityai/stable-diffusion-3.5-large',
-    label: 'Stable Diffusion 3.5 Large',
-    payloadFields: ['prompt', 'width', 'height', 'seed', 'steps'],
-    defaultSteps: 30
-  }
-};
-
-/** Aspect ratio presets for NVIDIA image generation (width × height). */
-const NVIDIA_ASPECT_RATIOS = {
-  '1:1': { width: 1024, height: 1024 },
-  '16:9': { width: 1344, height: 768 },
-  '9:16': { width: 768, height: 1344 },
-  '4:5': { width: 1152, height: 896 },
-  '3:2': { width: 1216, height: 832 }
+/** Aspect ratios supported by Gemini Image models. */
+const IMAGE_ASPECT_RATIOS = {
+  '1:1': '1:1',
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '4:3': '4:3',
+  '3:4': '3:4'
 };
 
 const SUPPORTED_AI_PROVIDERS = ['openai', 'gemini', 'claude'];
@@ -291,7 +266,7 @@ const config = {
   allowedGuildIds,
   logLevel: process.env.LOG_LEVEL || 'info',
   maxHistoryLength: (() => {
-    if (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) return 20;
+    if (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) return 10;
     return Math.max(1, parsedHistoryLength);
   })(),
   // Rough, token-estimated cap for stored history (in addition to maxHistoryLength).
@@ -313,7 +288,10 @@ const config = {
   enableWebSearch: process.env.ENABLE_WEB_SEARCH === 'true' || process.env.ENABLE_WEB_SEARCH === '1',
   enableGoogleMaps: process.env.ENABLE_GOOGLE_MAPS === 'true' || process.env.ENABLE_GOOGLE_MAPS === '1',
   // Context / prompt caching (reduces cost and latency for repeated static content). Single switch for all providers.
-  enableContextCache: process.env.ENABLE_CONTEXT_CACHE === 'true' || process.env.ENABLE_CONTEXT_CACHE === '1',
+  enableContextCache: (() => {
+    const raw = (process.env.ENABLE_CONTEXT_CACHE ?? 'true').trim().toLowerCase();
+    return raw !== 'false' && raw !== '0';
+  })(),
   geminiCacheTtlSeconds: Math.max(60, Math.min(86400 * 24, parseInt(process.env.GEMINI_CACHE_TTL_SECONDS, 10) || 3600)),
   // Gemini safety/generation: optional JSON array of { category, threshold } (e.g. [{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]). Unset = API defaults.
   geminiSafetySettings: (() => {
@@ -349,17 +327,22 @@ const config = {
   openaiMaxRetries: Math.max(0, Math.min(5, parseEnvInt(process.env.OPENAI_MAX_RETRIES, 2))),
   geminiTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.GEMINI_TIMEOUT_MS, 60000))),
   claudeTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.CLAUDE_TIMEOUT_MS, 60000))),
-  // NVIDIA NIM image generation (/image command). Optional — bot starts without a key.
-  nvidiaApiKey: process.env.NVIDIA_API_KEY,
-  nvidiaImageModel: (() => {
-    const envModel = (process.env.NVIDIA_IMAGE_MODEL || '').trim();
-    if (envModel && NVIDIA_IMAGE_MODELS[envModel]) return envModel;
-    if (envModel) {
-      console.warn(`NVIDIA_IMAGE_MODEL "${envModel}" is not supported; using ${DEFAULT_NVIDIA_IMAGE_MODEL}.`);
+  // Gemini Image generation (/imagine command). Uses GEMINI_API_KEY.
+  geminiImageModel: (() => {
+    const primary = (process.env.GEMINI_IMAGE_MODEL_NAME || '').trim();
+    if (primary) {
+      if (primary.startsWith('imagen-')) {
+        console.warn(
+          `GEMINI_IMAGE_MODEL_NAME "${primary}" is an Imagen model; using ${DEFAULT_GEMINI_IMAGE_MODEL} instead.`
+        );
+        return DEFAULT_GEMINI_IMAGE_MODEL;
+      }
+      return primary;
     }
-    return DEFAULT_NVIDIA_IMAGE_MODEL;
+
+    return DEFAULT_GEMINI_IMAGE_MODEL;
   })(),
-  nvidiaImageTimeoutMs: Math.max(10_000, Math.min(300_000, parseEnvInt(process.env.NVIDIA_IMAGE_TIMEOUT_MS, 120_000))),
+  imageGenerationTimeoutMs: Math.max(10_000, Math.min(300_000, parseEnvInt(process.env.IMAGE_GENERATION_TIMEOUT_MS, 120_000))),
   imageUserCooldownMs: parseEnvInt(process.env.IMAGE_USER_COOLDOWN_MS, 30_000),
   // In-memory conversation store bounds (per process).
   conversationHistoryMaxChannels: Math.max(0, Math.min(10000, parseInt(process.env.CONVERSATION_HISTORY_MAX_CHANNELS, 10) || 500)),
@@ -380,8 +363,7 @@ module.exports = {
   SUPPORTED_MODELS,
   SUPPORTED_GEMINI_MODELS,
   SUPPORTED_CLAUDE_MODELS,
-  NVIDIA_IMAGE_MODELS,
-  NVIDIA_ASPECT_RATIOS,
-  DEFAULT_NVIDIA_IMAGE_MODEL,
+  IMAGE_ASPECT_RATIOS,
+  DEFAULT_GEMINI_IMAGE_MODEL,
   getTemperature
 };

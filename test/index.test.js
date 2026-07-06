@@ -72,7 +72,7 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
       clientId: 'client-1',
       allowedGuildIds: new Set(),
       logLevel: 'info',
-      maxHistoryLength: 20,
+      maxHistoryLength: 10,
       maxHistoryTokens: 0,
       modelName: 'gpt-5.4-nano',
       openaiApiKey: 'fake',

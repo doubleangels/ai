@@ -442,11 +442,13 @@ test('should gemini reuses valid cache entries without recreating', async () => 
 
 test('should claude uses plain system prompt when context cache is disabled', async () => {
   let capturedSystem;
+  let capturedMessages;
   const aiService = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = {
         create: async params => {
           capturedSystem = params.system;
+          capturedMessages = params.messages;
           return { content: [{ type: 'text', text: 'ok' }] };
         }
       };
@@ -457,8 +459,77 @@ test('should claude uses plain system prompt when context cache is disabled', as
     ENABLE_CONTEXT_CACHE: '0'
   });
 
-  await aiService.generateAIResponse([{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }]);
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'reply' },
+    { role: 'user', content: 'second' }
+  ]);
   expect(capturedSystem).toBe('sys');
+  expect(capturedMessages[1].content).toBe('reply');
+});
+
+test('should claude marks prior turns for prompt caching when enabled', async () => {
+  let capturedSystem;
+  let capturedMessages;
+  const aiService = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async params => {
+          capturedSystem = params.system;
+          capturedMessages = params.messages;
+          return { content: [{ type: 'text', text: 'ok' }] };
+        }
+      };
+    }
+  }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    ENABLE_CONTEXT_CACHE: '1'
+  });
+
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'reply' },
+    { role: 'user', content: 'second' }
+  ]);
+  expect(capturedSystem[0].cache_control).toEqual({ type: 'ephemeral' });
+  expect(capturedMessages[1].content[0].cache_control).toEqual({ type: 'ephemeral' });
+  expect(capturedMessages[2].content).toBe('second');
+});
+
+test('should openai uses prompt cache settings when context cache is enabled', async () => {
+  let capturedParams;
+  const aiService = await loadAiService({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async params => {
+              capturedParams = params;
+              return { id: 'resp-1', status: 'completed', output_text: 'ok' };
+            }
+          };
+        }
+      }
+    }
+  }, {
+    AI_PROVIDER: 'openai',
+    OPENAI_API_KEY: 'fake',
+    ENABLE_CONTEXT_CACHE: '1'
+  });
+
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'reply' },
+    { role: 'user', content: 'second' }
+  ]);
+
+  expect(capturedParams.prompt_cache_key).toBe('ai-bot-system-v1');
+  expect(capturedParams.prompt_cache_retention).toBe('24h');
+  expect(capturedParams.input[2].content[0].cache_control).toEqual({ type: 'ephemeral' });
 });
 
 test('should claude uses image analysis prompt without a system message', async () => {
@@ -477,7 +548,7 @@ test('should claude uses image analysis prompt without a system message', async 
   await aiService.generateAIResponse([
     { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
   ]);
-  expect(capturedSystem).toMatch(/When analyzing images/);
+  expect(capturedSystem[0].text).toMatch(/When analyzing images/);
 });
 
 test('should claude handles tools, thinking, empty responses, and API failures', async () => {
