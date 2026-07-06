@@ -6,6 +6,7 @@ const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const geminiServicePath = path.resolve(__dirname, '..', 'utils', 'geminiImageService.js');
 const aiUtilsPath = path.resolve(__dirname, '..', 'utils', 'aiUtils.js');
+const discordApiPath = path.resolve(__dirname, '..', 'utils', 'discordApi.js');
 
 function loadImagineCommand(options = {}) {
   const geminiApiKey = Object.prototype.hasOwnProperty.call(options, 'geminiApiKey')
@@ -26,6 +27,9 @@ function loadImagineCommand(options = {}) {
     });
     stubModule(aiUtilsPath, {
       pruneStaleMapEntries: () => {}
+    });
+    stubModule(discordApiPath, {
+      withDiscordRetry: fn => fn()
     });
     stubModule(geminiServicePath, {
       generateImage: generateImageImpl || (async () => ({
@@ -90,17 +94,19 @@ test('should block when imagine cooldown is active', async () => {
   expect(calls.some(c => c.type === 'deferReply')).toBe(false);
 });
 
-test('should defer and reply with attachment on success', async () => {
+test('should defer, show thinking placeholder, then reply with attachment on success', async () => {
   const command = loadImagineCommand({ imageUserCooldownMs: 30_000 });
   const { interaction, calls } = createInteraction();
 
   await command.execute(interaction);
 
   expect(calls.some(c => c.type === 'deferReply')).toBe(true);
-  const edit = calls.find(c => c.type === 'editReply');
-  expect(edit).toBeTruthy();
-  expect(edit.payload.files).toHaveLength(1);
-  expect(edit.payload.embeds).toHaveLength(1);
+  const edits = calls.filter(c => c.type === 'editReply');
+  expect(edits.length).toBeGreaterThanOrEqual(2);
+  expect(edits[0].payload.content).toBe('*Thinking...*');
+  const successEdit = edits[edits.length - 1];
+  expect(successEdit.payload.files).toHaveLength(1);
+  expect(successEdit.payload.embeds).toHaveLength(1);
   expect(interaction.client.imagineCooldowns.has('imagine:user-1:chan-1')).toBe(true);
 });
 
@@ -116,7 +122,7 @@ test('should edit reply with error message on generation failure', async () => {
 
   await command.execute(interaction);
 
-  const edit = calls.find(c => c.type === 'editReply');
+  const edit = calls.filter(c => c.type === 'editReply').pop();
   expect(edit.payload.content).toMatch(/Rate limited/);
 });
 
@@ -140,7 +146,7 @@ test('should truncate long prompts in the success embed', async () => {
 
   await command.execute(interaction);
 
-  const edit = calls.find(c => c.type === 'editReply');
+  const edit = calls.filter(c => c.type === 'editReply').pop();
   expect(edit.payload.embeds[0].data.description.length).toBeLessThanOrEqual(256);
   expect(edit.payload.embeds[0].data.description.endsWith('…')).toBe(true);
 });
@@ -163,13 +169,14 @@ test('should log when error editReply fails', async () => {
   });
   const { interaction } = createInteraction();
   let editCount = 0;
-  interaction.editReply = async () => {
+  interaction.editReply = async payload => {
     editCount += 1;
+    if (editCount === 1) return;
     throw new Error('edit failed');
   };
 
   await expect(command.execute(interaction)).resolves.toBeUndefined();
-  expect(editCount).toBe(1);
+  expect(editCount).toBe(2);
 });
 
 test('should not include model, size, or seed fields in the success embed', async () => {
@@ -178,7 +185,7 @@ test('should not include model, size, or seed fields in the success embed', asyn
 
   await command.execute(interaction);
 
-  const edit = calls.find(c => c.type === 'editReply');
+  const edit = calls.filter(c => c.type === 'editReply').pop();
   const fields = edit.payload.embeds[0].data.fields ?? [];
   expect(fields.some(f => f.name === 'Model')).toBe(false);
   expect(fields.some(f => f.name === 'Size')).toBe(false);

@@ -4,6 +4,7 @@ const { captureError, recordCount, recordDistribution } = require('../instrument
 const { geminiApiKey, imageUserCooldownMs, IMAGE_ASPECT_RATIOS } = require('../config');
 const { generateImage, formatImageUserMessage } = require('../utils/geminiImageService');
 const { pruneStaleMapEntries } = require('../utils/aiUtils');
+const { withDiscordRetry } = require('../utils/discordApi');
 const logger = require('../logger')(path.basename(__filename));
 const { serializeError } = require('../utils/logSanitize');
 
@@ -104,6 +105,7 @@ module.exports = {
     const aspectRatio = interaction.options.getString('size') || '1:1';
 
     await interaction.deferReply();
+    await interaction.editReply({ content: '*Thinking...*' });
 
     logger.info('Imagine command initiated.', {
       user: interaction.user.tag,
@@ -131,7 +133,14 @@ module.exports = {
         .setFooter({ text: `Requested by ${interaction.user.tag}` })
         .setImage(`attachment://${filename}`);
 
-      await interaction.editReply({ embeds: [embed], files: [attachment] });
+      await withDiscordRetry(
+        () => interaction.editReply({
+          content: '',
+          embeds: [embed],
+          files: [attachment]
+        }),
+        { label: 'commands/imagine.edit_reply' }
+      );
 
       logger.info('Imagine command generated image.', {
         userId,
@@ -164,7 +173,10 @@ module.exports = {
       });
 
       try {
-        await interaction.editReply({ content: formatImageUserMessage(error) });
+        await withDiscordRetry(
+          () => interaction.editReply({ content: formatImageUserMessage(error) }),
+          { label: 'commands/imagine.error_reply' }
+        );
       } catch (editError) {
         logger.error('Failed to send imagine error reply.', {
           userId,
