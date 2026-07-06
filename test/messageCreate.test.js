@@ -180,13 +180,25 @@ test('should responds when a mentioned role includes the bot', async () => {
 test('should ignores messages outside allowed guilds', async () => {
   const mod = loadMessageCreate({ config: { allowedGuildIds: new Set(['other-guild']) } });
   let replied = false;
+  let leftGuild = false;
   const message = createBaseMessage({
     guildId: 'guild-1',
+    guild: {
+      id: 'guild-1',
+      name: 'blocked-guild',
+      leave: async () => { leftGuild = true; },
+      members: {
+        cache: {
+          get: () => ({ roles: { cache: { has: () => false } } })
+        }
+      }
+    },
     reply: async () => { replied = true; return { edit: async () => {} }; }
   });
 
   await mod.execute(message);
   expect(replied).toBe(false);
+  expect(leftGuild).toBe(true);
 });
 
 test('should handles backpressure and failed busy replies', async () => {

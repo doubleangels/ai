@@ -5,12 +5,10 @@ const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
 const { serializeError } = require('./utils/logSanitize');
+const { leaveDisallowedGuild, isGuildAllowlisted } = require('./utils/guildAccess');
 
 function interactionAllowedInGuild(interaction) {
-  const ids = config.allowedGuildIds;
-  if (!ids || ids.size === 0) return true;
-  if (!interaction.inGuild() || !interaction.guildId) return false;
-  return ids.has(interaction.guildId);
+  return isGuildAllowlisted(interaction.guildId);
 }
 
 /**
@@ -127,6 +125,9 @@ client.on('interactionCreate', async interaction => {
       channelId: interaction.channelId,
       interactionId: interaction.id
     });
+    if (interaction.guild) {
+      await leaveDisallowedGuild(client, interaction.guild, 'interactionCreate');
+    }
     try {
       await interaction.reply({ content: 'This bot is not enabled in this server.', flags: MessageFlags.Ephemeral });
     } catch (_) {

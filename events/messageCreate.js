@@ -10,11 +10,11 @@ const { traceReplyChain } = require('../utils/replyChainTracer');
 const { withDiscordRetry } = require('../utils/discordApi');
 const { serializeError } = require('../utils/logSanitize');
 const { recordCount } = require('../instrument');
+const { leaveDisallowedGuild, isGuildAllowlisted } = require('../utils/guildAccess');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const {
-  maxReplyChainDepth,
-  allowedGuildIds
+  maxReplyChainDepth
 } = require('../config');
 
 const SAFE_ALLOWED_MENTIONS = { parse: [] };
@@ -92,15 +92,16 @@ module.exports = {
     const channelName = message.channel?.name || 'unknown';
     const messageStartedAt = Date.now();
 
-    if (allowedGuildIds.size > 0) {
-      if (!message.guildId || !allowedGuildIds.has(message.guildId)) {
-        logger.debug('Ignoring message from disallowed guild.', {
-          guildId: message.guildId || null,
-          channelId,
-          messageId: message.id
-        });
-        return;
+    if (!isGuildAllowlisted(message.guildId)) {
+      logger.debug('Ignoring message from disallowed guild.', {
+        guildId: message.guildId || null,
+        channelId,
+        messageId: message.id
+      });
+      if (message.guild) {
+        await leaveDisallowedGuild(client, message.guild, 'messageCreate');
       }
+      return;
     }
 
     const hasBotPing = messageMentionsBot(message, client);
