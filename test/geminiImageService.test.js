@@ -13,6 +13,7 @@ function loadService({ configOverrides = {}, generateContentImpl } = {}) {
     stubModule(configPath, {
       geminiApiKey: 'gemini-test-key',
       geminiImageModel: 'gemini-3.1-flash-image',
+      geminiImageBackupModel: null,
       imageGenerationTimeoutMs: 5000,
       IMAGE_ASPECT_RATIOS: {
         '1:1': '1:1',
@@ -179,6 +180,61 @@ test('should format user-facing error messages', () => {
   const svc = loadService();
   expect(svc.formatImageUserMessage(new svc.GeminiImageError('x', { userMessage: '⚠️ Custom' }))).toBe('⚠️ Custom');
   expect(svc.formatImageUserMessage(new Error('boom'))).toMatch(/failed/);
+});
+
+test('should retry with backup image model on rate limit', async () => {
+  const calls = [];
+  const svc = loadService({
+    configOverrides: {
+      geminiImageModel: 'gemini-3.1-flash-image',
+      geminiImageBackupModel: 'gemini-2.5-flash-image'
+    },
+    generateContentImpl: async params => {
+      calls.push(params.model);
+      if (params.model === 'gemini-3.1-flash-image') {
+        throw Object.assign(new Error('rate limit'), { status: 429 });
+      }
+      return {
+        candidates: [{
+          content: {
+            parts: [{ inlineData: { data: SAMPLE_PNG_B64, mimeType: 'image/png' } }]
+          }
+        }]
+      };
+    }
+  });
+
+  const result = await svc.generateImage({ prompt: 'a red apple' });
+
+  expect(calls).toEqual(['gemini-3.1-flash-image', 'gemini-2.5-flash-image']);
+  expect(result.modelId).toBe('gemini-2.5-flash-image');
+});
+
+test('should not retry content filtered errors with backup model', async () => {
+  const calls = [];
+  const svc = loadService({
+    configOverrides: {
+      geminiImageModel: 'gemini-3.1-flash-image',
+      geminiImageBackupModel: 'gemini-2.5-flash-image'
+    },
+    generateContentImpl: async params => {
+      calls.push(params.model);
+      return { promptFeedback: { blockReason: 'SAFETY' } };
+    }
+  });
+
+  await expect(svc.generateImage({ prompt: 'blocked' })).rejects.toMatchObject({
+    name: 'ContentFilteredError'
+  });
+  expect(calls).toEqual(['gemini-3.1-flash-image']);
+});
+
+test('should identify retryable image errors', () => {
+  const svc = loadService();
+  expect(svc.isRetryableImageError(new svc.GeminiImageError('x', { code: 'rate_limit' }))).toBe(true);
+  expect(svc.isRetryableImageError(new svc.GeminiImageError('x', { code: 'server_error' }))).toBe(true);
+  expect(svc.isRetryableImageError(new svc.GeminiImageError('x', { code: 'validation_error' }))).toBe(false);
+  expect(svc.isRetryableImageError(new svc.ContentFilteredError('SAFETY'))).toBe(false);
 });
 
 test('should map HTTP 400, 404, 500, and generic API errors', async () => {

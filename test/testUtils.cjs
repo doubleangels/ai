@@ -41,6 +41,7 @@ const DEFAULT_CONFIG = {
   openaiTimeoutMs: 60000,
   openaiMaxRetries: 2,
   geminiImageModel: 'gemini-3.1-flash-image',
+  geminiImageBackupModel: null,
   imageGenerationTimeoutMs: 120_000,
   imageUserCooldownMs: 30_000,
   conversationHistoryMaxChannels: 500,

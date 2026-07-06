@@ -175,10 +175,11 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | :--- | :--- | :--- |
 | `GEMINI_API_KEY` | API key from [Google AI Studio](https://aistudio.google.com/apikey) (also used when `AI_PROVIDER=gemini`) | *unset* |
 | `GEMINI_IMAGE_MODEL_NAME` | Gemini Image model for `/imagine` | `gemini-3.1-flash-image` |
+| `SECONDARY_GEMINI_IMAGE_MODEL_NAME` | Backup Gemini Image model when the primary is rate-limited or unavailable | *unset* |
 | `IMAGE_GENERATION_TIMEOUT_MS` | Image request timeout (10000–300000) | `120000` |
 | `IMAGE_USER_COOLDOWN_MS` | Per-user per-channel cooldown for `/imagine` (`0` = disabled) | `30000` |
 
-The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`).
+The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-2.5-flash-image`) to retry `/imagine` on rate limits or server errors.
 
 **Behavior notes:**
 

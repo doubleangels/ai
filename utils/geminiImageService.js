@@ -3,6 +3,7 @@ const path = require('path');
 const {
   geminiApiKey,
   geminiImageModel,
+  geminiImageBackupModel,
   imageGenerationTimeoutMs,
   IMAGE_ASPECT_RATIOS,
   DEFAULT_GEMINI_IMAGE_MODEL
@@ -164,6 +165,95 @@ function withRequestTimeout(promise, timeoutMs) {
 }
 
 /**
+ * @param {GeminiImageError} error
+ * @returns {boolean}
+ */
+function isRetryableImageError(error) {
+  if (error instanceof ContentFilteredError) return false;
+  return error.code === 'rate_limit'
+    || error.code === 'server_error'
+    || error.code === 'timeout'
+    || error.code === 'not_found';
+}
+
+/**
+ * @param {string} modelId
+ * @param {string} trimmedPrompt
+ * @param {string} resolvedAspectRatio
+ * @param {number} startedAt
+ * @returns {Promise<{ buffer: Buffer, contentType: string, modelId: string, aspectRatio: string }>}
+ */
+async function invokeImageGeneration(modelId, trimmedPrompt, resolvedAspectRatio, startedAt) {
+  try {
+    const response = await withRequestTimeout(
+      genAI.models.generateContent({
+        model: modelId,
+        contents: trimmedPrompt,
+        config: {
+          responseModalities: ['IMAGE'],
+          imageConfig: {
+            aspectRatio: resolvedAspectRatio
+          }
+        }
+      }),
+      imageGenerationTimeoutMs
+    );
+
+    const extracted = extractImageFromResponse(response);
+    if (!extracted) {
+      throw new GeminiImageError('Missing image in Gemini response.', {
+        code: 'missing_artifact',
+        userMessage: '⚠️ Image generation did not return an image.'
+      });
+    }
+    if (extracted.filtered) {
+      recordCount('gemini.image.filtered', 1, { model: modelId });
+      throw new ContentFilteredError(extracted.reason);
+    }
+
+    const buffer = Buffer.from(extracted.data, 'base64');
+    const elapsedMs = Date.now() - startedAt;
+
+    recordCount('gemini.image.success', 1, { model: modelId });
+    recordDistribution('gemini.image.duration_ms', elapsedMs, { model: modelId });
+
+    logger.info('Gemini image generated.', {
+      modelId,
+      aspectRatio: resolvedAspectRatio,
+      bytes: buffer.length,
+      elapsedMs
+    });
+
+    return {
+      buffer,
+      contentType: extracted.mimeType,
+      modelId,
+      aspectRatio: resolvedAspectRatio
+    };
+  } catch (error) {
+    if (error instanceof GeminiImageError) throw error;
+
+    if (error?.name === 'AbortError' || /timed out/i.test(error?.message || '')) {
+      throw new GeminiImageError('Gemini image request timed out.', {
+        code: 'timeout',
+        userMessage: '⚠️ Image generation timed out. Try again with a simpler prompt.'
+      });
+    }
+
+    const { status, detail } = parseApiError(error);
+    const mapped = mapApiError(status, detail);
+    captureError(mapped, {
+      source: 'geminiImageService',
+      modelId,
+      status,
+      ...serializeError(error)
+    });
+    recordCount('gemini.image.error', 1, { model: modelId, status: String(status ?? 'unknown') });
+    throw mapped;
+  }
+}
+
+/**
  * Generates an image via Gemini Image (generateContent with IMAGE modality).
  * @param {{ prompt: string, aspectRatio?: string }} options
  * @returns {Promise<{ buffer: Buffer, contentType: string, modelId: string, aspectRatio: string }>}
@@ -184,79 +274,44 @@ async function generateImage({ prompt, aspectRatio }) {
     });
   }
 
-  const modelId = geminiImageModel || DEFAULT_GEMINI_IMAGE_MODEL;
   const resolvedAspectRatio = resolveAspectRatio(aspectRatio);
   const startedAt = Date.now();
+  const modelIds = [
+    geminiImageModel || DEFAULT_GEMINI_IMAGE_MODEL,
+    ...(geminiImageBackupModel ? [geminiImageBackupModel] : [])
+  ].filter((modelId, index, list) => list.indexOf(modelId) === index);
 
-  return startSpan({ op: 'gemini.image', name: modelId }, async () => {
+  let lastError;
+
+  for (let i = 0; i < modelIds.length; i++) {
+    const modelId = modelIds[i];
+    const backupModel = modelIds[i + 1];
+
     try {
-      const response = await withRequestTimeout(
-        genAI.models.generateContent({
-          model: modelId,
-          contents: trimmedPrompt,
-          config: {
-            responseModalities: ['IMAGE'],
-            imageConfig: {
-              aspectRatio: resolvedAspectRatio
-            }
-          }
-        }),
-        imageGenerationTimeoutMs
+      return await startSpan({ op: 'gemini.image', name: modelId }, async () =>
+        invokeImageGeneration(modelId, trimmedPrompt, resolvedAspectRatio, startedAt)
       );
-
-      const extracted = extractImageFromResponse(response);
-      if (!extracted) {
-        throw new GeminiImageError('Missing image in Gemini response.', {
-          code: 'missing_artifact',
-          userMessage: '⚠️ Image generation did not return an image.'
-        });
-      }
-      if (extracted.filtered) {
-        recordCount('gemini.image.filtered', 1, { model: modelId });
-        throw new ContentFilteredError(extracted.reason);
-      }
-
-      const buffer = Buffer.from(extracted.data, 'base64');
-      const elapsedMs = Date.now() - startedAt;
-
-      recordCount('gemini.image.success', 1, { model: modelId });
-      recordDistribution('gemini.image.duration_ms', elapsedMs, { model: modelId });
-
-      logger.info('Gemini image generated.', {
-        modelId,
-        aspectRatio: resolvedAspectRatio,
-        bytes: buffer.length,
-        elapsedMs
-      });
-
-      return {
-        buffer,
-        contentType: extracted.mimeType,
-        modelId,
-        aspectRatio: resolvedAspectRatio
-      };
     } catch (error) {
-      if (error instanceof GeminiImageError) throw error;
-
-      if (error?.name === 'AbortError' || /timed out/i.test(error?.message || '')) {
-        throw new GeminiImageError('Gemini image request timed out.', {
-          code: 'timeout',
-          userMessage: '⚠️ Image generation timed out. Try again with a simpler prompt.'
-        });
+      if (!(error instanceof GeminiImageError) || !backupModel || !isRetryableImageError(error)) {
+        throw error;
       }
 
-      const { status, detail } = parseApiError(error);
-      const mapped = mapApiError(status, detail);
-      captureError(mapped, {
-        source: 'geminiImageService',
-        modelId,
-        status,
-        ...serializeError(error)
+      lastError = error;
+      logger.warn('Gemini image model unavailable; retrying with backup model.', {
+        attemptedModel: modelId,
+        backupModel,
+        code: error.code,
+        status: error.status
       });
-      recordCount('gemini.image.error', 1, { model: modelId, status: String(status ?? 'unknown') });
-      throw mapped;
+      recordCount('gemini.image.fallback', 1, {
+        fromModel: modelId,
+        toModel: backupModel,
+        code: error.code ?? 'unknown'
+      });
     }
-  });
+  }
+
+  throw lastError;
 }
 
 /**
@@ -275,6 +330,7 @@ module.exports = {
   resolveAspectRatio,
   extractImageFromResponse,
   formatImageUserMessage,
+  isRetryableImageError,
   GeminiImageError,
   ContentFilteredError
 };

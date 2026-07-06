@@ -51,6 +51,14 @@ const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 
+/** Gemini models that support generateContent with IMAGE modality (/imagine). */
+const SUPPORTED_GEMINI_IMAGE_MODELS = [
+  'gemini-3-pro-image-preview',
+  'gemini-3.1-flash-image-preview',
+  'gemini-3.1-flash-image',
+  'gemini-2.5-flash-image'
+];
+
 /** Aspect ratios supported by Gemini Image models. */
 const IMAGE_ASPECT_RATIOS = {
   '1:1': '1:1',
@@ -59,6 +67,54 @@ const IMAGE_ASPECT_RATIOS = {
   '4:3': '4:3',
   '3:4': '3:4'
 };
+
+/**
+ * @param {string} envName
+ * @returns {string}
+ */
+function resolveGeminiImagePrimaryModel(envName = 'GEMINI_IMAGE_MODEL_NAME') {
+  const primary = (process.env.GEMINI_IMAGE_MODEL_NAME || '').trim();
+  if (primary) {
+    if (primary.startsWith('imagen-')) {
+      console.warn(
+        `${envName} "${primary}" is an Imagen model; using ${DEFAULT_GEMINI_IMAGE_MODEL} instead.`
+      );
+      return DEFAULT_GEMINI_IMAGE_MODEL;
+    }
+    return primary;
+  }
+
+  return DEFAULT_GEMINI_IMAGE_MODEL;
+}
+
+/**
+ * @param {string} primaryModel
+ * @returns {string|null}
+ */
+function resolveGeminiImageBackupModel(primaryModel) {
+  const backup = (process.env.SECONDARY_GEMINI_IMAGE_MODEL_NAME || '').trim();
+  if (!backup) return null;
+
+  if (backup.startsWith('imagen-')) {
+    console.warn(`SECONDARY_GEMINI_IMAGE_MODEL_NAME "${backup}" is an Imagen model; entry disabled.`);
+    return null;
+  }
+  if (!SUPPORTED_GEMINI_IMAGE_MODELS.includes(backup)) {
+    console.warn(
+      `SECONDARY_GEMINI_IMAGE_MODEL_NAME "${backup}" is not a supported Gemini Image model; entry disabled.`
+    );
+    return null;
+  }
+  if (backup === primaryModel) {
+    console.warn('SECONDARY_GEMINI_IMAGE_MODEL_NAME matches the primary image model; entry disabled.');
+    return null;
+  }
+
+  return backup;
+}
+
+const resolvedGeminiImagePrimaryModel = resolveGeminiImagePrimaryModel();
+const resolvedGeminiImageBackupModel = resolveGeminiImageBackupModel(resolvedGeminiImagePrimaryModel);
 
 const SUPPORTED_AI_PROVIDERS = ['openai', 'gemini', 'claude'];
 const PROVIDER_MODEL_LISTS = {
@@ -328,20 +384,8 @@ const config = {
   geminiTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.GEMINI_TIMEOUT_MS, 60000))),
   claudeTimeoutMs: Math.max(5000, Math.min(300000, parseEnvInt(process.env.CLAUDE_TIMEOUT_MS, 60000))),
   // Gemini Image generation (/imagine command). Uses GEMINI_API_KEY.
-  geminiImageModel: (() => {
-    const primary = (process.env.GEMINI_IMAGE_MODEL_NAME || '').trim();
-    if (primary) {
-      if (primary.startsWith('imagen-')) {
-        console.warn(
-          `GEMINI_IMAGE_MODEL_NAME "${primary}" is an Imagen model; using ${DEFAULT_GEMINI_IMAGE_MODEL} instead.`
-        );
-        return DEFAULT_GEMINI_IMAGE_MODEL;
-      }
-      return primary;
-    }
-
-    return DEFAULT_GEMINI_IMAGE_MODEL;
-  })(),
+  geminiImageModel: resolvedGeminiImagePrimaryModel,
+  geminiImageBackupModel: resolvedGeminiImageBackupModel,
   imageGenerationTimeoutMs: Math.max(10_000, Math.min(300_000, parseEnvInt(process.env.IMAGE_GENERATION_TIMEOUT_MS, 120_000))),
   imageUserCooldownMs: parseEnvInt(process.env.IMAGE_USER_COOLDOWN_MS, 30_000),
   // In-memory conversation store bounds (per process).
@@ -362,6 +406,7 @@ module.exports = {
   ...config,
   SUPPORTED_MODELS,
   SUPPORTED_GEMINI_MODELS,
+  SUPPORTED_GEMINI_IMAGE_MODELS,
   SUPPORTED_CLAUDE_MODELS,
   IMAGE_ASPECT_RATIOS,
   DEFAULT_GEMINI_IMAGE_MODEL,

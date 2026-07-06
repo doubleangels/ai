@@ -515,6 +515,7 @@ test('should resolves Gemini Image generation settings', () => {
 
   expect(config.geminiApiKey).toBe('gemini-test');
   expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
+  expect(config.geminiImageBackupModel).toBeNull();
   expect(config.imageGenerationTimeoutMs).toBe(90000);
   expect(config.imageUserCooldownMs).toBe(15000);
   expect(config.IMAGE_ASPECT_RATIOS['16:9']).toBe('16:9');
@@ -527,6 +528,39 @@ test('should default Gemini Image model when env model is unset', () => {
     GEMINI_IMAGE_MODEL_NAME: undefined
   });
   expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
+});
+
+test('should configure secondary Gemini Image model from env', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
+    SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-2.5-flash-image'
+  });
+  expect(config.geminiImageBackupModel).toBe('gemini-2.5-flash-image');
+});
+
+test('should disable secondary Gemini Image model when unsupported or matches primary', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const unsupported = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'not-a-real-model'
+    });
+    expect(unsupported.geminiImageBackupModel).toBeNull();
+
+    const sameModel = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
+      SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image'
+    });
+    expect(sameModel.geminiImageBackupModel).toBeNull();
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('SECONDARY_GEMINI_IMAGE_MODEL_NAME'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
 });
 
 test('should warn when SECONDARY_AI_PROVIDER is invalid', () => {
