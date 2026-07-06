@@ -113,8 +113,39 @@ async function leaveDisallowedGuild(client, guild, source) {
   }
 }
 
+/**
+ * Leaves every guild not in ALLOWED_GUILD_IDS (no-op when allowlist is empty).
+ * @param {import('discord.js').Client} client
+ * @param {string} source
+ * @returns {Promise<number>}
+ */
+async function leaveDisallowedGuilds(client, source) {
+  const allowedGuildIds = getAllowedGuildIds();
+  if (!allowedGuildIds || allowedGuildIds.size === 0) return 0;
+
+  const guilds = [...client.guilds.cache.values()];
+  let leftCount = 0;
+
+  for (const guild of guilds) {
+    if (await leaveDisallowedGuild(client, guild, source)) {
+      leftCount += 1;
+    }
+  }
+
+  if (leftCount > 0) {
+    logger.info(`Left ${leftCount} disallowed guild(s).`, {
+      source,
+      leftCount,
+      outcome: 'success'
+    });
+  }
+
+  return leftCount;
+}
+
 module.exports = {
   isGuildAllowlisted,
   leaveDisallowedGuild,
+  leaveDisallowedGuilds,
   clearGuildConversationState
 };

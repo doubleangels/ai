@@ -13,6 +13,7 @@ const { captureError, recordCount, recordDistribution, startSpan } = require('..
 const logger = require('../logger')(path.basename(__filename));
 const { serializeError } = require('../utils/logSanitize');
 const { modelName, aiProvider, clientId } = require('../config');
+const { leaveDisallowedGuilds } = require('../utils/guildAccess');
 
 module.exports = {
   name: Events.ClientReady,
@@ -23,15 +24,15 @@ module.exports = {
    * and initializes conversation history storage.
    *
    * @param {import('discord.js').Client} client - The Discord client instance
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  execute(client) {
+  async execute(client) {
     const startedAt = Date.now();
     try {
-      startSpan({
+      await startSpan({
         op: 'discord.ready',
         name: 'Client ready'
-      }, () => {
+      }, async () => {
         client.discordReady = true;
         try {
           fs.writeFileSync(READY_MARKER_PATH, String(Date.now()));
@@ -54,6 +55,8 @@ module.exports = {
           status: 'online',
         });
         logger.info('Bot activity was set to watching for mentions.');
+
+        await leaveDisallowedGuilds(client, 'ready');
 
         const guilds = client.guilds.cache;
         const guildNames = [...guilds.values()]

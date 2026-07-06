@@ -58,7 +58,7 @@ test('should ready logs when ready marker write fails', () => {
   writeSpy.mockRestore();
 });
 
-test('should ready logs first 25 guild names on startup', () => {
+test('should ready logs first 25 guild names on startup', async () => {
   const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
 
   const guilds = new Map();
@@ -86,7 +86,7 @@ test('should ready logs first 25 guild names on startup', () => {
     }));
   });
 
-  expect(() => readyWithSpy.execute(client)).not.toThrow();
+  await readyWithSpy.execute(client);
 
   const summaryCall = infoSpy.mock.calls.find(args => args[0] === 'Bot guild summary.');
   expect(summaryCall).toBeTruthy();
@@ -95,6 +95,36 @@ test('should ready logs first 25 guild names on startup', () => {
   expect(summaryCall[1].guildNames[0]).toBe('Guild 0');
   expect(summaryCall[1].guildNames[24]).toBe('Guild 24');
 
+  writeSpy.mockRestore();
+});
+
+test('should leave disallowed guilds on startup', async () => {
+  const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+  const guildAccessPath = path.resolve(__dirname, '..', 'utils', 'guildAccess.js');
+  const leaveDisallowedGuilds = jest.fn().mockResolvedValue(1);
+
+  const ready = reloadModule(readyPath, () => {
+    const { stubModule } = require('./testUtils.cjs');
+    stubModule(guildAccessPath, {
+      leaveDisallowedGuilds,
+      isGuildAllowlisted: () => true,
+      leaveDisallowedGuild: jest.fn(),
+      clearGuildConversationState: jest.fn()
+    });
+  });
+
+  const client = {
+    discordReady: false,
+    user: {
+      tag: 'Bot#0001',
+      setPresence: () => {}
+    },
+    guilds: { cache: new Map() }
+  };
+
+  await ready.execute(client);
+
+  expect(leaveDisallowedGuilds).toHaveBeenCalledWith(client, 'ready');
   writeSpy.mockRestore();
 });
 

@@ -111,7 +111,7 @@ Set variables in Doppler (or `.env` for local experiments). Invalid model names 
 | :------------------ | :------------------------------------------------------------------------------------------------------------------------------ | :-------------------- |
 | `DISCORD_BOT_TOKEN` | Bot token                                                                                                                       | _required_            |
 | `DISCORD_CLIENT_ID` | Application ID                                                                                                                  | _required for deploy_ |
-| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (DMs blocked); the bot **leaves** any other server when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
+| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (DMs blocked); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
 | `LOG_LEVEL`         | Pino log level                                                                                                                  | `info`                |
 
 ### AI provider and models

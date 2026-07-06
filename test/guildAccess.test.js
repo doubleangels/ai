@@ -39,6 +39,70 @@ test('should reject guilds outside allowlist', () => {
   expect(isGuildAllowlisted(null)).toBe(false);
 });
 
+test('should leave all disallowed guilds when allowlist is set', async () => {
+  const { leaveDisallowedGuilds } = loadGuildAccess({
+    allowedGuildIds: new Set(['allowed-guild'])
+  });
+
+  const leaveCounts = new Map([
+    ['blocked-1', 0],
+    ['blocked-2', 0],
+    ['allowed-guild', 0]
+  ]);
+  const client = {
+    conversationHistory: new Map(),
+    channelGuildIds: new Map(),
+    guilds: {
+      cache: new Map([
+        ['blocked-1', {
+          id: 'blocked-1',
+          name: 'Blocked One',
+          leave: async () => { leaveCounts.set('blocked-1', leaveCounts.get('blocked-1') + 1); }
+        }],
+        ['blocked-2', {
+          id: 'blocked-2',
+          name: 'Blocked Two',
+          leave: async () => { leaveCounts.set('blocked-2', leaveCounts.get('blocked-2') + 1); }
+        }],
+        ['allowed-guild', {
+          id: 'allowed-guild',
+          name: 'Allowed',
+          leave: async () => { leaveCounts.set('allowed-guild', leaveCounts.get('allowed-guild') + 1); }
+        }]
+      ])
+    }
+  };
+
+  const leftCount = await leaveDisallowedGuilds(client, 'ready');
+
+  expect(leftCount).toBe(2);
+  expect(leaveCounts.get('blocked-1')).toBe(1);
+  expect(leaveCounts.get('blocked-2')).toBe(1);
+  expect(leaveCounts.get('allowed-guild')).toBe(0);
+});
+
+test('should not leave any guilds when allowlist is empty', async () => {
+  const { leaveDisallowedGuilds } = loadGuildAccess();
+
+  let leaveCount = 0;
+  const client = {
+    guilds: {
+      cache: new Map([
+        ['guild-1', {
+          id: 'guild-1',
+          name: 'Any Guild',
+          leave: async () => { leaveCount += 1; }
+        }]
+      ])
+    }
+  };
+
+  const leftCount = await leaveDisallowedGuilds(client, 'ready');
+
+  expect(leftCount).toBe(0);
+  expect(leaveCount).toBe(0);
+});
+
 test('should log guild name when leaving disallowed guild', async () => {
   const loggerPath = path.resolve(__dirname, '..', 'logger.js');
   const infoSpy = jest.fn();
