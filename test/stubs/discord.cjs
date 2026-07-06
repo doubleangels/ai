@@ -35,6 +35,20 @@ const defaultExports = {
       this._data.options.push(option);
       return this;
     }
+    addAttachmentOption(cb) {
+      const option = {
+        type: 11,
+        name: '',
+        description: '',
+        required: false,
+        setName(name) { option.name = name; return option; },
+        setDescription(desc) { option.description = desc; return option; },
+        setRequired(required) { option.required = required; return option; }
+      };
+      try { cb(option); } catch (_) {}
+      this._data.options.push(option);
+      return this;
+    }
     addChannelOption(cb) {
       const option = {
         setName: () => option,

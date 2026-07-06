@@ -24,6 +24,26 @@ function registerCoreStubs() {
       setName() { return this; }
       setDescription() { return this; }
       setDefaultMemberPermissions() { return this; }
+      addStringOption(cb) {
+        const option = {
+          setName: () => option,
+          setDescription: () => option,
+          setRequired: () => option,
+          setMaxLength: () => option,
+          addChoices: () => option
+        };
+        try { cb(option); } catch (_) {}
+        return this;
+      }
+      addAttachmentOption(cb) {
+        const option = {
+          setName: () => option,
+          setDescription: () => option,
+          setRequired: () => option
+        };
+        try { cb(option); } catch (_) {}
+        return this;
+      }
       addChannelOption(cb) {
         const option = {
           setName: () => option,

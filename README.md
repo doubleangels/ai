@@ -208,10 +208,13 @@ Attach an image with a caption such as `@AI describe this chart` for multimodal 
 
 Generate an image with `/imagine prompt:a sunset over mountains` (requires `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey)). Optional `size` (aspect ratio) is available.
 
+Chat with `/chat message:What is the capital of France?` instead of @mentioning the bot. Optional `image` attachment works like sending an image with a mention.
+
 ### Slash commands
 
 | Command | Description | Permission |
 | :--- | :--- | :--- |
+| `/chat` | Chat with the bot (same as @mentioning it) | Everyone |
 | `/imagine` | Generate an image from a text prompt (Gemini Image) | Everyone |
 | `/reset` | Clear history for a channel (including threads) or **this server only** | Administrator |
 
