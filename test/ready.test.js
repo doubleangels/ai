@@ -58,6 +58,46 @@ test('should ready logs when ready marker write fails', () => {
   writeSpy.mockRestore();
 });
 
+test('should ready logs first 25 guild names on startup', () => {
+  const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+
+  const guilds = new Map();
+  for (let i = 0; i < 30; i += 1) {
+    guilds.set(`g${i}`, { id: `g${i}`, name: `Guild ${i}` });
+  }
+
+  const user = { tag: 'Bot#0001', _presence: null };
+  user.setPresence = (p) => { user._presence = p; };
+  const client = {
+    discordReady: false,
+    user,
+    guilds: { cache: guilds }
+  };
+
+  const loggerPath = path.resolve(__dirname, '..', 'logger.js');
+  const infoSpy = jest.fn();
+  const readyWithSpy = reloadModule(readyPath, () => {
+    const { stubModule } = require('./testUtils.cjs');
+    stubModule(loggerPath, () => ({
+      info: infoSpy,
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn()
+    }));
+  });
+
+  expect(() => readyWithSpy.execute(client)).not.toThrow();
+
+  const summaryCall = infoSpy.mock.calls.find(args => args[0] === 'Bot guild summary.');
+  expect(summaryCall).toBeTruthy();
+  expect(summaryCall[1].guildCount).toBe(30);
+  expect(summaryCall[1].guildNames).toHaveLength(25);
+  expect(summaryCall[1].guildNames[0]).toBe('Guild 0');
+  expect(summaryCall[1].guildNames[24]).toBe('Guild 24');
+
+  writeSpy.mockRestore();
+});
+
 test('should ready logs shard metadata when sharding is enabled', () => {
   const ready = reloadModule(readyPath);
   const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});

@@ -11,6 +11,7 @@ const { withDiscordRetry } = require('../utils/discordApi');
 const { serializeError } = require('../utils/logSanitize');
 const { recordCount } = require('../instrument');
 const { leaveDisallowedGuild, isGuildAllowlisted } = require('../utils/guildAccess');
+const { isImagineImageMessage } = require('../utils/imagineMessage');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
 const {
@@ -131,6 +132,14 @@ module.exports = {
     if (!hasBotPing) {
       if (!prefetchedReferencedMessage || prefetchedReferencedMessage.author.id !== client.user.id) {
         logger.debug('Ignoring reply that does not target the bot.', {
+          channelId,
+          messageId: message.id,
+          referencedMessageId: message.reference?.messageId
+        });
+        return;
+      }
+      if (isImagineImageMessage(prefetchedReferencedMessage)) {
+        logger.debug('Ignoring reply to an imagine image post.', {
           channelId,
           messageId: message.id,
           referencedMessageId: message.reference?.messageId

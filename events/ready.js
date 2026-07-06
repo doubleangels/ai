@@ -56,9 +56,14 @@ module.exports = {
         logger.info('Bot activity was set to watching for mentions.');
 
         const guilds = client.guilds.cache;
+        const guildNames = [...guilds.values()]
+          .slice(0, 25)
+          .map(guild => guild.name || 'unknown');
         const readyDurationMs = Date.now() - startedAt;
         logger.info('Bot guild summary.', {
           guildCount: guilds.size,
+          guildNames,
+          guildNamesShown: guildNames.length,
           shardId: client.shard?.ids?.[0] ?? 0,
           shardCount: client.shard?.count ?? 1,
           readyDurationMs,

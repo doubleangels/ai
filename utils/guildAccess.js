@@ -78,7 +78,7 @@ async function leaveDisallowedGuild(client, guild, source) {
   client.guildLeaveInProgress.add(guildId);
 
   const guildName = guild.name || 'unknown';
-  logger.info('Leaving disallowed guild.', {
+  logger.info(`Leaving disallowed guild "${guildName}".`, {
     guildId,
     guildName,
     source,
@@ -92,7 +92,7 @@ async function leaveDisallowedGuild(client, guild, source) {
     );
     clearGuildConversationState(client, guildId);
     recordCount('discord.guild.left', 1, { source, outcome: 'success' });
-    logger.info('Left disallowed guild.', {
+    logger.info(`Left disallowed guild "${guildName}".`, {
       guildId,
       guildName,
       source,
@@ -103,7 +103,7 @@ async function leaveDisallowedGuild(client, guild, source) {
     client.guildLeaveInProgress.delete(guildId);
     captureError(error, { source: 'guildAccess', handler: 'leaveDisallowedGuild', guildId });
     recordCount('discord.guild.left', 1, { source, outcome: 'error' });
-    logger.error('Failed to leave disallowed guild.', {
+    logger.error(`Failed to leave disallowed guild "${guildName}".`, {
       guildId,
       guildName,
       source,

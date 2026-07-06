@@ -39,6 +39,48 @@ test('should reject guilds outside allowlist', () => {
   expect(isGuildAllowlisted(null)).toBe(false);
 });
 
+test('should log guild name when leaving disallowed guild', async () => {
+  const loggerPath = path.resolve(__dirname, '..', 'logger.js');
+  const infoSpy = jest.fn();
+  const { leaveDisallowedGuild } = reloadModule(guildAccessPath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      allowedGuildIds: new Set(['allowed-guild'])
+    });
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
+    stubModule(instrumentPath, {
+      captureError: () => {},
+      recordCount: () => {}
+    });
+    stubModule(path.resolve(__dirname, '..', 'utils', 'aiUtils.js'), {
+      pruneChannelAuxMaps: () => {}
+    });
+    stubModule(loggerPath, () => ({
+      info: infoSpy,
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn()
+    }));
+  });
+
+  const client = {
+    conversationHistory: new Map(),
+    channelGuildIds: new Map()
+  };
+  const guild = {
+    id: 'blocked-guild',
+    name: 'Blocked Server',
+    leave: async () => {}
+  };
+
+  await leaveDisallowedGuild(client, guild, 'test');
+
+  expect(infoSpy).toHaveBeenCalledWith(
+    'Left disallowed guild "Blocked Server".',
+    expect.objectContaining({ guildId: 'blocked-guild', guildName: 'Blocked Server' })
+  );
+});
+
 test('should leave disallowed guild once', async () => {
   const { leaveDisallowedGuild } = loadGuildAccess({
     allowedGuildIds: new Set(['allowed-guild'])

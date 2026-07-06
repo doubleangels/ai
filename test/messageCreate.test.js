@@ -1129,6 +1129,33 @@ test('should ignores replies that do not target the bot without a mention', asyn
   expect(replied).toBe(false);
 });
 
+test('should ignores replies to imagine image posts without a mention', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'should not run' });
+  let replied = false;
+  const message = createBaseMessage({
+    content: 'can you change the colors?',
+    mentions: { has: () => false, users: { has: () => false }, roles: { size: 0, some: () => false }, everyone: false, size: 0, values: () => [] },
+    reference: { messageId: 'imagine-1' },
+    reply: async () => { replied = true; return { edit: async () => {} }; },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'imagine-1',
+          author: { id: 'bot-123', username: 'bot' },
+          content: '',
+          embeds: [{ title: 'Generated Image', description: 'a sunset' }],
+          reference: null,
+          attachments: { size: 1, values: () => [{ name: 'image.png' }] }
+        })
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});
+
 test('should ignores replies without a referenced message id', async () => {
   const mod = loadMessageCreate();
   let replied = false;

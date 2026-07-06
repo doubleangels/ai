@@ -5,6 +5,7 @@ const { geminiApiKey, imageUserCooldownMs, IMAGE_ASPECT_RATIOS } = require('../c
 const { generateImage, formatImageUserMessage } = require('../utils/geminiImageService');
 const { pruneStaleMapEntries } = require('../utils/aiUtils');
 const { withDiscordRetry } = require('../utils/discordApi');
+const { IMAGINE_EMBED_TITLE } = require('../utils/imagineMessage');
 const logger = require('../logger')(path.basename(__filename));
 const { serializeError } = require('../utils/logSanitize');
 
@@ -128,7 +129,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setColor(0x4285f4)
-        .setTitle('Generated Image')
+        .setTitle(IMAGINE_EMBED_TITLE)
         .setDescription(truncatePrompt(prompt))
         .setFooter({ text: `Requested by ${interaction.user.tag}` })
         .setImage(`attachment://${filename}`);
