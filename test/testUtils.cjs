@@ -96,6 +96,31 @@ function reloadModule(moduleId, beforeRequire) {
   return loaded;
 }
 
+function createMockClient(overrides = {}) {
+  return {
+    user: { id: 'bot-1' },
+    conversationHistory: new Map(),
+    channelLocks: new Map(),
+    channelQueueDepth: new Map(),
+    userCooldowns: new Map(),
+    channelCooldowns: new Map(),
+    channelLastActivity: new Map(),
+    channelGuildIds: new Map(),
+    ...overrides
+  };
+}
+
+function stubLogger(loggerPath, overrides = {}) {
+  const mock = {
+    info: overrides.info || jest.fn(),
+    warn: overrides.warn || jest.fn(),
+    error: overrides.error || jest.fn(),
+    debug: overrides.debug || jest.fn()
+  };
+  stubModule(loggerPath, () => mock);
+  return mock;
+}
+
 function defaultInstrumentStub(overrides = {}) {
   const sentryOverrides = overrides.Sentry || {};
   return {
@@ -119,5 +144,7 @@ module.exports = {
   clearStubRegistry,
   clearStubModuleCaches,
   reloadModule,
-  defaultInstrumentStub
+  defaultInstrumentStub,
+  stubLogger,
+  createMockClient
 };

@@ -125,7 +125,11 @@ async function leaveDisallowedGuilds(client, source) {
 
   let leftCount = 0;
 
-  for (const guild of client.guilds.cache.values()) {
+  // Snapshot first: leave() only issues a REST call, so the cache doesn't reflect
+  // it until a later GUILD_DELETE event, and a live iterator could otherwise skip
+  // a not-yet-visited guild removed by a concurrent cache mutation mid-loop.
+  const guilds = [...client.guilds.cache.values()];
+  for (const guild of guilds) {
     if (await leaveDisallowedGuild(client, guild, source)) {
       leftCount += 1;
     }

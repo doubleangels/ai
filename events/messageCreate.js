@@ -40,20 +40,8 @@ function botMentionedByRole(message, client) {
   return message.mentions.roles.some(role => botMember.roles.cache.has(role.id));
 }
 
-function messageMentionsBot(message, client) {
-  return message.mentions.users.has(client.user.id) || botMentionedByRole(message, client);
-}
-
-/**
- * Detects whether the message body deliberately pings the bot, ignoring the
- * automatic reply mention Discord adds when a user replies to the bot.
- * @param {import('discord.js').Message} message - The message to check
- * @param {import('discord.js').Client} client - The Discord client
- * @returns {boolean} True if the bot is explicitly mentioned in the content
- */
-function messageMentionsBotExplicitly(message, client) {
-  if (new RegExp(botMentionPattern(client.user.id)).test(message.content || '')) return true;
-  return botMentionedByRole(message, client);
+function botMentionedInContent(message, client) {
+  return new RegExp(botMentionPattern(client.user.id)).test(message.content || '');
 }
 
 function recordReplyFailure(location, channelId, messageId, err, extra = {}) {
@@ -124,7 +112,8 @@ module.exports = {
       return;
     }
 
-    const hasBotPing = messageMentionsBot(message, client);
+    const mentionedByRole = botMentionedByRole(message, client);
+    const hasBotPing = message.mentions.users.has(client.user.id) || mentionedByRole;
     const hasReference = Boolean(message.reference?.messageId);
     const hasEveryoneOrHereMention = hasEveryoneMention(message);
 
@@ -140,6 +129,9 @@ module.exports = {
 
     let prefetchedReferencedMessage = null;
     let isReplyToBot = false;
+    // Reaching here without a reference means hasBotPing was set by a literal mention
+    // (Discord only auto-adds a ping in the reply case), so it is inherently explicit.
+    let hasExplicitBotMention = !hasReference;
     if (hasReference) {
       try {
         prefetchedReferencedMessage = await message.fetchReference();
@@ -161,11 +153,13 @@ module.exports = {
         return;
       }
 
-      if (
-        isReplyToBot
-        && !messageMentionsBotExplicitly(message, client)
+      hasExplicitBotMention = mentionedByRole || botMentionedInContent(message, client);
+
+      const isBareReplyToImagineImage = isReplyToBot
         && isImagineImageMessage(prefetchedReferencedMessage)
-      ) {
+        && !hasExplicitBotMention;
+
+      if (isBareReplyToImagineImage) {
         logger.debug('Ignoring reply to an imagine image post.', {
           channelId,
           messageId: message.id,
@@ -216,7 +210,7 @@ module.exports = {
       }
     }
 
-    const trigger = hasBotPing ? 'mention' : 'reply';
+    const trigger = hasExplicitBotMention ? 'mention' : 'reply';
     const userText = (message.content || '').replace(new RegExp(botMentionPattern(client.user.id), 'g'), '@AI').trim();
 
     await enqueueChannelChat(client, channelId, async () => {

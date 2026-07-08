@@ -75,15 +75,10 @@ test('should ready logs first 25 guild names on startup', async () => {
   };
 
   const loggerPath = path.resolve(__dirname, '..', 'logger.js');
-  const infoSpy = jest.fn();
+  let infoSpy;
   const readyWithSpy = reloadModule(readyPath, () => {
-    const { stubModule } = require('./testUtils.cjs');
-    stubModule(loggerPath, () => ({
-      info: infoSpy,
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn()
-    }));
+    const { stubLogger } = require('./testUtils.cjs');
+    ({ info: infoSpy } = stubLogger(loggerPath));
   });
 
   await readyWithSpy.execute(client);
@@ -107,15 +102,10 @@ test('should label guilds without a name as unknown in the summary', async () =>
   };
 
   const loggerPath = path.resolve(__dirname, '..', 'logger.js');
-  const infoSpy = jest.fn();
+  let infoSpy;
   const readyWithSpy = reloadModule(readyPath, () => {
-    const { stubModule } = require('./testUtils.cjs');
-    stubModule(loggerPath, () => ({
-      info: infoSpy,
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn()
-    }));
+    const { stubLogger } = require('./testUtils.cjs');
+    ({ info: infoSpy } = stubLogger(loggerPath));
   });
 
   await readyWithSpy.execute(client);

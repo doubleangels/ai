@@ -1,5 +1,5 @@
 const path = require('path');
-const { stubModule, reloadModule, DEFAULT_CONFIG, defaultInstrumentStub } = require('./testUtils.cjs');
+const { stubModule, reloadModule, DEFAULT_CONFIG, defaultInstrumentStub, createMockClient } = require('./testUtils.cjs');
 
 const channelChatHandlerPath = path.resolve(__dirname, '..', 'utils', 'channelChatHandler.js');
 const aiServicePath = path.resolve(__dirname, '..', 'utils', 'aiService.js');
@@ -38,16 +38,7 @@ function loadHandler({ config = {}, processImageAttachments } = {}) {
 }
 
 function createClient() {
-  return {
-    user: { id: 'bot-1' },
-    conversationHistory: new Map(),
-    channelLocks: new Map(),
-    channelQueueDepth: new Map(),
-    userCooldowns: new Map(),
-    channelCooldowns: new Map(),
-    channelLastActivity: new Map(),
-    channelGuildIds: new Map()
-  };
+  return createMockClient();
 }
 
 test('should cap extra image attachments at maxReplyChainImages', async () => {

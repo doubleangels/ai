@@ -1,5 +1,5 @@
 const path = require('path');
-const { stubModule, reloadModule, DEFAULT_CONFIG } = require('./testUtils.cjs');
+const { stubModule, reloadModule, DEFAULT_CONFIG, stubLogger } = require('./testUtils.cjs');
 
 const guildAccessPath = path.resolve(__dirname, '..', 'utils', 'guildAccess.js');
 const configPath = path.resolve(__dirname, '..', 'config.js');
@@ -105,7 +105,7 @@ test('should not leave any guilds when allowlist is empty', async () => {
 
 test('should log guild name when leaving disallowed guild', async () => {
   const loggerPath = path.resolve(__dirname, '..', 'logger.js');
-  const infoSpy = jest.fn();
+  let infoSpy;
   const { leaveDisallowedGuild } = reloadModule(guildAccessPath, () => {
     stubModule(configPath, {
       ...DEFAULT_CONFIG,
@@ -119,12 +119,7 @@ test('should log guild name when leaving disallowed guild', async () => {
     stubModule(path.resolve(__dirname, '..', 'utils', 'aiUtils.js'), {
       pruneChannelAuxMaps: () => {}
     });
-    stubModule(loggerPath, () => ({
-      info: infoSpy,
-      error: jest.fn(),
-      warn: jest.fn(),
-      debug: jest.fn()
-    }));
+    ({ info: infoSpy } = stubLogger(loggerPath));
   });
 
   const client = {
@@ -279,7 +274,7 @@ test('leaveDisallowedGuild returns false without a client or guild id', async ()
 });
 
 test('leaveDisallowedGuild falls back to "unknown" when the guild has no name', async () => {
-  const infoSpy = jest.fn();
+  let infoSpy;
   const loggerPath = path.resolve(__dirname, '..', 'logger.js');
   const { leaveDisallowedGuild } = reloadModule(guildAccessPath, () => {
     stubModule(configPath, {
@@ -294,12 +289,7 @@ test('leaveDisallowedGuild falls back to "unknown" when the guild has no name', 
     stubModule(path.resolve(__dirname, '..', 'utils', 'aiUtils.js'), {
       pruneChannelAuxMaps: () => {}
     });
-    stubModule(loggerPath, () => ({
-      info: infoSpy,
-      error: jest.fn(),
-      warn: jest.fn(),
-      debug: jest.fn()
-    }));
+    ({ info: infoSpy } = stubLogger(loggerPath));
   });
 
   const client = { conversationHistory: new Map(), channelGuildIds: new Map() };
