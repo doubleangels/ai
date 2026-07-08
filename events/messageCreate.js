@@ -29,12 +29,19 @@ function hasEveryoneMention(message) {
   return message.mentions.everyone || /@here|@everyone/.test(message.content || '');
 }
 
-function messageMentionsBot(message, client) {
-  if (message.mentions.users.has(client.user.id)) return true;
+function botMentionPattern(botId) {
+  return `<@!?${botId}>`;
+}
+
+function botMentionedByRole(message, client) {
   if (!message.guild || !message.mentions.roles?.size) return false;
   const botMember = message.guild.members.cache.get(client.user.id);
   if (!botMember) return false;
   return message.mentions.roles.some(role => botMember.roles.cache.has(role.id));
+}
+
+function messageMentionsBot(message, client) {
+  return message.mentions.users.has(client.user.id) || botMentionedByRole(message, client);
 }
 
 /**
@@ -45,12 +52,8 @@ function messageMentionsBot(message, client) {
  * @returns {boolean} True if the bot is explicitly mentioned in the content
  */
 function messageMentionsBotExplicitly(message, client) {
-  const botId = client.user.id;
-  if (new RegExp(`<@!?${botId}>`).test(message.content || '')) return true;
-  if (!message.guild || !message.mentions.roles?.size) return false;
-  const botMember = message.guild.members.cache.get(botId);
-  if (!botMember) return false;
-  return message.mentions.roles.some(role => botMember.roles.cache.has(role.id));
+  if (new RegExp(botMentionPattern(client.user.id)).test(message.content || '')) return true;
+  return botMentionedByRole(message, client);
 }
 
 function recordReplyFailure(location, channelId, messageId, err, extra = {}) {
@@ -122,7 +125,6 @@ module.exports = {
     }
 
     const hasBotPing = messageMentionsBot(message, client);
-    const hasExplicitBotMention = messageMentionsBotExplicitly(message, client);
     const hasReference = Boolean(message.reference?.messageId);
     const hasEveryoneOrHereMention = hasEveryoneMention(message);
 
@@ -137,6 +139,7 @@ module.exports = {
     }
 
     let prefetchedReferencedMessage = null;
+    let isReplyToBot = false;
     if (hasReference) {
       try {
         prefetchedReferencedMessage = await message.fetchReference();
@@ -144,26 +147,26 @@ module.exports = {
         if (!hasBotPing) return;
         prefetchedReferencedMessage = null;
       }
-    }
 
-    if (
-      hasReference
-      && !hasExplicitBotMention
-      && prefetchedReferencedMessage
-      && prefetchedReferencedMessage.author.id === client.user.id
-      && isImagineImageMessage(prefetchedReferencedMessage)
-    ) {
-      logger.debug('Ignoring reply to an imagine image post.', {
-        channelId,
-        messageId: message.id,
-        referencedMessageId: message.reference?.messageId
-      });
-      return;
-    }
+      isReplyToBot = Boolean(
+        prefetchedReferencedMessage && prefetchedReferencedMessage.author.id === client.user.id
+      );
 
-    if (!hasBotPing) {
-      if (!prefetchedReferencedMessage || prefetchedReferencedMessage.author.id !== client.user.id) {
+      if (!hasBotPing && !isReplyToBot) {
         logger.debug('Ignoring reply that does not target the bot.', {
+          channelId,
+          messageId: message.id,
+          referencedMessageId: message.reference?.messageId
+        });
+        return;
+      }
+
+      if (
+        isReplyToBot
+        && !messageMentionsBotExplicitly(message, client)
+        && isImagineImageMessage(prefetchedReferencedMessage)
+      ) {
+        logger.debug('Ignoring reply to an imagine image post.', {
           channelId,
           messageId: message.id,
           referencedMessageId: message.reference?.messageId
@@ -213,11 +216,8 @@ module.exports = {
       }
     }
 
-    const isReplyToBot = Boolean(
-      prefetchedReferencedMessage && prefetchedReferencedMessage.author.id === client.user.id
-    );
     const trigger = hasBotPing ? 'mention' : 'reply';
-    const userText = (message.content || '').replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '@AI').trim();
+    const userText = (message.content || '').replace(new RegExp(botMentionPattern(client.user.id), 'g'), '@AI').trim();
 
     await enqueueChannelChat(client, channelId, async () => {
       logger.debug('Processing message in channel queue.', {
