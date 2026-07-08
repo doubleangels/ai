@@ -103,7 +103,7 @@ The production image is built from the multi-stage [`Dockerfile`](Dockerfile). T
 
 ## Configuration
 
-Set variables in Doppler (or `.env` for local experiments). Invalid model names cause the process to exit at startup with a logged error.
+Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for local experiments without Doppler. Invalid model names cause the process to exit at startup with a logged error.
 
 ### Discord and logging
 
@@ -127,20 +127,20 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 
 ### Advanced AI settings
 
-| Variable                        | Description                                                | Default        |
-| :------------------------------ | :--------------------------------------------------------- | :------------- |
-| `ENABLE_WEB_SEARCH`             | Live internet search (OpenAI/Gemini)                       | `false`        |
-| `ENABLE_GOOGLE_MAPS`            | Google Maps grounding (Gemini)                             | `false`        |
-| `ENABLE_CONTEXT_CACHE`          | Provider context / prompt caching (system + stable turns)  | `true`         |
-| `GEMINI_CACHE_TTL_SECONDS`      | Gemini cache TTL (60–86400)                                | `3600`         |
-| `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings    | _API defaults_ |
-| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh` | `none`         |
-| `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`             | `low`          |
-| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking budget (`0` = off, max 32000)     | `0`            |
-| `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                        | `60000`        |
-| `OPENAI_MAX_RETRIES`            | OpenAI client retries (0–5)                                | `2`            |
-| `GEMINI_TIMEOUT_MS`             | Gemini request timeout (5000–300000)                       | `60000`        |
-| `CLAUDE_TIMEOUT_MS`             | Claude request timeout (5000–300000)                       | `60000`        |
+| Variable                        | Description                                                       | Default        |
+| :------------------------------ | :------------------------------------------------------------------ | :------------- |
+| `ENABLE_WEB_SEARCH`             | Live internet search (OpenAI/Gemini)                                | `false`        |
+| `ENABLE_GOOGLE_MAPS`            | Google Maps grounding (Gemini)                                      | `false`        |
+| `ENABLE_CONTEXT_CACHE`          | Provider context / prompt caching (system + stable turns)           | `true`         |
+| `GEMINI_CACHE_TTL_SECONDS`      | Gemini cache TTL, seconds (60–2073600, i.e. up to 24 days)          | `3600`         |
+| `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings             | _API defaults_ |
+| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`           | `none`         |
+| `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`                      | `low`          |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking budget (`0` = off, max 32000)              | `0`            |
+| `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                                 | `60000`        |
+| `OPENAI_MAX_RETRIES`            | OpenAI client retries (0–5)                                         | `2`            |
+| `GEMINI_TIMEOUT_MS`             | Gemini request timeout (5000–300000)                                | `60000`        |
+| `CLAUDE_TIMEOUT_MS`             | Claude request timeout (5000–300000)                                | `60000`        |
 
 ### Conversation and cost limits
 
@@ -157,8 +157,8 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `DISCORD_SHARD_COUNT`               | Shard count (`auto`, `2`, …); omit or `1` for single process                | _single process_ |
 | `CHANNEL_COOLDOWN_MS`               | Per-channel cooldown (`0` = disabled)                                       | `1500`           |
 | `MAX_PENDING_PER_CHANNEL`           | Queue depth before a “busy” reply (`0` = disabled)                          | `3`              |
-| `CONVERSATION_HISTORY_MAX_CHANNELS` | Max in-memory channel histories (LRU; `0` = no cap)                         | `500`            |
-| `CONVERSATION_HISTORY_IDLE_MS`      | Drop idle channel history (`0` = disabled)                                  | `86400000` (24h) |
+| `CONVERSATION_HISTORY_MAX_CHANNELS` | Max in-memory channel histories (LRU; `0` = no cap; 0–10000)                | `500`             |
+| `CONVERSATION_HISTORY_IDLE_MS`      | Drop idle channel history (`0` = disabled; max 604800000, i.e. 7 days)      | `86400000` (24h)  |
 
 ### Performance and memory
 
@@ -234,20 +234,20 @@ Set `SENTRY_DSN` in Doppler to enable Sentry. [`instrument.js`](instrument.js) l
 
 ### Sentry environment variables
 
-| Variable                             | Default      | Purpose                                                                              |
-| :----------------------------------- | :----------- | :----------------------------------------------------------------------------------- |
-| `SENTRY_DSN`                         | _unset_      | Enable reporting                                                                     |
-| `SENTRY_TRACES_SAMPLE_RATE`          | `1.0`        | Performance traces (`0.0`–`1.0`)                                                     |
-| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `1.0`        | Code profiling sample rate                                                           |
-| `SENTRY_PROFILE_LIFECYCLE`           | `trace`      | Profile lifecycle (e.g. `trace`, `manual`)                                           |
-| `SENTRY_ENABLE_LOGS`                 | `true`       | Forward Pino logs to Sentry                                                          |
-| `SENTRY_ENABLE_METRICS`              | `true`       | Emit custom metrics                                                                  |
-| `SENTRY_SEND_DEFAULT_PII`            | `false`      | Send default PII (user IDs, etc.)                                                    |
-| `NODE_ENV`                           | `production` | Sentry environment tag; local variable capture is enabled only when not `production` |
+| Variable                             | Default                | Purpose                                                                              |
+| :----------------------------------- | :---------------------- | :----------------------------------------------------------------------------------- |
+| `SENTRY_DSN`                         | _unset_                 | Enable reporting                                                                     |
+| `SENTRY_TRACES_SAMPLE_RATE`          | `0.1` prod / `1.0` dev  | Performance traces (`0.0`–`1.0`)                                                     |
+| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `0.1` prod / `1.0` dev  | Code profiling sample rate (`0.0`–`1.0`)                                             |
+| `SENTRY_PROFILE_LIFECYCLE`           | `trace`                 | Profile lifecycle (e.g. `trace`, `manual`)                                           |
+| `SENTRY_ENABLE_LOGS`                 | `true`                  | Forward Pino logs to Sentry                                                          |
+| `SENTRY_ENABLE_METRICS`              | `true`                  | Emit custom metrics                                                                  |
+| `SENTRY_SEND_DEFAULT_PII`            | `false`                 | Send default PII (user IDs, etc.)                                                    |
+| `NODE_ENV`                           | `production`            | Sentry environment tag; local variable capture is enabled only when not `production` |
 
-Sample rates are clamped to `[0, 1]`. Invalid values fall back to `1.0`.
+"prod" means `NODE_ENV=production`, which is the Docker image default — set `SENTRY_TRACES_SAMPLE_RATE=1.0` explicitly if you want full sampling in production. Sample rates are clamped to `[0, 1]`; invalid values fall back to the default for the current environment.
 
-Local variables on errors (`includeLocalVariables`) follow nova: enabled in non-production environments only. In Docker with `NODE_ENV=production` (the default), Sentry does not open the Node inspector, so container logs stay free of “Debugger listening on ws://…”.
+Local variable capture on errors (`includeLocalVariables`) is enabled only outside production (`NODE_ENV` other than `production`). In Docker with `NODE_ENV=production` (the default), Sentry does not open the Node inspector, so container logs stay free of “Debugger listening on ws://…”.
 
 ### Errors
 
@@ -446,6 +446,10 @@ The runtime stage contains application code and production dependencies only (`p
 | `utils/geminiImageService.js`   | Gemini Image generation for `/imagine`                                     |
 | `utils/aiUtils.js`              | Message splitting, vision download, history trimming, error classification |
 | `utils/replyChainTracer.js`     | Reply-chain traversal and message LRU cache                                |
+| `utils/discordApi.js`           | Discord REST call wrapper with retry/backoff on rate limits                |
+| `utils/guildAccess.js`          | `ALLOWED_GUILD_IDS` enforcement; leaves disallowed guilds                  |
+| `utils/imagineMessage.js`       | Detects bot-generated `/imagine` image posts for reply handling            |
+| `utils/logSanitize.js`          | Redacts secrets (tokens, keys) from log and error output                   |
 | `scripts/audit-log-messages.js` | Log message style audit (maintainer)                                       |
 | `test/`                         | Jest suite (not shipped in Docker images)                                  |
 | `Dockerfile`                    | Multi-stage production image (Node 24 Alpine)                              |
