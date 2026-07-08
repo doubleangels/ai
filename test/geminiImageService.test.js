@@ -62,6 +62,22 @@ test('should extract image bytes from generateContent response', () => {
   expect(extracted.data).toBe(SAMPLE_PNG_B64);
 });
 
+test('should return null when the response has no candidates or parts', () => {
+  const svc = loadService();
+  expect(svc.extractImageFromResponse(null)).toBeNull();
+  expect(svc.extractImageFromResponse({})).toBeNull();
+  expect(svc.extractImageFromResponse({ candidates: [{ finishReason: 'STOP' }] })).toBeNull();
+  expect(svc.extractImageFromResponse({ candidates: [{ content: {} }] })).toBeNull();
+});
+
+test('should default mime type to image/png when absent', () => {
+  const svc = loadService();
+  const extracted = svc.extractImageFromResponse({
+    candidates: [{ content: { parts: [{ inlineData: { data: SAMPLE_PNG_B64 } }] } }]
+  });
+  expect(extracted).toMatchObject({ filtered: false, mimeType: 'image/png' });
+});
+
 test('should detect prompt feedback blocks', () => {
   const svc = loadService();
   const extracted = svc.extractImageFromResponse({
@@ -107,6 +123,59 @@ test('should reject empty prompt', async () => {
   const svc = loadService();
   await expect(svc.generateImage({ prompt: '   ' })).rejects.toMatchObject({
     userMessage: expect.stringMatching(/provide a prompt/)
+  });
+});
+
+test('should reject non-string prompt', async () => {
+  const svc = loadService();
+  await expect(svc.generateImage({ prompt: 123 })).rejects.toMatchObject({
+    userMessage: expect.stringMatching(/provide a prompt/)
+  });
+});
+
+test('should fall back to the default image model when none is configured', async () => {
+  let capturedModel;
+  const svc = loadService({
+    configOverrides: { geminiImageModel: '', DEFAULT_GEMINI_IMAGE_MODEL: 'gemini-3.1-flash-image' },
+    generateContentImpl: async params => {
+      capturedModel = params.model;
+      return {
+        candidates: [{ content: { parts: [{ inlineData: { data: SAMPLE_PNG_B64, mimeType: 'image/png' } }] } }]
+      };
+    }
+  });
+
+  const result = await svc.generateImage({ prompt: 'a red apple' });
+  expect(capturedModel).toBe('gemini-3.1-flash-image');
+  expect(result.modelId).toBe('gemini-3.1-flash-image');
+});
+
+test('should map non-Error rejections to a generic API error', async () => {
+  const svc = loadService({
+    generateContentImpl: async () => { throw 'boom'; }
+  });
+  await expect(svc.generateImage({ prompt: 'test' })).rejects.toMatchObject({
+    code: 'api_error',
+    userMessage: expect.stringMatching(/failed/)
+  });
+});
+
+test('should map nullish rejections to a generic API error', async () => {
+  const svc = loadService({
+    generateContentImpl: async () => { throw null; }
+  });
+  await expect(svc.generateImage({ prompt: 'test' })).rejects.toMatchObject({
+    code: 'api_error'
+  });
+});
+
+test('should map AbortError rejections to a timeout error', async () => {
+  const svc = loadService({
+    generateContentImpl: async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }
+  });
+  await expect(svc.generateImage({ prompt: 'test' })).rejects.toMatchObject({
+    code: 'timeout',
+    userMessage: expect.stringMatching(/timed out/)
   });
 });
 
@@ -235,6 +304,18 @@ test('should identify retryable image errors', () => {
   expect(svc.isRetryableImageError(new svc.GeminiImageError('x', { code: 'server_error' }))).toBe(true);
   expect(svc.isRetryableImageError(new svc.GeminiImageError('x', { code: 'validation_error' }))).toBe(false);
   expect(svc.isRetryableImageError(new svc.ContentFilteredError('SAFETY'))).toBe(false);
+});
+
+test('should derive status from a numeric error code when status is absent', async () => {
+  const svc = loadService({
+    generateContentImpl: async () => {
+      throw Object.assign(new Error('rate limit'), { code: 429 });
+    }
+  });
+
+  await expect(svc.generateImage({ prompt: 'test' })).rejects.toMatchObject({
+    userMessage: expect.stringMatching(/rate-limited/)
+  });
 });
 
 test('should map HTTP 400, 404, 500, and generic API errors', async () => {

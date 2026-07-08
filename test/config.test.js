@@ -597,6 +597,53 @@ test('should warn when backup model is unsupported for explicit provider', () =>
   }
 });
 
+test('should replace Imagen primary image model with the default', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      GEMINI_IMAGE_MODEL_NAME: 'imagen-3.0-generate-002'
+    });
+    expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('Imagen model'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should disable Imagen secondary image model', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'openai',
+      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
+      SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'imagen-3.0-generate-002'
+    });
+    expect(config.geminiImageBackupModel).toBeNull();
+    expect(warnSpy.mock.calls.some(args => String(args[0]).includes('Imagen model'))).toBe(true);
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should default to the openai provider when AI_PROVIDER is unset', () => {
+  const config = loadConfig({
+    AI_PROVIDER: undefined,
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano'
+  });
+  expect(config.aiProvider).toBe('openai');
+});
+
+test('should expose a constant temperature helper', () => {
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-5.4-nano'
+  });
+  expect(config.getTemperature()).toBe(1.0);
+});
+
 test('should resolve gemini backup provider api key path', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',

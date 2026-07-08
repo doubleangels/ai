@@ -1156,6 +1156,104 @@ test('should ignores replies to imagine image posts without a mention', async ()
   expect(replied).toBe(false);
 });
 
+test('should ignores replies to imagine images even when the reply auto-pings the bot', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'should not run' });
+  let replied = false;
+  const message = createBaseMessage({
+    content: 'make it blue',
+    mentions: {
+      has: () => true,
+      users: { has: () => true },
+      roles: { size: 0, some: () => false },
+      everyone: false,
+      size: 1,
+      values: () => [{ id: 'bot-123' }]
+    },
+    reference: { messageId: 'imagine-1' },
+    reply: async () => { replied = true; return { edit: async () => {} }; },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'imagine-1',
+          author: { id: 'bot-123', username: 'bot' },
+          content: '',
+          embeds: [{ title: 'Generated Image', description: 'a sunset' }],
+          reference: null,
+          attachments: { size: 1, values: () => [{ name: 'image.png' }] }
+        })
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+  expect(message.client.conversationHistory.has('chan-1')).toBe(false);
+});
+
+test('should responds when replying to an imagine image with an explicit bot mention', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'explicit response' });
+  const message = createBaseMessage({
+    content: '<@bot-123> make it blue',
+    mentions: {
+      has: () => true,
+      users: { has: () => true },
+      roles: { size: 0, some: () => false },
+      everyone: false,
+      size: 1,
+      values: () => [{ id: 'bot-123' }]
+    },
+    reference: { messageId: 'imagine-1' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'imagine-1',
+          author: { id: 'bot-123', username: 'bot' },
+          content: '',
+          embeds: [{ title: 'Generated Image', description: 'a sunset' }],
+          reference: null,
+          attachments: { size: 1, values: () => [{ name: 'image.png' }] }
+        })
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(message.getReplyTexts().some(text => text.includes('explicit response'))).toBe(true);
+});
+
+test('should responds when replying to a normal bot message via reply auto-ping', async () => {
+  const mod = loadMessageCreate({ generateAIResponse: async () => 'reply response' });
+  const message = createBaseMessage({
+    content: 'tell me more',
+    mentions: {
+      has: () => true,
+      users: { has: () => true },
+      roles: { size: 0, some: () => false },
+      everyone: false,
+      size: 1,
+      values: () => [{ id: 'bot-123' }]
+    },
+    reference: { messageId: 'bot-msg' },
+    channel: {
+      name: 'general',
+      messages: {
+        fetch: async () => ({
+          id: 'bot-msg',
+          author: { id: 'bot-123', username: 'bot' },
+          content: 'previous bot answer',
+          reference: null,
+          attachments: { size: 0, values: () => [] }
+        })
+      }
+    }
+  });
+
+  await mod.execute(message);
+  expect(message.getReplyTexts().some(text => text.includes('reply response'))).toBe(true);
+});
+
 test('should ignores replies without a referenced message id', async () => {
   const mod = loadMessageCreate();
   let replied = false;

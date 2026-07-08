@@ -169,6 +169,151 @@ test('should leave disallowed guild once', async () => {
   expect(leaveCount).toBe(1);
 });
 
+test('should clear conversation state for channels in the left guild', async () => {
+  const prunedChannels = [];
+  const { leaveDisallowedGuild } = reloadModule(guildAccessPath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      allowedGuildIds: new Set(['allowed-guild'])
+    });
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
+    stubModule(instrumentPath, {
+      captureError: () => {},
+      recordCount: () => {}
+    });
+    stubModule(path.resolve(__dirname, '..', 'utils', 'aiUtils.js'), {
+      pruneChannelAuxMaps: channelId => { prunedChannels.push(channelId); }
+    });
+  });
+
+  const client = {
+    conversationHistory: new Map([
+      ['chan-blocked', [{ role: 'user', content: 'hi' }]],
+      ['chan-other', [{ role: 'user', content: 'hi' }]]
+    ]),
+    channelGuildIds: new Map([
+      ['chan-blocked', 'blocked-guild'],
+      ['chan-other', 'other-guild']
+    ]),
+    channelLastActivity: new Map([['chan-blocked', Date.now()]]),
+    channelCooldowns: new Map([['chan-blocked', Date.now()]]),
+    channelLocks: new Map(),
+    channelQueueDepth: new Map()
+  };
+  const guild = {
+    id: 'blocked-guild',
+    name: 'Blocked',
+    leave: async () => {}
+  };
+
+  const left = await leaveDisallowedGuild(client, guild, 'test');
+
+  expect(left).toBe(true);
+  expect(client.conversationHistory.has('chan-blocked')).toBe(false);
+  expect(client.conversationHistory.has('chan-other')).toBe(true);
+  expect(client.channelLastActivity.has('chan-blocked')).toBe(false);
+  expect(client.channelCooldowns.has('chan-blocked')).toBe(false);
+  expect(client.channelGuildIds.has('chan-blocked')).toBe(false);
+  expect(prunedChannels).toContain('chan-blocked');
+});
+
+test('should return false and record error when leaving a guild throws', async () => {
+  const recordCalls = [];
+  let capturedError = null;
+  const { leaveDisallowedGuild } = reloadModule(guildAccessPath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      allowedGuildIds: new Set(['allowed-guild'])
+    });
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
+    stubModule(instrumentPath, {
+      captureError: err => { capturedError = err; },
+      recordCount: (name, value, attrs) => { recordCalls.push({ name, value, attrs }); }
+    });
+    stubModule(path.resolve(__dirname, '..', 'utils', 'aiUtils.js'), {
+      pruneChannelAuxMaps: () => {}
+    });
+  });
+
+  const client = {
+    conversationHistory: new Map(),
+    channelGuildIds: new Map()
+  };
+  const guild = {
+    id: 'blocked-guild',
+    name: 'Blocked',
+    leave: async () => { throw new Error('leave failed'); }
+  };
+
+  const left = await leaveDisallowedGuild(client, guild, 'test');
+
+  expect(left).toBe(false);
+  expect(capturedError).toBeInstanceOf(Error);
+  expect(recordCalls.some(call => call.attrs?.outcome === 'error')).toBe(true);
+  expect(client.guildLeaveInProgress.has('blocked-guild')).toBe(false);
+
+  guild.leave = async () => {};
+  const retry = await leaveDisallowedGuild(client, guild, 'test');
+  expect(retry).toBe(true);
+});
+
+test('clearGuildConversationState handles missing maps and unmapped channels', () => {
+  const { clearGuildConversationState } = loadGuildAccess();
+
+  expect(() => clearGuildConversationState({}, 'guild-1')).not.toThrow();
+
+  const client = {
+    conversationHistory: new Map([['chan-x', []]])
+  };
+  clearGuildConversationState(client, null);
+  expect(client.conversationHistory.has('chan-x')).toBe(false);
+});
+
+test('leaveDisallowedGuild returns false without a client or guild id', async () => {
+  const { leaveDisallowedGuild } = loadGuildAccess({
+    allowedGuildIds: new Set(['allowed-guild'])
+  });
+
+  expect(await leaveDisallowedGuild(null, { id: 'blocked' }, 'test')).toBe(false);
+  expect(await leaveDisallowedGuild({}, undefined, 'test')).toBe(false);
+});
+
+test('leaveDisallowedGuild falls back to "unknown" when the guild has no name', async () => {
+  const infoSpy = jest.fn();
+  const loggerPath = path.resolve(__dirname, '..', 'logger.js');
+  const { leaveDisallowedGuild } = reloadModule(guildAccessPath, () => {
+    stubModule(configPath, {
+      ...DEFAULT_CONFIG,
+      allowedGuildIds: new Set(['allowed-guild'])
+    });
+    stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
+    stubModule(instrumentPath, {
+      captureError: () => {},
+      recordCount: () => {}
+    });
+    stubModule(path.resolve(__dirname, '..', 'utils', 'aiUtils.js'), {
+      pruneChannelAuxMaps: () => {}
+    });
+    stubModule(loggerPath, () => ({
+      info: infoSpy,
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn()
+    }));
+  });
+
+  const client = { conversationHistory: new Map(), channelGuildIds: new Map() };
+  const guild = { id: 'blocked-guild', name: '', leave: async () => {} };
+
+  const left = await leaveDisallowedGuild(client, guild, 'test');
+
+  expect(left).toBe(true);
+  expect(infoSpy).toHaveBeenCalledWith(
+    'Left disallowed guild "unknown".',
+    expect.objectContaining({ guildName: 'unknown' })
+  );
+});
+
 test('should not leave allowlisted guild', async () => {
   const { leaveDisallowedGuild } = loadGuildAccess({
     allowedGuildIds: new Set(['allowed-guild'])

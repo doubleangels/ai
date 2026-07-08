@@ -37,6 +37,22 @@ function messageMentionsBot(message, client) {
   return message.mentions.roles.some(role => botMember.roles.cache.has(role.id));
 }
 
+/**
+ * Detects whether the message body deliberately pings the bot, ignoring the
+ * automatic reply mention Discord adds when a user replies to the bot.
+ * @param {import('discord.js').Message} message - The message to check
+ * @param {import('discord.js').Client} client - The Discord client
+ * @returns {boolean} True if the bot is explicitly mentioned in the content
+ */
+function messageMentionsBotExplicitly(message, client) {
+  const botId = client.user.id;
+  if (new RegExp(`<@!?${botId}>`).test(message.content || '')) return true;
+  if (!message.guild || !message.mentions.roles?.size) return false;
+  const botMember = message.guild.members.cache.get(botId);
+  if (!botMember) return false;
+  return message.mentions.roles.some(role => botMember.roles.cache.has(role.id));
+}
+
 function recordReplyFailure(location, channelId, messageId, err, extra = {}) {
   try {
     const httpStatus = err?.status || err?.statusCode || err?.httpStatus;
@@ -106,6 +122,7 @@ module.exports = {
     }
 
     const hasBotPing = messageMentionsBot(message, client);
+    const hasExplicitBotMention = messageMentionsBotExplicitly(message, client);
     const hasReference = Boolean(message.reference?.messageId);
     const hasEveryoneOrHereMention = hasEveryoneMention(message);
 
@@ -129,17 +146,24 @@ module.exports = {
       }
     }
 
+    if (
+      hasReference
+      && !hasExplicitBotMention
+      && prefetchedReferencedMessage
+      && prefetchedReferencedMessage.author.id === client.user.id
+      && isImagineImageMessage(prefetchedReferencedMessage)
+    ) {
+      logger.debug('Ignoring reply to an imagine image post.', {
+        channelId,
+        messageId: message.id,
+        referencedMessageId: message.reference?.messageId
+      });
+      return;
+    }
+
     if (!hasBotPing) {
       if (!prefetchedReferencedMessage || prefetchedReferencedMessage.author.id !== client.user.id) {
         logger.debug('Ignoring reply that does not target the bot.', {
-          channelId,
-          messageId: message.id,
-          referencedMessageId: message.reference?.messageId
-        });
-        return;
-      }
-      if (isImagineImageMessage(prefetchedReferencedMessage)) {
-        logger.debug('Ignoring reply to an imagine image post.', {
           channelId,
           messageId: message.id,
           referencedMessageId: message.reference?.messageId

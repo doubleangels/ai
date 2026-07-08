@@ -126,6 +126,23 @@ test('should edit reply with error message on generation failure', async () => {
   expect(edit.payload.content).toMatch(/Rate limited/);
 });
 
+test('should use a jpg filename when the image is a jpeg', async () => {
+  const command = loadImagineCommand({
+    generateImageImpl: async () => ({
+      buffer: Buffer.from('jpg-bytes'),
+      contentType: 'image/jpeg',
+      modelId: 'gemini-3.1-flash-image',
+      aspectRatio: '1:1'
+    })
+  });
+  const { interaction, calls } = createInteraction();
+
+  await command.execute(interaction);
+
+  const edit = calls.filter(c => c.type === 'editReply').pop();
+  expect(edit.payload.files[0].name).toMatch(/\.jpg$/);
+});
+
 test('should expose slash command metadata', () => {
   const command = loadImagineCommand();
   const json = command.data.toJSON();

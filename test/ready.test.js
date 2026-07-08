@@ -98,6 +98,33 @@ test('should ready logs first 25 guild names on startup', async () => {
   writeSpy.mockRestore();
 });
 
+test('should label guilds without a name as unknown in the summary', async () => {
+  const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+  const client = {
+    discordReady: false,
+    user: { tag: 'Bot#0001', setPresence: () => {} },
+    guilds: { cache: new Map([['g1', { id: 'g1' }]]) }
+  };
+
+  const loggerPath = path.resolve(__dirname, '..', 'logger.js');
+  const infoSpy = jest.fn();
+  const readyWithSpy = reloadModule(readyPath, () => {
+    const { stubModule } = require('./testUtils.cjs');
+    stubModule(loggerPath, () => ({
+      info: infoSpy,
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn()
+    }));
+  });
+
+  await readyWithSpy.execute(client);
+
+  const summaryCall = infoSpy.mock.calls.find(args => args[0] === 'Bot guild summary.');
+  expect(summaryCall[1].guildNames).toContain('unknown');
+  writeSpy.mockRestore();
+});
+
 test('should leave disallowed guilds on startup', async () => {
   const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
   const guildAccessPath = path.resolve(__dirname, '..', 'utils', 'guildAccess.js');

@@ -123,10 +123,9 @@ async function leaveDisallowedGuilds(client, source) {
   const allowedGuildIds = getAllowedGuildIds();
   if (!allowedGuildIds || allowedGuildIds.size === 0) return 0;
 
-  const guilds = [...client.guilds.cache.values()];
   let leftCount = 0;
 
-  for (const guild of guilds) {
+  for (const guild of client.guilds.cache.values()) {
     if (await leaveDisallowedGuild(client, guild, source)) {
       leftCount += 1;
     }

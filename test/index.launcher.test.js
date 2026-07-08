@@ -94,6 +94,28 @@ test('should index exits when shard spawn fails', async () => {
   exitSpy.mockRestore();
 });
 
+test('should index logs and exits when start fails to boot the bot', async () => {
+  const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
+  let logger;
+
+  jest.isolateModules(() => {
+    logger = mockLogger();
+    mockDeployResolved();
+    jest.doMock(configPath, () => ({ discordShardCount: 0, token: 'fake-token' }));
+    jest.doMock(botPath, () => { throw new Error('bot boom'); });
+    require(indexPath);
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(logger.error).toHaveBeenCalledWith(
+    'Failed to start bot.',
+    expect.objectContaining({ outcome: 'error' })
+  );
+  expect(exitSpy).toHaveBeenCalledWith(1);
+  exitSpy.mockRestore();
+});
+
 test('should index exits when command deploy fails on startup', async () => {
   const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
   let logger;

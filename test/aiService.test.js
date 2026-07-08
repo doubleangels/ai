@@ -532,6 +532,70 @@ test('should openai uses prompt cache settings when context cache is enabled', a
   expect(capturedParams.input[2].content[0].cache_control).toEqual({ type: 'ephemeral' });
 });
 
+test('should skip cache breakpoints when the only user turn is first', async () => {
+  let capturedParams;
+  const aiService = await loadAiService({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async params => {
+              capturedParams = params;
+              return { id: 'resp-1', status: 'completed', output_text: 'ok' };
+            }
+          };
+        }
+      }
+    }
+  }, {
+    AI_PROVIDER: 'openai',
+    OPENAI_API_KEY: 'fake',
+    ENABLE_CONTEXT_CACHE: '1'
+  });
+
+  const reply = await aiService.generateAIResponse([
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: 'prev' }
+  ]);
+
+  expect(reply).toBe('ok');
+  expect(capturedParams.input.every(msg => {
+    const content = msg.content;
+    if (!Array.isArray(content)) return true;
+    return content.every(part => !part.cache_control);
+  })).toBe(true);
+});
+
+test('should leave the cache breakpoint message untouched when it has no cacheable content', async () => {
+  let capturedParams;
+  const aiService = await loadAiService({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async params => {
+              capturedParams = params;
+              return { id: 'resp-1', status: 'completed', output_text: 'ok' };
+            }
+          };
+        }
+      }
+    }
+  }, {
+    AI_PROVIDER: 'openai',
+    OPENAI_API_KEY: 'fake',
+    ENABLE_CONTEXT_CACHE: '1'
+  });
+
+  const reply = await aiService.generateAIResponse([
+    { role: 'assistant', content: [] },
+    { role: 'user', content: 'second' }
+  ]);
+
+  expect(reply).toBe('ok');
+  expect(capturedParams.input[0].content).toEqual([]);
+});
+
 test('should claude uses image analysis prompt without a system message', async () => {
   let capturedSystem;
   const aiService = await loadAiService({

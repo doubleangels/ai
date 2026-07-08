@@ -306,7 +306,7 @@ async function generateImage({ prompt, aspectRatio }) {
       recordCount('gemini.image.fallback', 1, {
         fromModel: modelId,
         toModel: backupModel,
-        code: error.code ?? 'unknown'
+        code: error.code
       });
     }
   }
