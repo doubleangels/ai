@@ -30,12 +30,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
     "@discordjs/rest": "^2.6.1",
-    "@google/genai": "^2.10.0",
-    "@sentry/node": "^10.64.0",
-    "@sentry/profiling-node": "^10.64.0",
-    "discord.js": "^14.26.4",
+    "@google/genai": "^2.11.0",
+    "@sentry/node": "^10.65.0",
+    "@sentry/profiling-node": "^10.65.0",
+    "discord.js": "^14.26.5",
     "dotenv": "^17.4.2",
-    "openai": "^6.45.0",
+    "openai": "^6.46.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {
