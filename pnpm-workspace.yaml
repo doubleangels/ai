@@ -1,14 +1,14 @@
+allowBuilds:
+  '@google/genai': true
+  '@sentry-internal/node-cpu-profiler': true
+  '@sentry/node-cpu-profiler': true
+  '@sentry/profiling-node': true
+  protobufjs: true
+  unrs-resolver: true
+minimumReleaseAge: 0
 overrides:
   tar: '>=7.5.11'
   minimatch: '>=10.2.1'
   brace-expansion: '>=5.0.6'
   ip-address: '>=10.1.1'
   undici: 6.27.0
-
-onlyBuiltDependencies:
-  - '@google/genai'
-  - '@sentry-internal/node-cpu-profiler'
-  - '@sentry/node-cpu-profiler'
-  - '@sentry/profiling-node'
-  - protobufjs
-  - unrs-resolver

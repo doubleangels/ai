@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A Discord bot that uses AI to respond to messages.",
   "main": "index.js",
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "pnpm@11.13.0",
   "engines": {
     "node": ">=24"
   },
