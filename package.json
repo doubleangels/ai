@@ -32,7 +32,7 @@
     "@discordjs/rest": "^2.6.2",
     "@google/genai": "^2.11.0",
     "@sentry/node": "^10.65.0",
-    "@sentry/profiling-node": "^10.65.0",
+    "@sentry/profiling-node": "^10.66.0",
     "discord.js": "^14.27.0",
     "dotenv": "^17.4.2",
     "openai": "^6.47.0",
