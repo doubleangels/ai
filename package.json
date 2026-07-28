@@ -35,7 +35,7 @@
     "@sentry/profiling-node": "^10.68.0",
     "discord.js": "^14.27.0",
     "dotenv": "^17.4.2",
-    "openai": "^6.49.0",
+    "openai": "^7.0.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {
