@@ -56,6 +56,11 @@ RUN mkdir -p /app/data && \
     chown -R discordbot:nodejs /app && \
     chmod 750 /app/data
 
+    # Apply latest Alpine secfixes after all layers (node base, doppler repo, app copy).
+# npm/npx are unused at runtime (pnpm in build, node + doppler at runtime); remove bundled npm CVE surface.
+RUN apk update && apk upgrade --no-cache && \
+rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 # Create volume mount point for database persistence
 VOLUME ["/app/data"]
 
