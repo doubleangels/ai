@@ -16,8 +16,8 @@ importers:
   .:
     dependencies:
       '@anthropic-ai/sdk':
-        specifier: ^0.104.2
-        version: 0.104.2
+        specifier: ^0.115.0
+        version: 0.115.0
       '@discordjs/rest':
         specifier: ^2.6.3
         version: 2.6.3
@@ -52,8 +52,8 @@ importers:
 
 packages:
 
-  '@anthropic-ai/sdk@0.104.2':
-    resolution: {integrity: sha512-s1wEVDAtEwkS7Ajgep6PZKJLFqybRkmD3Byz+iVVsSpbDY0gjROXE9aOft6V3PMqynn3NTcycV5whga9tCzmKA==}
+  '@anthropic-ai/sdk@0.115.0':
+    resolution: {integrity: sha512-BJrFIVyjNuU8lfDyIJTvlRYzgQg+zEl78BxE7fq8esULsGz9IRQvGtW5spq3tydmtjQb/GFdooKGdGsetpx+lQ==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1858,7 +1858,7 @@ packages:
 
 snapshots:
 
-  '@anthropic-ai/sdk@0.104.2':
+  '@anthropic-ai/sdk@0.115.0':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.0.0
