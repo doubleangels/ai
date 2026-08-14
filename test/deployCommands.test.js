@@ -11,9 +11,13 @@ function stubDiscord(restBehavior = { succeed: true }) {
       setName() { return this; }
       setDescription() { return this; }
       setDefaultMemberPermissions() { return this; }
+      setIntegrationTypes() { return this; }
+      setContexts() { return this; }
       addChannelOption(cb) { return this; }
       toJSON() { return this._data; }
     },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class {
       constructor() { this._e = {}; }
       setColor() { return this; }
@@ -70,9 +74,13 @@ test('should records httpStatus fallback metrics when REST.put rejects', async (
       setName() { return this; }
       setDescription() { return this; }
       setDefaultMemberPermissions() { return this; }
+      setIntegrationTypes() { return this; }
+      setContexts() { return this; }
       addChannelOption() { return this; }
       toJSON() { return this._data; }
     },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class {
       constructor() { this._e = {}; }
       setColor() { return this; }

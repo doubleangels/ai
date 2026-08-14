@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder, MessageFlags, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
 const { geminiApiKey, imageUserCooldownMs, IMAGE_ASPECT_RATIOS } = require('../config');
@@ -34,6 +34,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('imagine')
     .setDescription('Generate an image from a text prompt using Gemini Image')
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
     .addStringOption(option =>
       option
         .setName('prompt')

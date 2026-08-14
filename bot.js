@@ -7,7 +7,10 @@ const config = require('./config');
 const { serializeError } = require('./utils/logSanitize');
 const { leaveDisallowedGuild, isGuildAllowlisted } = require('./utils/guildAccess');
 
+// DM/user-install interactions have no guildId; the guild allowlist only restricts
+// which guilds the bot operates in, so those contexts are always allowed here.
 function interactionAllowedInGuild(interaction) {
+  if (!interaction.guildId) return true;
   return isGuildAllowlisted(interaction.guildId);
 }
 

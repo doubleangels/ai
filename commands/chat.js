@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
 const {
@@ -22,6 +22,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('chat')
     .setDescription('Chat with the bot (same as @mentioning it)')
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall, ApplicationIntegrationType.UserInstall)
+    .setContexts(InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel)
     .addStringOption(option =>
       option
         .setName('message')

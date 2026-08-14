@@ -15,6 +15,8 @@ const defaultExports = {
     setName(name) { this._data.name = name; return this; }
     setDescription(description) { this._data.description = description; return this; }
     setDefaultMemberPermissions() { return this; }
+    setIntegrationTypes(...types) { this._data.integration_types = types; return this; }
+    setContexts(...contexts) { this._data.contexts = contexts; return this; }
     addStringOption(cb) {
       const option = {
         type: 3,
@@ -63,6 +65,8 @@ const defaultExports = {
       return {
         name: this._data.name,
         description: this._data.description,
+        integration_types: this._data.integration_types,
+        contexts: this._data.contexts,
         options: this._data.options.map(o => ({
           name: o.name,
           description: o.description,
@@ -73,6 +77,8 @@ const defaultExports = {
       };
     }
   },
+  ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+  InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
   AttachmentBuilder: class {
     constructor(data, meta = {}) {
       this.data = data;

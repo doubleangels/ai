@@ -81,7 +81,9 @@ test('should records failure metric when registration fails', async () => {
   const calls = [];
   process.env.DISCORD_CLIENT_ID = 'client-1';
   global.__discordStub = {
-    SlashCommandBuilder: class { constructor(){ this._data = {}; } setName(){ return this; } setDescription(){ return this; } setDefaultMemberPermissions(){ return this; } addChannelOption(){ return this; } toJSON(){ return this._data; } },
+    SlashCommandBuilder: class { constructor(){ this._data = {}; } setName(){ return this; } setDescription(){ return this; } setDefaultMemberPermissions(){ return this; } setIntegrationTypes(){ return this; } setContexts(){ return this; } addChannelOption(){ return this; } toJSON(){ return this._data; } },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class { constructor(){ this._e = {}; } setColor(){ return this; } setTitle(){ return this; } setDescription(){ return this; } },
     ChannelType: { GuildText: 0 },
     PermissionFlagsBits: { Administrator: 0 },
@@ -114,7 +116,9 @@ test('should swallows metric recording failures on deploy error', async () => {
 
   process.env.DISCORD_CLIENT_ID = 'client-1';
   global.__discordStub = {
-    SlashCommandBuilder: class { constructor() {} setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+    SlashCommandBuilder: class { constructor() {} setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } setIntegrationTypes() { return this; } setContexts() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
     ChannelType: { GuildText: 0 },
     PermissionFlagsBits: { Administrator: 0 },

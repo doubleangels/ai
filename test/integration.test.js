@@ -246,6 +246,58 @@ test('should index sends successful command error replies and swallows metric fa
   delete require.cache[botPath];
 });
 
+test('should index allows DM/user-install interactions even when a guild allowlist is configured', async () => {
+  const client = loadIndexHarness(() => {}, { allowedGuildIds: new Set(['allowed-guild']) });
+
+  let executed = false;
+  client.commands.set('cmd-dm', { execute: async () => { executed = true; } });
+  const handlers = client.handlers.get('interactionCreate') || [];
+
+  let replyContent = null;
+  await handlers[0]({
+    isChatInputCommand: () => true,
+    isContextMenuCommand: () => false,
+    commandName: 'cmd-dm',
+    user: { id: 'u1', tag: 'User#1' },
+    guildId: null,
+    guild: null,
+    inGuild: () => false,
+    replied: false,
+    deferred: false,
+    reply: async payload => { replyContent = payload; },
+    followUp: async () => {}
+  });
+
+  expect(executed).toBe(true);
+  expect(replyContent).toBeNull();
+});
+
+test('should index rejects interactions from guilds outside the allowlist', async () => {
+  const client = loadIndexHarness(() => {}, { allowedGuildIds: new Set(['allowed-guild']) });
+
+  let executed = false;
+  client.commands.set('cmd-blocked', { execute: async () => { executed = true; } });
+  const handlers = client.handlers.get('interactionCreate') || [];
+
+  let replyContent = null;
+  await handlers[0]({
+    isChatInputCommand: () => true,
+    isContextMenuCommand: () => false,
+    commandName: 'cmd-blocked',
+    user: { id: 'u1', tag: 'User#1' },
+    guildId: 'blocked-guild',
+    guild: null,
+    inGuild: () => true,
+    replied: false,
+    deferred: false,
+    reply: async payload => { replyContent = payload; },
+    followUp: async () => {}
+  });
+
+  expect(executed).toBe(false);
+  expect(replyContent).toEqual(expect.objectContaining({ content: 'This bot is not enabled in this server.' }));
+});
+
 test('should index swallows command reply metric failures', async () => {
   let commandStatusCodeMetrics = 0;
   const client2 = loadIndexHarness((_name, _value, attrs) => {
@@ -292,7 +344,9 @@ test('should records failures using statusCode and swallows metric errors', asyn
     });
 
     stubModule(require.resolve('discord.js'), {
-      SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } setIntegrationTypes() { return this; } setContexts() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+      InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
       EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
       ChannelType: { GuildText: 0 },
       PermissionFlagsBits: { Administrator: 0 },
@@ -327,7 +381,9 @@ test('should records failures using statusCode and swallows metric errors', asyn
     });
 
     stubModule(require.resolve('discord.js'), {
-      SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } setIntegrationTypes() { return this; } setContexts() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+      ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+      InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
       EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
       ChannelType: { GuildText: 0 },
       PermissionFlagsBits: { Administrator: 0 },
@@ -432,6 +488,8 @@ function loadResetCommand() {
         setName() { return this; }
         setDescription() { return this; }
         setDefaultMemberPermissions() { return this; }
+        setIntegrationTypes() { return this; }
+        setContexts() { return this; }
         addChannelOption(cb) {
           const option = {
             setName: () => option,
@@ -444,6 +502,8 @@ function loadResetCommand() {
         }
         toJSON() { return {}; }
       },
+      ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+      InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
       EmbedBuilder: class {
         setColor() { return this; }
         setTitle() { return this; }
@@ -1388,7 +1448,9 @@ test('should records rate limit metrics and swallows metric failures', async () 
 
   const discordPath = require.resolve('discord.js');
   stubModule(discordPath, {
-    SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+    SlashCommandBuilder: class { setName() { return this; } setDescription() { return this; } setDefaultMemberPermissions() { return this; } setIntegrationTypes() { return this; } setContexts() { return this; } addChannelOption() { return this; } toJSON() { return {}; } },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class { setColor() { return this; } setTitle() { return this; } setDescription() { return this; } },
     ChannelType: { GuildText: 0 },
     PermissionFlagsBits: { Administrator: 0 },
