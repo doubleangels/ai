@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/doubleangels/ai#readme",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0",
+    "@anthropic-ai/sdk": "^0.117.1",
     "@discordjs/rest": "^2.6.3",
     "@google/genai": "^2.17.1",
     "@sentry/node": "^10.70.0",
