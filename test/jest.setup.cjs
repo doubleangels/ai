@@ -24,6 +24,8 @@ function registerCoreStubs() {
       setName() { return this; }
       setDescription() { return this; }
       setDefaultMemberPermissions() { return this; }
+      setIntegrationTypes() { return this; }
+      setContexts() { return this; }
       addStringOption(cb) {
         const option = {
           setName: () => option,
@@ -56,6 +58,8 @@ function registerCoreStubs() {
       }
       toJSON() { return this._data; }
     },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class {
       constructor() { this.data = {}; }
       setColor(c) { this.data.color = c; return this; }

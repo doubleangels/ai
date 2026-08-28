@@ -64,9 +64,13 @@ require.cache[discordPath] = {
       setName(value) { this.name = value; return this; }
       setDescription() { return this; }
       setDefaultMemberPermissions() { return this; }
+      setIntegrationTypes() { return this; }
+      setContexts() { return this; }
       addChannelOption() { return this; }
       toJSON() { return { name: this.name }; }
     },
+    ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+    InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
     EmbedBuilder: class {},
     ChannelType: { GuildText: 0 },
     PermissionFlagsBits: { Administrator: 1 }

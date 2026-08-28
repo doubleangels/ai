@@ -141,12 +141,16 @@ function loadIndexHarness(configOverrides = {}, fileLists = {}, options = {}) {
         setName(value) { this.name = value; return this; }
         setDescription() { return this; }
         setDefaultMemberPermissions() { return this; }
+        setIntegrationTypes() { return this; }
+        setContexts() { return this; }
         addChannelOption(callback) {
           callback({ setName() { return this; }, setDescription() { return this; }, addChannelTypes() { return this; }, setRequired() { return this; } });
           return this;
         }
         toJSON() { return { name: this.name }; }
       },
+      ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
+      InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
       EmbedBuilder: class {
         constructor() { this.data = {}; }
         setColor(value) { this.data.color = value; return this; }

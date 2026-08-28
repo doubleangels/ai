@@ -257,7 +257,11 @@ const parsedHistoryLength = parseInt(process.env.MAX_HISTORY_LENGTH, 10);
 
 const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
 
-/** When non-empty, only listed guild IDs may use the bot; DMs are blocked. When empty, all guilds and DMs are allowed. */
+/**
+ * When non-empty, only listed guild IDs may use the bot in a guild. When empty, all guilds are allowed.
+ * Does not affect DM/user-install slash-command usage (see bot.js#interactionAllowedInGuild), which has no
+ * guild to check against; plain-message (mention/reply) chat in events/messageCreate.js still ignores DMs.
+ */
 const allowedGuildIdList = (process.env.ALLOWED_GUILD_IDS || '')
   .split(',')
   .map(s => s.trim())

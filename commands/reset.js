@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, ChannelType, MessageFlags, PermissionFlagsBits } = require('discord.js'); 
+const { SlashCommandBuilder, EmbedBuilder, ChannelType, MessageFlags, PermissionFlagsBits, ApplicationIntegrationType, InteractionContextType } = require('discord.js');
 const path = require('path');
 const { captureError, recordCount, recordDistribution } = require('../instrument');
 const { pruneChannelAuxMaps } = require('../utils/aiUtils');
@@ -53,6 +53,8 @@ module.exports = {
     .setName('reset')
     .setDescription('Reset conversation history for a channel or all channels in this server.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setIntegrationTypes(ApplicationIntegrationType.GuildInstall)
+    .setContexts(InteractionContextType.Guild)
     .addChannelOption(option =>
       option
         .setName('channel')
