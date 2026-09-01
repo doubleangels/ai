@@ -39,7 +39,7 @@
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "jest": "^30.4.2",
+    "jest": "^30.5.0",
     "nodemon": "^3.1.14"
   }
 }
