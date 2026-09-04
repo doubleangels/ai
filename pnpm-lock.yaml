@@ -22,8 +22,8 @@ importers:
         specifier: ^2.6.3
         version: 2.6.3
       '@google/genai':
-        specifier: ^2.19.0
-        version: 2.19.0(supports-color@5.5.0)
+        specifier: ^2.20.0
+        version: 2.20.0(supports-color@5.5.0)
       '@sentry/node':
         specifier: ^10.71.0
         version: 10.71.0(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(supports-color@5.5.0)
@@ -38,7 +38,7 @@ importers:
         version: 17.4.2
       openai:
         specifier: ^7.8.0
-        version: 7.8.0(undici@6.27.0)(ws@8.21.3)
+        version: 7.8.0(undici@6.28.0)(ws@8.21.3)
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -278,8 +278,8 @@ packages:
   '@emnapi/wasi-threads@1.2.1':
     resolution: {integrity: sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==}
 
-  '@google/genai@2.19.0':
-    resolution: {integrity: sha512-IM3u1FjpOLyOPsPh0smGA6Ntj2olUWCPbTs/WQj7cA/2AKCGw/652W7IaySx0XtwuscFnMYBoraebQusSZ0zSQ==}
+  '@google/genai@2.20.0':
+    resolution: {integrity: sha512-kFEzARfA064oCNAmYTyOaAeJ9KSkbZ2Upxz36oO5eVNlcxAXsixLlGbwY1oy+Ab8HJ6nMWMD9hg+NdIron6wJw==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.25.2
@@ -1482,7 +1482,7 @@ packages:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
       '@smithy/hash-node': '>=4.3.0 <5'
       '@smithy/signature-v4': '>=5.4.0 <6'
-      undici: 6.27.0
+      undici: 6.28.0
       ws: ^8.21.0
       zod: ^3.25 || ^4.0
     peerDependenciesMeta:
@@ -2146,7 +2146,7 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@google/genai@2.19.0(supports-color@5.5.0)':
+  '@google/genai@2.20.0(supports-color@5.5.0)':
     dependencies:
       google-auth-library: 10.9.1(supports-color@5.5.0)
       p-retry: 4.6.2
@@ -3576,7 +3576,7 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@7.8.0(undici@6.27.0)(ws@8.21.3):
+  openai@7.8.0(undici@6.28.0)(ws@8.21.3):
     optionalDependencies:
       undici: 6.28.0
       ws: 8.21.3
