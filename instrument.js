@@ -38,8 +38,12 @@ function normalizeAttributes(attributes = {}) {
   return normalized;
 }
 
+// Continuous CPU profiling is opt-in: the profiler adds per-trace sampling overhead that isn't
+// worth paying in a memory/CPU-constrained container unless someone is actively looking at profiles.
+const profilingEnabled = process.env.SENTRY_ENABLE_PROFILING === 'true' || process.env.SENTRY_ENABLE_PROFILING === '1';
+
 const integrations = [];
-if (typeof nodeProfilingIntegration === 'function') {
+if (profilingEnabled && typeof nodeProfilingIntegration === 'function') {
   try {
     integrations.push(nodeProfilingIntegration());
   } catch (error) {

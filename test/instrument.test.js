@@ -51,6 +51,7 @@ function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {}, om
     'SENTRY_DSN',
     'SENTRY_ENABLE_LOGS',
     'SENTRY_ENABLE_METRICS',
+    'SENTRY_ENABLE_PROFILING',
     'SENTRY_PROFILE_LIFECYCLE',
     'NODE_ENV'
   ];
@@ -218,7 +219,9 @@ test('should handles profiling integration that throws when invoked', () => {
   };
 
   const originalDsn = process.env.SENTRY_DSN;
+  const originalProfilingEnabled = process.env.SENTRY_ENABLE_PROFILING;
   process.env.SENTRY_DSN = 'https://example.invalid/1';
+  process.env.SENTRY_ENABLE_PROFILING = 'true';
 
   const stderrSpy = [];
   const originalWrite = process.stderr.write;
@@ -244,8 +247,34 @@ test('should handles profiling integration that throws when invoked', () => {
     process.stderr.write = originalWrite;
     if (originalDsn === undefined) delete process.env.SENTRY_DSN;
     else process.env.SENTRY_DSN = originalDsn;
+    if (originalProfilingEnabled === undefined) delete process.env.SENTRY_ENABLE_PROFILING;
+    else process.env.SENTRY_ENABLE_PROFILING = originalProfilingEnabled;
     delete require.cache[instrumentPath];
     delete require.cache[profilingPath];
+  }
+});
+
+test('should disables the profiling integration by default', () => {
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
+  });
+
+  try {
+    expect(sentryCalls.init.integrations).toEqual([]);
+  } finally {
+    restore();
+  }
+});
+
+test('should enables the profiling integration when SENTRY_ENABLE_PROFILING is set', () => {
+  const { sentryCalls, restore } = loadInstrumentWithStubs({
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1', SENTRY_ENABLE_PROFILING: 'true' }
+  });
+
+  try {
+    expect(sentryCalls.init.integrations.length).toBe(1);
+  } finally {
+    restore();
   }
 });
 
