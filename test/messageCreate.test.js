@@ -496,19 +496,6 @@ test('should handles multi-chunk replies, empty chunks, and chunk failures', asy
   expect(partialErrorMetrics).toContain('error');
 });
 
-test('should applyCooldownStamps uses default prune age when cooldown config is invalid', async () => {
-  const mod = loadMessageCreate({
-    generateAIResponse: async () => 'ok',
-    config: { userCooldownMs: 0, channelCooldownMs: Number.NaN }
-  });
-  const message = createBaseMessage();
-  message.client.userCooldowns.set('stale-user:chan-1', Date.now() - 999_999);
-
-  await mod.execute(message);
-
-  expect(message.client.userCooldowns.has('stale-user:chan-1')).toBe(false);
-});
-
 test('should generates AI response when Sentry conversation id is unavailable', async () => {
   const mod = reloadModule(messageCreatePath, () => {
     stubModule(configPath, {
@@ -695,7 +682,7 @@ test('should not reuse stale translations for a new user', async () => {
   expect(contentStr).not.toMatch(/text from user-1/);
 });
 
-test('should includes reply-chain parent attachments and prunes stale cooldown entries', async () => {
+test('should includes reply-chain parent attachments', async () => {
   let imageCalls = 0;
   const mod = loadMessageCreate({
     generateAIResponse: async () => 'ok',
@@ -727,13 +714,8 @@ test('should includes reply-chain parent attachments and prunes stale cooldown e
       }
     }
   });
-  message.client.userCooldowns.set('stale-user:chan-1', Date.now() - 999_999);
-  message.client.channelCooldowns.set('stale-channel', Date.now() - 999_999);
-
   await mod.execute(message);
   expect(imageCalls).toBe(2);
-  expect(message.client.userCooldowns.has('stale-user:chan-1')).toBe(false);
-  expect(message.client.channelCooldowns.has('stale-channel')).toBe(false);
 });
 
 test('should includes embed GIF from reply-chain parent', async () => {

@@ -89,6 +89,32 @@ test('should logger redacts secret fields from log metadata', () => {
   expect(sentryCalls[0].token).toBe('[REDACTED]');
 });
 
+test('should logger skips pino and Sentry entirely when neither would consume the log', () => {
+  let levelMethodCalled = false;
+  global.__pinoStub = Object.assign(
+    () => ({
+      child: () => ({
+        info() {}, warn() {}, error() {}, fatal() {},
+        debug() { levelMethodCalled = true; },
+        trace() { levelMethodCalled = true; },
+        isLevelEnabled: () => false
+      })
+    }),
+    { stdTimeFunctions: { isoTime: () => new Date().toISOString() } }
+  );
+
+  const getLoggerReloaded = reloadModule(loggerPath, () => {
+    stubModule(instrumentPath, { Sentry: {} });
+    stubModule(path.resolve(__dirname, '..', 'config.js'), { logLevel: 'info' });
+  });
+
+  const logger = getLoggerReloaded('skip-both');
+  expect(() => logger.debug('should be skipped entirely', { secret: 'x' })).not.toThrow();
+  expect(levelMethodCalled).toBe(false);
+
+  delete global.__pinoStub;
+});
+
 test('should logger swallows Sentry forwarding failures (coverage merged)', () => {
   const instrument = require(instrumentPath);
   const original = instrument.Sentry.logger;
