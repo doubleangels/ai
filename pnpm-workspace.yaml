@@ -12,3 +12,5 @@ overrides:
   brace-expansion: '>=5.0.6'
   ip-address: '>=10.1.1'
   undici: 6.28.0
+  browserslist: '>=4.28.7'
+  js-yaml: '>=3.15.2'
