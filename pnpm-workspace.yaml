@@ -1,5 +1,6 @@
 allowBuilds:
   '@google/genai': true
+  '@parcel/watcher': true
   '@sentry-internal/node-cpu-profiler': true
   '@sentry/node-cpu-profiler': true
   '@sentry/profiling-node': true
