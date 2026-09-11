@@ -38,6 +38,33 @@ function userCooldownKey(userId, channelId) {
   return `${userId}:${channelId}`;
 }
 
+/** How often stale chat state (idle histories, expired cooldown stamps) is swept, instead of scanning on every message. */
+const CHAT_STATE_CLEANUP_INTERVAL_MS = 60_000;
+
+/**
+ * Sweeps idle conversation histories and expired cooldown timestamps for a client.
+ * Runs on a timer (see ensureClientChatState) rather than per message, since a full
+ * map scan on every incoming message doesn't scale with traffic.
+ * @param {import('discord.js').Client} client
+ */
+function runPeriodicChatStateCleanup(client) {
+  pruneConversationHistories(
+    client.conversationHistory,
+    client.channelLastActivity,
+    conversationHistoryMaxChannels,
+    conversationHistoryIdleMs,
+    client.channelLocks,
+    client.channelQueueDepth,
+    client.channelGuildIds
+  );
+
+  if (userCooldownMs > 0 || channelCooldownMs > 0) {
+    const cooldownMaxAge = Math.max(userCooldownMs, channelCooldownMs) * 10 || 600_000;
+    pruneStaleMapEntries(client.userCooldowns, cooldownMaxAge);
+    pruneStaleMapEntries(client.channelCooldowns, cooldownMaxAge);
+  }
+}
+
 function ensureClientChatState(client) {
   if (!client.channelLocks) client.channelLocks = new Map();
   if (!client.channelQueueDepth) client.channelQueueDepth = new Map();
@@ -45,6 +72,16 @@ function ensureClientChatState(client) {
   if (!client.channelCooldowns) client.channelCooldowns = new Map();
   if (!client.channelLastActivity) client.channelLastActivity = new Map();
   if (!client.channelGuildIds) client.channelGuildIds = new Map();
+
+  if (!client.chatStateCleanupInterval) {
+    client.chatStateCleanupInterval = setInterval(
+      () => runPeriodicChatStateCleanup(client),
+      CHAT_STATE_CLEANUP_INTERVAL_MS
+    );
+    if (typeof client.chatStateCleanupInterval.unref === 'function') {
+      client.chatStateCleanupInterval.unref();
+    }
+  }
 }
 
 /**
@@ -209,15 +246,6 @@ async function runChannelChat({
 
   client.channelLastActivity.set(channelId, Date.now());
   client.channelGuildIds.set(channelId, guildId ?? null);
-  pruneConversationHistories(
-    client.conversationHistory,
-    client.channelLastActivity,
-    conversationHistoryMaxChannels,
-    conversationHistoryIdleMs,
-    client.channelLocks,
-    client.channelQueueDepth,
-    client.channelGuildIds
-  );
 
   if (!client.conversationHistory.has(channelId)) {
     const systemMessage = createSystemMessage(modelName, aiProvider === 'openai');
@@ -329,9 +357,6 @@ async function runChannelChat({
 
   const applyCooldownStamps = () => {
     if (userCooldownMs <= 0 && channelCooldownMs <= 0) return;
-    const cooldownMaxAge = Math.max(userCooldownMs, channelCooldownMs) * 10 || 600_000;
-    pruneStaleMapEntries(client.userCooldowns, cooldownMaxAge);
-    pruneStaleMapEntries(client.channelCooldowns, cooldownMaxAge);
     if (userCooldownMs > 0) {
       client.userCooldowns.set(userCooldownKey(userId, channelId), Date.now());
     }
@@ -568,8 +593,10 @@ async function runChannelChat({
 
 module.exports = {
   QUOTED_REPLY_CONTEXT_MAX_CHARS,
+  CHAT_STATE_CLEANUP_INTERVAL_MS,
   userCooldownKey,
   ensureClientChatState,
+  runPeriodicChatStateCleanup,
   getChannelQueueDepth,
   enqueueChannelChat,
   runChannelChat,

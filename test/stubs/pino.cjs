@@ -6,7 +6,8 @@ const defaultFactory = () => {
     error: () => {},
     debug: () => {},
     trace: () => {},
-    fatal: () => {}
+    fatal: () => {},
+    isLevelEnabled: () => true
   };
   return logger;
 };

@@ -238,8 +238,9 @@ Set `SENTRY_DSN` in Doppler to enable Sentry. [`instrument.js`](instrument.js) l
 | :----------------------------------- | :---------------------- | :----------------------------------------------------------------------------------- |
 | `SENTRY_DSN`                         | _unset_                 | Enable reporting                                                                     |
 | `SENTRY_TRACES_SAMPLE_RATE`          | `0.1` prod / `1.0` dev  | Performance traces (`0.0`–`1.0`)                                                     |
-| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `0.1` prod / `1.0` dev  | Code profiling sample rate (`0.0`–`1.0`)                                             |
-| `SENTRY_PROFILE_LIFECYCLE`           | `trace`                 | Profile lifecycle (e.g. `trace`, `manual`)                                           |
+| `SENTRY_ENABLE_PROFILING`            | `false`                 | Enable the CPU profiling integration (adds per-trace sampling overhead; opt-in)      |
+| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `0.1` prod / `1.0` dev  | Code profiling sample rate (`0.0`–`1.0`); only applies when profiling is enabled     |
+| `SENTRY_PROFILE_LIFECYCLE`           | `trace`                 | Profile lifecycle (e.g. `trace`, `manual`); only applies when profiling is enabled   |
 | `SENTRY_ENABLE_LOGS`                 | `true`                  | Forward Pino logs to Sentry                                                          |
 | `SENTRY_ENABLE_METRICS`              | `true`                  | Emit custom metrics                                                                  |
 | `SENTRY_SEND_DEFAULT_PII`            | `false`                 | Send default PII (user IDs, etc.)                                                    |
@@ -268,7 +269,7 @@ Local variable capture on errors (`includeLocalVariables`) is enabled only outsi
 | Command deploy             | `deploy-commands.js`    | Slash command registration                        |
 | Client ready setup         | `ready.js`              | Post-login setup                                  |
 
-Profiling uses `@sentry/profiling-node` when available; if the integration fails to load, the bot continues without profiling.
+Profiling uses `@sentry/profiling-node` when available and `SENTRY_ENABLE_PROFILING=true` is set; it's off by default to avoid its sampling overhead, and the bot continues without profiling if the integration fails to load.
 
 ### Logs
 
