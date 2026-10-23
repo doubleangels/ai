@@ -5,10 +5,10 @@
   "main": "index.js",
   "packageManager": "pnpm@11.24.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.22.1"
   },
   "scripts": {
-    "dev": "doppler run -- nodemon index.js",
+    "dev": "doppler run -- node --watch index.js",
     "start": "doppler run -- node index.js",
     "commands:deploy": "doppler run -- node deploy-commands.js",
     "test": "jest",
@@ -39,7 +39,6 @@
     "pino": "^10.3.1"
   },
   "devDependencies": {
-    "jest": "^30.5.1",
-    "nodemon": "^3.1.14"
+    "jest": "^30.5.1"
   }
 }

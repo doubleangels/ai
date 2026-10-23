@@ -296,7 +296,7 @@ async function downloadImageAsBase64(url) {
       });
 
       response.on('end', () => {
-        const buffer = Buffer.concat(chunks);
+        const buffer = Buffer.concat(chunks, total);
         const base64 = buffer.toString('base64');
         resolve(`data:${mimeType};base64,${base64}`);
       });
@@ -647,11 +647,11 @@ function trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTok
     for (const msg of channelHistory) totalTokens += estimateMessageTokens(msg);
 
     let removed = 0;
-    while (channelHistory.length > 1 && totalTokens > maxHistoryTokens) {
-      const removedMsg = channelHistory.splice(1, 1)[0];
-      totalTokens -= estimateMessageTokens(removedMsg);
+    while (1 + removed < channelHistory.length && totalTokens > maxHistoryTokens) {
+      totalTokens -= estimateMessageTokens(channelHistory[1 + removed]);
       removed += 1;
     }
+    if (removed > 0) channelHistory.splice(1, removed);
 
     if (removed > 0) {
       logger.debug('Trimmed conversation by token estimate.', {

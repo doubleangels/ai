@@ -377,7 +377,7 @@ pnpm install --frozen-lockfile
 With Doppler:
 
 ```bash
-pnpm dev                 # nodemon + Doppler
+pnpm dev                 # node --watch + Doppler
 pnpm start               # deploy slash commands + start bot (Doppler)
 pnpm commands:deploy     # deploy slash commands only
 pnpm predeploy           # test + deploy commands

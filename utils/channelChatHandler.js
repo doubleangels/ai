@@ -314,7 +314,7 @@ async function runChannelChat({
   }
 
   if (isReplyToBot && botReferencedMessage) {
-    const lastAssistant = [...channelHistory].reverse().find(m => m.role === 'assistant');
+    const lastAssistant = channelHistory.findLast(m => m.role === 'assistant');
     if (!lastAssistant || lastAssistant.content !== botReferencedMessage.content) {
       channelHistory.push({
         role: 'assistant',

@@ -1,6 +1,3 @@
-const { OpenAI } = require('openai');
-const { GoogleGenAI } = require('@google/genai');
-const Anthropic = require('@anthropic-ai/sdk');
 const {
   openaiApiKey,
   geminiApiKey,
@@ -138,8 +135,9 @@ function markMessageForPromptCache(message) {
  * OpenAI client instance configured with API key, timeout, and retries (used when aiProvider === 'openai').
  * @type {OpenAI}
  */
+// SDKs are required only when their key is set, so unused providers cost no startup time or heap.
 const openai = openaiApiKey
-  ? new OpenAI({
+  ? new (require('openai').OpenAI)({
       apiKey: openaiApiKey,
       timeout: openaiTimeoutMs,
       maxRetries: openaiMaxRetries
@@ -150,14 +148,14 @@ const openai = openaiApiKey
  * Google GenAI client (used when aiProvider === 'gemini').
  * @type {GoogleGenAI|null}
  */
-const genAI = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+const genAI = geminiApiKey ? new (require('@google/genai').GoogleGenAI)({ apiKey: geminiApiKey }) : null;
 
 /**
  * Anthropic client (used when aiProvider === 'claude').
  * @type {Anthropic|null}
  */
 const anthropic = anthropicApiKey
-  ? new Anthropic({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
+  ? new (require('@anthropic-ai/sdk'))({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
   : null;
 
 /**

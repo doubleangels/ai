@@ -1,4 +1,3 @@
-const { GoogleGenAI } = require('@google/genai');
 const path = require('path');
 const {
   geminiApiKey,
@@ -12,8 +11,8 @@ const { captureError, recordCount, recordDistribution, startSpan } = require('..
 const logger = require('../logger')(path.basename(__filename));
 const { serializeError } = require('./logSanitize');
 
-/** @type {GoogleGenAI|null} */
-const genAI = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+/** @type {import('@google/genai').GoogleGenAI|null} */
+const genAI = geminiApiKey ? new (require('@google/genai').GoogleGenAI)({ apiKey: geminiApiKey }) : null;
 
 class GeminiImageError extends Error {
   /**

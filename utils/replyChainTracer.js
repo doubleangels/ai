@@ -18,13 +18,14 @@ function clearCache() {
 
 /**
  * Remove expired entries and enforce LRU capacity.
+ * Entries share one TTL and are re-inserted on write, so Map order is expiry order:
+ * the sweep stops at the first live entry instead of scanning the whole cache.
  */
 function trimMessageCache() {
   const now = Date.now();
   for (const [key, entry] of MESSAGE_CACHE) {
-    if (entry.expiresAt <= now) {
-      MESSAGE_CACHE.delete(key);
-    }
+    if (entry.expiresAt > now) break;
+    MESSAGE_CACHE.delete(key);
   }
 
   while (MESSAGE_CACHE.size > messageCacheMaxSize) {
@@ -39,6 +40,7 @@ function trimMessageCache() {
  * @param {import('discord.js').Message} message
  */
 function setCachedMessage(cacheKey, message) {
+  MESSAGE_CACHE.delete(cacheKey);
   MESSAGE_CACHE.set(cacheKey, {
     message,
     expiresAt: Date.now() + messageCacheTtlMs
