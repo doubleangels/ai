@@ -469,6 +469,44 @@ test('should claude uses plain system prompt when context cache is disabled', as
   expect(capturedMessages[1].content).toBe('reply');
 });
 
+test('should claude 5.x models get low effort, thinking headroom, and no sampling params', async () => {
+  const captured = [];
+  const factory = () => function FakeAnthropic() {
+    this.messages = {
+      create: async params => {
+        captured.push(params);
+        return { content: [{ type: 'text', text: 'ok' }] };
+      }
+    };
+  };
+  const conversation = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }];
+
+  const haiku = await loadAiService({ anthropic: factory() }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_MODEL_NAME: 'claude-haiku-5-5',
+    MAX_OUTPUT_TOKENS: '1024',
+    CLAUDE_THINKING_BUDGET_TOKENS: '2048'
+  });
+  await haiku.generateAIResponse(conversation);
+  expect(captured[0].model).toBe('claude-haiku-5-5');
+  expect(captured[0].output_config).toEqual({ effort: 'low' });
+  expect(captured[0].max_tokens).toBe(1024 + 4096);
+  expect(captured[0].thinking).toBeUndefined();
+  expect(captured[0].temperature).toBeUndefined();
+
+  const sonnet4 = await loadAiService({ anthropic: factory() }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_MODEL_NAME: 'claude-sonnet-4-6',
+    MAX_OUTPUT_TOKENS: '1024'
+  });
+  await sonnet4.generateAIResponse(conversation);
+  expect(captured[1].output_config).toBeUndefined();
+  expect(captured[1].max_tokens).toBe(1024);
+  expect(captured[1].temperature).toBeUndefined();
+});
+
 test('should claude marks prior turns for prompt caching when enabled', async () => {
   let capturedSystem;
   let capturedMessages;

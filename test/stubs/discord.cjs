@@ -77,6 +77,15 @@ const defaultExports = {
       };
     }
   },
+  ContextMenuCommandBuilder: class {
+    constructor() { this._data = { name: '', type: 0 }; }
+    setName(name) { this._data.name = name; return this; }
+    setType(type) { this._data.type = type; return this; }
+    setIntegrationTypes(...types) { this._data.integration_types = types; return this; }
+    setContexts(...contexts) { this._data.contexts = contexts; return this; }
+    toJSON() { return { ...this._data }; }
+  },
+  ApplicationCommandType: { ChatInput: 1, User: 2, Message: 3 },
   ApplicationIntegrationType: { GuildInstall: 0, UserInstall: 1 },
   InteractionContextType: { Guild: 0, BotDM: 1, PrivateChannel: 2 },
   AttachmentBuilder: class {

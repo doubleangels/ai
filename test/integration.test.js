@@ -987,6 +987,17 @@ test('should index covers interaction handler guard branches and httpStatus fall
 
   await handlers[0]({
     isChatInputCommand: () => false,
+    isContextMenuCommand: () => false,
+    commandName: 'ignored',
+    user: { id: 'u1', tag: 'User#1' },
+    guildId: 'guild-1',
+    inGuild: () => true,
+    reply: async () => {},
+    followUp: async () => {}
+  });
+
+  await handlers[0]({
+    isChatInputCommand: () => false,
     isContextMenuCommand: () => true,
     commandName: 'ignored',
     user: { id: 'u1', tag: 'User#1' },

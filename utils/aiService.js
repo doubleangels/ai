@@ -197,6 +197,15 @@ function claudeSupportsExtendedThinking(model) {
   return CLAUDE_EXTENDED_THINKING_MODELS.some(m => model && model.startsWith(m));
 }
 
+/** Claude 5.x models think adaptively by default; thinking tokens count against max_tokens. */
+const CLAUDE_ADAPTIVE_THINKING_PATTERN = /^claude-(fable|opus|sonnet|haiku)-5/;
+/** Extra max_tokens headroom for adaptive thinking so short MAX_OUTPUT_TOKENS caps don't truncate replies. */
+const CLAUDE_ADAPTIVE_THINKING_HEADROOM = 4096;
+
+function claudeThinksByDefault(model) {
+  return CLAUDE_ADAPTIVE_THINKING_PATTERN.test(model);
+}
+
 /** Claude tools: optional tools the model can call. */
 const CLAUDE_TOOLS = [
   {
@@ -575,18 +584,20 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
   }
 
   const extendedThinkingEnabled = claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(activeModel);
+  const adaptiveThinking = claudeThinksByDefault(activeModel);
   const claudeMaxTokens = extendedThinkingEnabled
     ? Math.min(65536, maxOutputTokens + claudeThinkingBudgetTokens)
-    : maxOutputTokens;
+    : adaptiveThinking
+      ? Math.min(65536, maxOutputTokens + CLAUDE_ADAPTIVE_THINKING_HEADROOM)
+      : maxOutputTokens;
   const cachedMessages = enableContextCache ? applyConversationCacheBreakpoints(messages) : messages;
   const params = {
     model: activeModel,
     max_tokens: claudeMaxTokens,
     messages: cachedMessages
   };
-  if (!extendedThinkingEnabled) {
-    params.temperature = getTemperature();
-  }
+  // temperature is always the default (1.0), so it is omitted: Claude 4.7+ and 5.x models
+  // reject sampling params, and API version 2026-10-21 rejects them on every model.
   if (systemWithImageHint) {
     if (enableContextCache) {
       params.system = [{ type: 'text', text: systemWithImageHint, cache_control: { type: 'ephemeral' } }];
@@ -597,6 +608,10 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
 
   if (extendedThinkingEnabled) {
     params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
+  }
+  if (adaptiveThinking) {
+    // Chat replies don't need deep reasoning; low effort keeps latency and token spend down.
+    params.output_config = { effort: 'low' };
   }
 
   if (conversationMentionsTime(conversation)) {
