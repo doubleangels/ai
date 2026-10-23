@@ -282,8 +282,9 @@ function parseSnowflakeList(envName, kind) {
 const allowedGuildIds = parseSnowflakeList('ALLOWED_GUILD_IDS', 'guild');
 
 /**
- * When non-empty, only listed user IDs may chat with the bot or use its commands, everywhere
- * (servers, DMs, user installs). When empty, all users are allowed.
+ * When non-empty, only listed user IDs may use the bot through user installs (DMs, group DMs,
+ * servers the bot isn't in). Members of servers the bot is installed in are governed by
+ * ALLOWED_GUILD_IDS instead. When empty, all users are allowed.
  */
 const allowedUserIds = parseSnowflakeList('ALLOWED_USER_IDS', 'user');
 

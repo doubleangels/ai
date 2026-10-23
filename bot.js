@@ -5,7 +5,7 @@ const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
 const { serializeError } = require('./utils/logSanitize');
-const { leaveDisallowedGuild, isGuildAllowlisted, isUserAllowlisted } = require('./utils/guildAccess');
+const { leaveDisallowedGuild, isGuildAllowlisted, isInteractionUserAllowed } = require('./utils/guildAccess');
 
 // DM/user-install interactions have no guildId; the guild allowlist only restricts
 // which guilds the bot operates in, so those contexts are always allowed here.
@@ -139,8 +139,8 @@ client.on('interactionCreate', async interaction => {
     return;
   }
 
-  if (!isUserAllowlisted(interaction.user.id)) {
-    logger.debug('Ignoring command from user outside ALLOWED_USER_IDS.', {
+  if (!isInteractionUserAllowed(interaction)) {
+    logger.debug('Ignoring user-install command from user outside ALLOWED_USER_IDS.', {
       command: interaction.commandName,
       userId: interaction.user.id,
       guildId: interaction.guildId,

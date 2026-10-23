@@ -112,7 +112,7 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | `DISCORD_BOT_TOKEN` | Bot token                                                                                                                       | _required_            |
 | `DISCORD_CLIENT_ID` | Application ID                                                                                                                  | _required for deploy_ |
 | `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (slash commands and **Ask AI** still work in DMs and group DMs for user installs); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
-| `ALLOWED_USER_IDS`  | Comma-separated Discord user IDs (Developer Mode → right-click user → Copy User ID). Empty = everyone. Non-empty = only listed users can chat with the bot or use its commands, in servers, DMs and user installs. Other users' mentions are ignored silently; their commands get a private "no access" reply. | _everyone_ |
+| `ALLOWED_USER_IDS`  | Comma-separated Discord user IDs (Developer Mode → right-click user → Copy User ID). Empty = everyone. Non-empty = only listed users can use the bot through **user installs** (DMs, group DMs, servers the bot isn't in). Everyone in a server the bot is installed in can still use it there (see `ALLOWED_GUILD_IDS`). Others get a private "You don't have access to this bot." reply. | _everyone_ |
 | `LOG_LEVEL`         | Pino log level                                                                                                                  | `info`                |
 
 ### AI provider and models

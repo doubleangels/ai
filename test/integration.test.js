@@ -300,8 +300,15 @@ test('should index rejects interactions from users outside the user allowlist', 
     reply: async () => { throw new Error('reply failed'); }
   });
   await handlers[0]({ ...baseInteraction, user: { id: 'allowed-user', tag: 'Allowed#1' } });
+  await handlers[0]({
+    ...baseInteraction,
+    user: { id: 'guild-member', tag: 'Member#1' },
+    guildId: 'guild-1',
+    inGuild: () => true,
+    authorizingIntegrationOwners: { 0: 'guild-1' }
+  });
 
-  expect(executed).toEqual(['allowed-user']);
+  expect(executed).toEqual(['allowed-user', 'guild-member']);
   expect(replies).toEqual([expect.objectContaining({ content: "You don't have access to this bot." })]);
 });
 
