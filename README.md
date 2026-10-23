@@ -112,6 +112,7 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | `DISCORD_BOT_TOKEN` | Bot token                                                                                                                       | _required_            |
 | `DISCORD_CLIENT_ID` | Application ID                                                                                                                  | _required for deploy_ |
 | `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (slash commands and **Ask AI** still work in DMs and group DMs for user installs); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
+| `ALLOWED_USER_IDS`  | Comma-separated Discord user IDs (Developer Mode → right-click user → Copy User ID). Empty = everyone. Non-empty = only listed users can use the bot through **user installs** (DMs, group DMs, servers the bot isn't in). Everyone in a server the bot is installed in can still use it there (see `ALLOWED_GUILD_IDS`). Others get a private "You don't have access to this bot." reply. | _everyone_ |
 | `LOG_LEVEL`         | Pino log level                                                                                                                  | `info`                |
 
 ### AI provider and models
@@ -450,7 +451,7 @@ The runtime stage contains application code and production dependencies only (`p
 | `utils/aiUtils.js`              | Message splitting, vision download, history trimming, error classification |
 | `utils/replyChainTracer.js`     | Reply-chain traversal and message LRU cache                                |
 | `utils/discordApi.js`           | Discord REST call wrapper with retry/backoff on rate limits                |
-| `utils/guildAccess.js`          | `ALLOWED_GUILD_IDS` enforcement; leaves disallowed guilds                  |
+| `utils/guildAccess.js`          | `ALLOWED_GUILD_IDS` and `ALLOWED_USER_IDS` enforcement; leaves disallowed guilds |
 | `utils/imagineMessage.js`       | Detects bot-generated `/imagine` image posts for reply handling            |
 | `utils/logSanitize.js`          | Redacts secrets (tokens, keys) from log and error output                   |
 | `scripts/audit-log-messages.js` | Log message style audit (maintainer)                                       |

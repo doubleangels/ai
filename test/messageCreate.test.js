@@ -1263,3 +1263,14 @@ test('should logs guildId null on processing errors in DMs', async () => {
 
   await mod.execute(message);
 });
+
+test('should answer members of allowed guilds even when a user allowlist is set', async () => {
+  const mod = loadMessageCreate({ config: { allowedUserIds: new Set(['someone-else']) } });
+  let replied = false;
+  const message = createBaseMessage({
+    reply: async () => { replied = true; return { edit: async () => {}, delete: async () => {} }; }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(true);
+});

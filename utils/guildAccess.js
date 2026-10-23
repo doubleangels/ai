@@ -24,6 +24,32 @@ function isGuildAllowlisted(guildId) {
 }
 
 /**
+ * @param {string|null|undefined} userId
+ * @returns {boolean} True when ALLOWED_USER_IDS is empty or contains userId
+ */
+function isUserAllowlisted(userId) {
+  const allowedUserIds = require('../config').allowedUserIds;
+  if (!allowedUserIds || allowedUserIds.size === 0) return true;
+  return Boolean(userId) && allowedUserIds.has(userId);
+}
+
+/** Key of a guild install in an interaction's authorizingIntegrationOwners (ApplicationIntegrationType.GuildInstall). */
+const GUILD_INSTALL_OWNER_KEY = '0';
+
+/**
+ * Members of a server the bot is installed in may always use it (the guild allowlist
+ * covers those). Everywhere else (DMs, group DMs, user installs in other servers)
+ * the user must be on ALLOWED_USER_IDS.
+ * @param {import('discord.js').CommandInteraction} interaction
+ * @returns {boolean}
+ */
+function isInteractionUserAllowed(interaction) {
+  const viaGuildInstall = Boolean(interaction.guildId)
+    && interaction.authorizingIntegrationOwners?.[GUILD_INSTALL_OWNER_KEY] === interaction.guildId;
+  return viaGuildInstall || isUserAllowlisted(interaction.user?.id);
+}
+
+/**
  * @param {import('discord.js').Client} client
  */
 function ensureGuildLeaveTracking(client) {
@@ -148,6 +174,8 @@ async function leaveDisallowedGuilds(client, source) {
 
 module.exports = {
   isGuildAllowlisted,
+  isUserAllowlisted,
+  isInteractionUserAllowed,
   leaveDisallowedGuild,
   leaveDisallowedGuilds,
   clearGuildConversationState
