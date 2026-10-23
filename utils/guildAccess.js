@@ -24,6 +24,16 @@ function isGuildAllowlisted(guildId) {
 }
 
 /**
+ * @param {string|null|undefined} userId
+ * @returns {boolean} True when ALLOWED_USER_IDS is empty or contains userId
+ */
+function isUserAllowlisted(userId) {
+  const allowedUserIds = require('../config').allowedUserIds;
+  if (!allowedUserIds || allowedUserIds.size === 0) return true;
+  return Boolean(userId) && allowedUserIds.has(userId);
+}
+
+/**
  * @param {import('discord.js').Client} client
  */
 function ensureGuildLeaveTracking(client) {
@@ -148,6 +158,7 @@ async function leaveDisallowedGuilds(client, source) {
 
 module.exports = {
   isGuildAllowlisted,
+  isUserAllowlisted,
   leaveDisallowedGuild,
   leaveDisallowedGuilds,
   clearGuildConversationState

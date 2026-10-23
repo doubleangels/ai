@@ -34,6 +34,7 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: 'gpt-6-luna',
     ALLOWED_GUILD_IDS: 'guild-1, guild-2',
+    ALLOWED_USER_IDS: '',
     MAX_HISTORY_LENGTH: '12',
     MAX_HISTORY_TOKENS: '64',
     MAX_OUTPUT_TOKENS: '2048'
@@ -42,6 +43,7 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
   expect(config.aiProvider).toBe('openai');
   expect(config.modelName).toBe('gpt-6-luna');
   expect(config.allowedGuildIds.size).toBe(2);
+  expect(config.allowedUserIds.size).toBe(0);
   expect(config.maxHistoryLength).toBe(12);
   expect(config.maxHistoryTokens).toBe(64);
   expect(config.maxOutputTokens).toBe(2048);
@@ -656,4 +658,16 @@ test('should resolve gemini backup provider api key path', () => {
   expect(config.backupModels).toEqual([
     { model: 'gemini-3.6-flash', provider: 'gemini', tier: 'secondary' }
   ]);
+});
+
+test('should parse ALLOWED_USER_IDS and warn about non-snowflake entries', () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
+    ALLOWED_USER_IDS: ' 123456789012345678 , not-an-id '
+  });
+  expect([...config.allowedUserIds]).toEqual(['123456789012345678', 'not-an-id']);
+  expect(warn.mock.calls.some(([msg]) => /ALLOWED_USER_IDS contains invalid user ID "not-an-id"/.test(msg))).toBe(true);
+  warn.mockRestore();
 });

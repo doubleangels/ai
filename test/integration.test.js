@@ -272,6 +272,39 @@ test('should index allows DM/user-install interactions even when a guild allowli
   expect(replyContent).toBeNull();
 });
 
+test('should index rejects interactions from users outside the user allowlist', async () => {
+  const client = loadIndexHarness(() => {}, { allowedUserIds: new Set(['allowed-user']) });
+
+  const executed = [];
+  client.commands.set('cmd-user', { execute: async interaction => { executed.push(interaction.user.id); } });
+  const handlers = client.handlers.get('interactionCreate') || [];
+
+  const replies = [];
+  const baseInteraction = {
+    isChatInputCommand: () => true,
+    isContextMenuCommand: () => false,
+    commandName: 'cmd-user',
+    guildId: null,
+    guild: null,
+    inGuild: () => false,
+    replied: false,
+    deferred: false,
+    reply: async payload => { replies.push(payload); },
+    followUp: async () => {}
+  };
+
+  await handlers[0]({ ...baseInteraction, user: { id: 'blocked-user', tag: 'Blocked#1' } });
+  await handlers[0]({
+    ...baseInteraction,
+    user: { id: 'blocked-user', tag: 'Blocked#1' },
+    reply: async () => { throw new Error('reply failed'); }
+  });
+  await handlers[0]({ ...baseInteraction, user: { id: 'allowed-user', tag: 'Allowed#1' } });
+
+  expect(executed).toEqual(['allowed-user']);
+  expect(replies).toEqual([expect.objectContaining({ content: "You don't have access to this bot." })]);
+});
+
 test('should index rejects interactions from guilds outside the allowlist', async () => {
   const client = loadIndexHarness(() => {}, { allowedGuildIds: new Set(['allowed-guild']) });
 

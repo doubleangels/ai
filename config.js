@@ -256,20 +256,36 @@ const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
  * Does not affect DM/user-install slash-command usage (see bot.js#interactionAllowedInGuild), which has no
  * guild to check against; plain-message (mention/reply) chat in events/messageCreate.js still ignores DMs.
  */
-const allowedGuildIdList = (process.env.ALLOWED_GUILD_IDS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+/**
+ * Parses a comma-separated list of Discord IDs, warning about entries that are not snowflakes.
+ * @param {string} envName
+ * @param {string} kind - 'guild' or 'user', used in the warning
+ * @returns {Set<string>}
+ */
+function parseSnowflakeList(envName, kind) {
+  const ids = (process.env[envName] || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 
-for (const guildId of allowedGuildIdList) {
-  if (!DISCORD_SNOWFLAKE_RE.test(guildId)) {
-    console.warn(
-      `ALLOWED_GUILD_IDS contains invalid guild ID "${guildId}" (expected a numeric Discord snowflake). Messages from that ID will never match.`
-    );
+  for (const id of ids) {
+    if (!DISCORD_SNOWFLAKE_RE.test(id)) {
+      console.warn(
+        `${envName} contains invalid ${kind} ID "${id}" (expected a numeric Discord snowflake). Messages from that ID will never match.`
+      );
+    }
   }
+
+  return new Set(ids);
 }
 
-const allowedGuildIds = new Set(allowedGuildIdList);
+const allowedGuildIds = parseSnowflakeList('ALLOWED_GUILD_IDS', 'guild');
+
+/**
+ * When non-empty, only listed user IDs may chat with the bot or use its commands, everywhere
+ * (servers, DMs, user installs). When empty, all users are allowed.
+ */
+const allowedUserIds = parseSnowflakeList('ALLOWED_USER_IDS', 'user');
 
 const reservedBackupKeys = new Set();
 const backupModels = [];
@@ -318,6 +334,7 @@ if (shardCountRaw === 'auto') {
 const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
   allowedGuildIds,
+  allowedUserIds,
   logLevel: process.env.LOG_LEVEL || 'info',
   maxHistoryLength: (() => {
     if (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) return 10;

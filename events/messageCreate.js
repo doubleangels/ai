@@ -10,7 +10,7 @@ const { traceReplyChain } = require('../utils/replyChainTracer');
 const { withDiscordRetry } = require('../utils/discordApi');
 const { serializeError } = require('../utils/logSanitize');
 const { recordCount } = require('../instrument');
-const { leaveDisallowedGuild, isGuildAllowlisted } = require('../utils/guildAccess');
+const { leaveDisallowedGuild, isGuildAllowlisted, isUserAllowlisted } = require('../utils/guildAccess');
 const { isImagineImageMessage } = require('../utils/imagineMessage');
 const path = require('path');
 const logger = require('../logger')(path.basename(__filename));
@@ -109,6 +109,16 @@ module.exports = {
       if (message.guild) {
         await leaveDisallowedGuild(client, message.guild, 'messageCreate');
       }
+      return;
+    }
+
+    // Silently ignored (no reply) so non-allowlisted users can't make the bot post in busy channels.
+    if (!isUserAllowlisted(userId)) {
+      logger.debug('Ignoring message from user outside ALLOWED_USER_IDS.', {
+        userId,
+        channelId,
+        messageId: message.id
+      });
       return;
     }
 

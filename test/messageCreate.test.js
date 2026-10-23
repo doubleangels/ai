@@ -1263,3 +1263,14 @@ test('should logs guildId null on processing errors in DMs', async () => {
 
   await mod.execute(message);
 });
+
+test('should silently ignore mentions from users outside the user allowlist', async () => {
+  const mod = loadMessageCreate({ config: { allowedUserIds: new Set(['someone-else']) } });
+  let replied = false;
+  const message = createBaseMessage({
+    reply: async () => { replied = true; return { edit: async () => {} }; }
+  });
+
+  await mod.execute(message);
+  expect(replied).toBe(false);
+});

@@ -321,3 +321,15 @@ test('should not leave allowlisted guild', async () => {
   expect(left).toBe(false);
   expect(leaveCount).toBe(0);
 });
+
+test('should allow every user when the user allowlist is empty or unset', () => {
+  expect(loadGuildAccess().isUserAllowlisted('user-1')).toBe(true);
+  expect(loadGuildAccess({ allowedUserIds: undefined }).isUserAllowlisted('user-1')).toBe(true);
+});
+
+test('should only allow listed users when the user allowlist is set', () => {
+  const { isUserAllowlisted } = loadGuildAccess({ allowedUserIds: new Set(['111']) });
+  expect(isUserAllowlisted('111')).toBe(true);
+  expect(isUserAllowlisted('222')).toBe(false);
+  expect(isUserAllowlisted(null)).toBe(false);
+});

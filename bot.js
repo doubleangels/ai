@@ -5,7 +5,7 @@ const path = require('path');
 const logger = require('./logger')(path.basename(__filename));
 const config = require('./config');
 const { serializeError } = require('./utils/logSanitize');
-const { leaveDisallowedGuild, isGuildAllowlisted } = require('./utils/guildAccess');
+const { leaveDisallowedGuild, isGuildAllowlisted, isUserAllowlisted } = require('./utils/guildAccess');
 
 // DM/user-install interactions have no guildId; the guild allowlist only restricts
 // which guilds the bot operates in, so those contexts are always allowed here.
@@ -133,6 +133,22 @@ client.on('interactionCreate', async interaction => {
     }
     try {
       await interaction.reply({ content: 'This bot is not enabled in this server.', flags: MessageFlags.Ephemeral });
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
+
+  if (!isUserAllowlisted(interaction.user.id)) {
+    logger.debug('Ignoring command from user outside ALLOWED_USER_IDS.', {
+      command: interaction.commandName,
+      userId: interaction.user.id,
+      guildId: interaction.guildId,
+      interactionId: interaction.id
+    });
+    recordCount('discord.command.rejected', 1, { reason: 'user_not_allowed' });
+    try {
+      await interaction.reply({ content: "You don't have access to this bot.", flags: MessageFlags.Ephemeral });
     } catch (_) {
       /* ignore */
     }
