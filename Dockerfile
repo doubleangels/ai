@@ -9,6 +9,9 @@ ENV NODE_OPTIONS="--max-old-space-size=256"
 
 WORKDIR /app
 
+# Fail the build if a stale cached base image predates the Oct 2026 Node security release (24.22.1)
+RUN node -e "const [a,b,c]=process.versions.node.split('.').map(Number);if(a<24||(a===24&&(b<22||(b===22&&c<1)))){console.error('Node '+process.versions.node+' < 24.22.1');process.exit(1)}"
+
 # Update Alpine package index and upgrade all packages, then add runtime deps
 RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache dumb-init su-exec && \

@@ -65,6 +65,37 @@ test('should uses Claude when configured', async () => {
   expect(reply).toBe('hello claude');
 });
 
+test('should map reasoning effort none to low on OpenAI models that require reasoning', async () => {
+  const cases = [
+    ['gpt-6-luna', 'none', 'none'],
+    ['gpt-5.4-mini', 'none', 'none'],
+    ['gpt-6-astra', 'none', 'low'],
+    ['gpt-5.5-pro', 'none', 'low'],
+    ['gpt-6.1-sol', 'none', 'low'],
+    ['gpt-6-astra', 'max', 'max']
+  ];
+  for (const [model, effort, expected] of cases) {
+    let captured;
+    const aiService = await loadAiService({
+      openai: {
+        OpenAI: class {
+          constructor() {
+            this.responses = {
+              create: async request => {
+                captured = request;
+                return { status: 'completed', output_text: 'ok', id: 'r' };
+              }
+            };
+          }
+        }
+      }
+    }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake', OPENAI_MODEL_NAME: model, REASONING_EFFORT: effort });
+    await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+    expect([model, captured.reasoning.effort]).toEqual([model, expected]);
+    expect(captured.temperature).toBeUndefined();
+  }
+});
+
 test('should openAI request includes reasoning, verbosity, tools, and image prompt handling', async () => {
   let capturedRequest;
   const aiService = await loadAiService({
@@ -88,7 +119,7 @@ test('should openAI request includes reasoning, verbosity, tools, and image prom
   }, {
     AI_PROVIDER: 'openai',
     OPENAI_API_KEY: 'fake',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     REASONING_EFFORT: 'high',
     RESPONSES_VERBOSITY: 'medium',
     ENABLE_WEB_SEARCH: '1'
@@ -106,7 +137,7 @@ test('should openAI request includes reasoning, verbosity, tools, and image prom
   ]);
 
   expect(reply).toBe('openai result');
-  expect(capturedRequest.model).toBe('gpt-5.4-nano');
+  expect(capturedRequest.model).toBe('gpt-6-luna');
   expect(capturedRequest.reasoning.effort).toBe('high');
   expect(capturedRequest.text.verbosity).toBe('medium');
   expect(capturedRequest.tools[0].type).toBe('web_search');
@@ -311,7 +342,7 @@ test('should gemini uses cache, tools, safety settings, and handles failures', a
   }, {
     AI_PROVIDER: 'gemini',
     GEMINI_API_KEY: 'fake',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     ENABLE_CONTEXT_CACHE: '1',
     ENABLE_WEB_SEARCH: '1',
     ENABLE_GOOGLE_MAPS: '1',
@@ -467,6 +498,44 @@ test('should claude uses plain system prompt when context cache is disabled', as
   ]);
   expect(capturedSystem).toBe('sys');
   expect(capturedMessages[1].content).toBe('reply');
+});
+
+test('should claude 5.x models get low effort, thinking headroom, and no sampling params', async () => {
+  const captured = [];
+  const factory = () => function FakeAnthropic() {
+    this.messages = {
+      create: async params => {
+        captured.push(params);
+        return { content: [{ type: 'text', text: 'ok' }] };
+      }
+    };
+  };
+  const conversation = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }];
+
+  const haiku = await loadAiService({ anthropic: factory() }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_MODEL_NAME: 'claude-haiku-5-5',
+    MAX_OUTPUT_TOKENS: '1024',
+    CLAUDE_THINKING_BUDGET_TOKENS: '2048'
+  });
+  await haiku.generateAIResponse(conversation);
+  expect(captured[0].model).toBe('claude-haiku-5-5');
+  expect(captured[0].output_config).toEqual({ effort: 'low' });
+  expect(captured[0].max_tokens).toBe(1024 + 4096);
+  expect(captured[0].thinking).toBeUndefined();
+  expect(captured[0].temperature).toBeUndefined();
+
+  const sonnet4 = await loadAiService({ anthropic: factory() }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_MODEL_NAME: 'claude-sonnet-4-6',
+    MAX_OUTPUT_TOKENS: '1024'
+  });
+  await sonnet4.generateAIResponse(conversation);
+  expect(captured[1].output_config).toBeUndefined();
+  expect(captured[1].max_tokens).toBe(1024);
+  expect(captured[1].temperature).toBeUndefined();
 });
 
 test('should claude marks prior turns for prompt caching when enabled', async () => {
@@ -637,7 +706,7 @@ test('should claude handles tools, thinking, empty responses, and API failures',
   }, {
     AI_PROVIDER: 'claude',
     ANTHROPIC_API_KEY: 'fake',
-    OPENAI_MODEL_NAME: 'claude-sonnet-4-5',
+    OPENAI_MODEL_NAME: 'claude-sonnet-4-6',
     CLAUDE_THINKING_BUDGET_TOKENS: '1024',
     ENABLE_CONTEXT_CACHE: '1'
   });
@@ -1007,7 +1076,7 @@ test('should openAI outer catch tags provider when conversation preparation fail
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
@@ -1056,7 +1125,7 @@ test('should captureError tags provider on post-success failures', async () => {
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
@@ -1108,10 +1177,9 @@ test('should openAI outer catch handles unexpected generation errors', async () 
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
-      getTemperature: () => {
-        throw { message: 'bare failure' };
-      },
+      // A non-string model name makes the reasoning-effort lookup throw inside the request try block.
+      modelName: { toString: () => 'broken-model' },
+      getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
       aiProvider: '',
@@ -1155,7 +1223,7 @@ test('should generateAIResponse catch uses unknown provider when config is empty
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
@@ -1207,7 +1275,7 @@ test('should ProviderBusyError stores busy metadata', () => {
   const { ProviderBusyError } = reloadModule(aiServicePath, () => {
     stubModule(configPath, {
       openaiApiKey: 'fake',
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       backupModels: [],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1234,11 +1302,11 @@ test('should ProviderBusyError stores busy metadata', () => {
       startSpan: async (_opts, cb) => cb()
     });
   });
-  const fromError = new ProviderBusyError(new Error('rate limited'), 'rate_limit', 'gpt-5.4-nano');
+  const fromError = new ProviderBusyError(new Error('rate limited'), 'rate_limit', 'gpt-6-luna');
   expect(fromError.name).toBe('ProviderBusyError');
   expect(fromError.message).toBe('rate limited');
   expect(fromError.reason).toBe('rate_limit');
-  expect(fromError.attemptedModel).toBe('gpt-5.4-nano');
+  expect(fromError.attemptedModel).toBe('gpt-6-luna');
 
   const fromString = new ProviderBusyError('busy', 'overloaded', 'gpt-5.4-mini');
   expect(fromString.message).toBe('Provider busy');
@@ -1251,7 +1319,7 @@ test('should retries with fallback model when primary is overloaded', async () =
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1274,7 +1342,7 @@ test('should retries with fallback model when primary is overloaded', async () =
           this.responses = {
             create: async ({ model }) => {
               modelsUsed.push(model);
-              if (model === 'gpt-5.4-nano') {
+              if (model === 'gpt-6-luna') {
                 const err = new Error('overloaded');
                 err.status = 503;
                 throw err;
@@ -1303,7 +1371,7 @@ test('should retries with fallback model when primary is overloaded', async () =
 
   const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
   expect(reply).toBe('fallback ok');
-  expect(modelsUsed).toEqual(['gpt-5.4-nano', 'gpt-5.4-mini']);
+  expect(modelsUsed).toEqual(['gpt-6-luna', 'gpt-5.4-mini']);
 });
 
 test('should retries with cross-provider fallback when primary is overloaded', async () => {
@@ -1313,7 +1381,7 @@ test('should retries with cross-provider fallback when primary is overloaded', a
       openaiApiKey: 'fake',
       geminiApiKey: 'fake',
       anthropicApiKey: undefined,
-      modelName: 'gemini-3-flash-preview',
+      modelName: 'gemini-3.6-flash',
       backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1387,7 +1455,7 @@ test('should retries through two fallback tiers when each is overloaded', async 
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: 'fake',
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       backupModels: [
         { model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' },
         { model: 'claude-haiku-4-5', provider: 'claude', tier: 'tertiary' }
@@ -1455,7 +1523,7 @@ test('should retries through two fallback tiers when each is overloaded', async 
   const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
   expect(reply).toBe('second fallback ok');
   expect(attempts).toEqual([
-    'openai:gpt-5.4-nano',
+    'openai:gpt-6-luna',
     'openai:gpt-5.4-mini',
     'claude:claude-haiku-4-5'
   ]);
@@ -1467,7 +1535,7 @@ test('should rethrows busy errors when fallback model is disabled', async () => 
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       backupModels: [],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1490,7 +1558,7 @@ test('should rethrows busy errors when fallback model is disabled', async () => 
           this.responses = {
             create: async () => {
               const { ProviderBusyError } = require(aiServicePath);
-              throw new ProviderBusyError(new Error('overloaded'), 'overloaded', 'gpt-5.4-nano');
+              throw new ProviderBusyError(new Error('overloaded'), 'overloaded', 'gpt-6-luna');
             }
           };
         }
@@ -1570,7 +1638,7 @@ test('should logs backup model error_user_message outcome after fallback', async
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1592,7 +1660,7 @@ test('should logs backup model error_user_message outcome after fallback', async
         constructor() {
           this.responses = {
             create: async ({ model }) => {
-              if (model === 'gpt-5.4-nano') {
+              if (model === 'gpt-6-luna') {
                 const err = new Error('overloaded');
                 err.status = 503;
                 throw err;
@@ -1632,7 +1700,7 @@ test('should busy retry logging falls back when attemptedModel is missing', asyn
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
+      modelName: 'gpt-6-luna',
       backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1654,7 +1722,7 @@ test('should busy retry logging falls back when attemptedModel is missing', asyn
         constructor() {
           this.responses = {
             create: async ({ model }) => {
-              if (model === 'gpt-5.4-nano') {
+              if (model === 'gpt-6-luna') {
                 const { ProviderBusyError } = require(aiServicePath);
                 throw new ProviderBusyError('busy', 'overloaded');
               }

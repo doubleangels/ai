@@ -15,6 +15,66 @@ const { serializeError } = require('../utils/logSanitize');
 const SAFE_ALLOWED_MENTIONS = { parse: [] };
 
 /**
+ * Delivery callbacks for runChannelChat that answer through a deferred interaction reply.
+ * Shared by /chat and the "Ask AI" message context menu.
+ * @param {import('discord.js').CommandInteraction} interaction
+ * @param {string} labelPrefix - Retry/log label prefix, e.g. 'commands/chat'
+ * @returns {import('../utils/channelChatHandler').ChannelChatDelivery}
+ */
+function createInteractionDelivery(interaction, labelPrefix) {
+  const userId = interaction.user.id;
+  const channelId = interaction.channelId;
+  return {
+    sendUserCooldown: content => interaction.editReply({ content }),
+    sendChannelCooldown: content => interaction.editReply({ content }),
+    createThinkingPlaceholder: async () => {
+      await interaction.editReply({ content: '*Thinking...*' });
+      return interaction;
+    },
+    sendPrimaryResponse: async (content, _thinkingPlaceholder) => {
+      try {
+        await withDiscordRetry(
+          () => interaction.editReply({
+            content,
+            allowedMentions: SAFE_ALLOWED_MENTIONS
+          }),
+          { label: `${labelPrefix}.edit_reply` }
+        );
+        return true;
+      } catch (err) {
+        logger.error('Failed to edit chat reply.', {
+          userId,
+          channelId,
+          interactionId: interaction.id,
+          ...serializeError(err, { includeStack: true })
+        });
+        return false;
+      }
+    },
+    sendAdditionalChunk: async content => {
+      try {
+        await withDiscordRetry(
+          () => interaction.followUp({
+            content,
+            allowedMentions: SAFE_ALLOWED_MENTIONS
+          }),
+          { label: `${labelPrefix}.follow_up` }
+        );
+        return true;
+      } catch (err) {
+        logger.error('Failed to send chat follow-up chunk.', {
+          userId,
+          channelId,
+          interactionId: interaction.id,
+          ...serializeError(err, { includeStack: true })
+        });
+        return false;
+      }
+    }
+  };
+}
+
+/**
  * /chat slash command — same behavior as @mentioning the bot.
  * @module commands/chat
  */
@@ -120,54 +180,7 @@ module.exports = {
           startedAt,
           queueDepth: pending + 1,
           errorSource: 'commands/chat',
-          delivery: {
-            sendUserCooldown: content => interaction.editReply({ content }),
-            sendChannelCooldown: content => interaction.editReply({ content }),
-            createThinkingPlaceholder: async () => {
-              await interaction.editReply({ content: '*Thinking...*' });
-              return interaction;
-            },
-            sendPrimaryResponse: async (content, _thinkingPlaceholder) => {
-              try {
-                await withDiscordRetry(
-                  () => interaction.editReply({
-                    content,
-                    allowedMentions: SAFE_ALLOWED_MENTIONS
-                  }),
-                  { label: 'commands/chat.edit_reply' }
-                );
-                return true;
-              } catch (err) {
-                logger.error('Failed to edit chat reply.', {
-                  userId,
-                  channelId,
-                  interactionId: interaction.id,
-                  ...serializeError(err, { includeStack: true })
-                });
-                return false;
-              }
-            },
-            sendAdditionalChunk: async content => {
-              try {
-                await withDiscordRetry(
-                  () => interaction.followUp({
-                    content,
-                    allowedMentions: SAFE_ALLOWED_MENTIONS
-                  }),
-                  { label: 'commands/chat.follow_up' }
-                );
-                return true;
-              } catch (err) {
-                logger.error('Failed to send chat follow-up chunk.', {
-                  userId,
-                  channelId,
-                  interactionId: interaction.id,
-                  ...serializeError(err, { includeStack: true })
-                });
-                return false;
-              }
-            }
-          }
+          delivery: createInteractionDelivery(interaction, 'commands/chat')
         });
       });
     } catch (error) {
@@ -212,5 +225,7 @@ module.exports = {
         elapsedMs
       });
     }
-  }
+  },
+
+  createInteractionDelivery
 };

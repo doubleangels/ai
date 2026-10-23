@@ -176,27 +176,27 @@ test('should falls back to provider defaults when model env vars are blank', asy
     GEMINI_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(gemini.modelName).toBe('gemini-3-flash-preview');
+  expect(gemini.modelName).toBe('gemini-3.8-flash');
 
   const geminiTrimmed = await loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: '  gemini-3-flash-preview  ',
+    GEMINI_MODEL_NAME: '  gemini-3.6-flash  ',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(geminiTrimmed.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiTrimmed.modelName).toBe('gemini-3.6-flash');
 
   const claude = await loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(claude.modelName).toBe('claude-sonnet-4-6');
+  expect(claude.modelName).toBe('claude-sonnet-5-5');
 
   const openai = await loadConfig({
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(openai.modelName).toBe('gpt-5.4-nano');
+  expect(openai.modelName).toBe('gpt-6-luna');
 });
 
 test('should index sends successful command error replies and swallows metric failures', async () => {
@@ -987,6 +987,17 @@ test('should index covers interaction handler guard branches and httpStatus fall
 
   await handlers[0]({
     isChatInputCommand: () => false,
+    isContextMenuCommand: () => false,
+    commandName: 'ignored',
+    user: { id: 'u1', tag: 'User#1' },
+    guildId: 'guild-1',
+    inGuild: () => true,
+    reply: async () => {},
+    followUp: async () => {}
+  });
+
+  await handlers[0]({
+    isChatInputCommand: () => false,
     isContextMenuCommand: () => true,
     commandName: 'ignored',
     user: { id: 'u1', tag: 'User#1' },
@@ -1096,7 +1107,7 @@ test('should openAI and Claude branch coverage for optional request fields', asy
     stubModule(configPath, {
       ...DEFAULT_CONFIG,
       aiProvider: 'claude',
-      modelName: 'claude-sonnet-4-5'
+      modelName: 'claude-sonnet-4-6'
     });
   });
   expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('final after max rounds');
@@ -1415,9 +1426,9 @@ test('should and aiUtils cover remaining model and download branches', async () 
   const geminiOpenaiOnly = await loadConfig({
     AI_PROVIDER: 'gemini',
     GEMINI_MODEL_NAME: undefined,
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview'
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash'
   });
-  expect(geminiOpenaiOnly.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiOpenaiOnly.modelName).toBe('gemini-3.6-flash');
 
   const aiUtilsLocal = require(aiUtilsPath);
   expect((await aiUtilsLocal.processImageAttachments(null)).length).toBe(0);
@@ -1677,8 +1688,8 @@ test('should aiService and aiUtils remaining branches', async () => {
 
   const config = await loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
 });

@@ -111,7 +111,7 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | :------------------ | :------------------------------------------------------------------------------------------------------------------------------ | :-------------------- |
 | `DISCORD_BOT_TOKEN` | Bot token                                                                                                                       | _required_            |
 | `DISCORD_CLIENT_ID` | Application ID                                                                                                                  | _required for deploy_ |
-| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (DMs blocked); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
+| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (slash commands and **Ask AI** still work in DMs and group DMs for user installs); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
 | `LOG_LEVEL`         | Pino log level                                                                                                                  | `info`                |
 
 ### AI provider and models
@@ -119,11 +119,11 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | Variable            | Description                                                                  | Default                  |
 | :------------------ | :--------------------------------------------------------------------------- | :----------------------- |
 | `AI_PROVIDER`       | `openai`, `gemini`, or `claude`                                              | `openai`                 |
-| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-5.4-nano`           |
-| `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3-flash-preview` |
-| `CLAUDE_MODEL_NAME` | Claude model                                                                 | `claude-sonnet-4-6`      |
+| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-6-luna`             |
+| `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3.8-flash`       |
+| `CLAUDE_MODEL_NAME` | Claude model (e.g. `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`) | `claude-sonnet-5-5`      |
 
-Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process.
+Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process. Lists were checked against each provider's model and deprecation pages in October 2026. Only active models are allowed, so deprecated and shut-down models are rejected.
 
 ### Advanced AI settings
 
@@ -134,9 +134,9 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `ENABLE_CONTEXT_CACHE`          | Provider context / prompt caching (system + stable turns)           | `true`         |
 | `GEMINI_CACHE_TTL_SECONDS`      | Gemini cache TTL, seconds (60–2073600, i.e. up to 24 days)          | `3600`         |
 | `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings             | _API defaults_ |
-| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`           | `none`         |
+| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`, `max`. `none` becomes `low` on models that require reasoning (e.g. `gpt-6-astra`, `o3`) | `none`         |
 | `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`                      | `low`          |
-| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking budget (`0` = off, max 32000)              | `0`            |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude 4.x extended thinking budget (`0` = off, max 32000). Ignored on Claude 5.x models, which think adaptively by default | `0`            |
 | `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                                 | `60000`        |
 | `OPENAI_MAX_RETRIES`            | OpenAI client retries (0–5)                                         | `2`            |
 | `GEMINI_TIMEOUT_MS`             | Gemini request timeout (5000–300000)                                | `60000`        |
@@ -181,7 +181,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `IMAGE_GENERATION_TIMEOUT_MS`       | Image request timeout (10000–300000)                                                                      | `120000`                 |
 | `IMAGE_USER_COOLDOWN_MS`            | Per-user per-channel cooldown for `/imagine` (`0` = disabled)                                             | `30000`                  |
 
-The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-2.5-flash-image`) to retry `/imagine` on rate limits or server errors.
+The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-3.1-flash-lite-image`) to retry `/imagine` on rate limits or server errors.
 
 **Behavior notes:**
 
@@ -219,6 +219,8 @@ Chat with `/chat message:What is the capital of France?` instead of @mentioning 
 | `/chat`    | Chat with the bot (same as @mentioning it)                              | Everyone      |
 | `/imagine` | Generate an image from a text prompt (Gemini Image)                     | Everyone      |
 | `/reset`   | Clear history for a channel (including threads) or **this server only** | Administrator |
+| `/forget`  | Clear history for the current DM or group DM (user installs)            | Everyone      |
+| **Ask AI** | Right-click a message → Apps → Ask AI. Works where the bot isn't a member | Everyone      |
 
 Slash commands are registered automatically when the bot starts (`index.js` calls `deploy-commands.js` before connecting). To deploy without starting the bot:
 
@@ -377,7 +379,7 @@ pnpm install --frozen-lockfile
 With Doppler:
 
 ```bash
-pnpm dev                 # nodemon + Doppler
+pnpm dev                 # node --watch + Doppler
 pnpm start               # deploy slash commands + start bot (Doppler)
 pnpm commands:deploy     # deploy slash commands only
 pnpm predeploy           # test + deploy commands

@@ -1,6 +1,3 @@
-const { OpenAI } = require('openai');
-const { GoogleGenAI } = require('@google/genai');
-const Anthropic = require('@anthropic-ai/sdk');
 const {
   openaiApiKey,
   geminiApiKey,
@@ -138,8 +135,9 @@ function markMessageForPromptCache(message) {
  * OpenAI client instance configured with API key, timeout, and retries (used when aiProvider === 'openai').
  * @type {OpenAI}
  */
+// SDKs are required only when their key is set, so unused providers cost no startup time or heap.
 const openai = openaiApiKey
-  ? new OpenAI({
+  ? new (require('openai').OpenAI)({
       apiKey: openaiApiKey,
       timeout: openaiTimeoutMs,
       maxRetries: openaiMaxRetries
@@ -150,14 +148,14 @@ const openai = openaiApiKey
  * Google GenAI client (used when aiProvider === 'gemini').
  * @type {GoogleGenAI|null}
  */
-const genAI = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
+const genAI = geminiApiKey ? new (require('@google/genai').GoogleGenAI)({ apiKey: geminiApiKey }) : null;
 
 /**
  * Anthropic client (used when aiProvider === 'claude').
  * @type {Anthropic|null}
  */
 const anthropic = anthropicApiKey
-  ? new Anthropic({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
+  ? new (require('@anthropic-ai/sdk'))({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
   : null;
 
 /**
@@ -187,16 +185,23 @@ function withRequestTimeout(promise, timeoutMs, label) {
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
 
-/** Claude model IDs that support extended thinking (4.x family). */
+/** Claude model IDs that take a thinking budget (4.x family). */
 const CLAUDE_EXTENDED_THINKING_MODELS = [
   'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6',
-  'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5',
-  'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-opus-4-5-20251101',
-  'claude-sonnet-4-20250514', 'claude-sonnet-4-0', 'claude-opus-4-20250514', 'claude-opus-4-0'
+  'claude-haiku-4-5', 'claude-opus-4-5'
 ];
 
 function claudeSupportsExtendedThinking(model) {
   return CLAUDE_EXTENDED_THINKING_MODELS.some(m => model && model.startsWith(m));
+}
+
+/** Claude 5.x models think adaptively by default; thinking tokens count against max_tokens. */
+const CLAUDE_ADAPTIVE_THINKING_PATTERN = /^claude-(fable|opus|sonnet|haiku)-5/;
+/** Extra max_tokens headroom for adaptive thinking so short MAX_OUTPUT_TOKENS caps don't truncate replies. */
+const CLAUDE_ADAPTIVE_THINKING_HEADROOM = 4096;
+
+function claudeThinksByDefault(model) {
+  return CLAUDE_ADAPTIVE_THINKING_PATTERN.test(model);
 }
 
 /** Claude tools: optional tools the model can call. */
@@ -577,18 +582,20 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
   }
 
   const extendedThinkingEnabled = claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(activeModel);
+  const adaptiveThinking = claudeThinksByDefault(activeModel);
   const claudeMaxTokens = extendedThinkingEnabled
     ? Math.min(65536, maxOutputTokens + claudeThinkingBudgetTokens)
-    : maxOutputTokens;
+    : adaptiveThinking
+      ? Math.min(65536, maxOutputTokens + CLAUDE_ADAPTIVE_THINKING_HEADROOM)
+      : maxOutputTokens;
   const cachedMessages = enableContextCache ? applyConversationCacheBreakpoints(messages) : messages;
   const params = {
     model: activeModel,
     max_tokens: claudeMaxTokens,
     messages: cachedMessages
   };
-  if (!extendedThinkingEnabled) {
-    params.temperature = getTemperature();
-  }
+  // temperature is always the default (1.0), so it is omitted: Claude 4.7+ and 5.x models
+  // reject sampling params, and API version 2026-10-21 rejects them on every model.
   if (systemWithImageHint) {
     if (enableContextCache) {
       params.system = [{ type: 'text', text: systemWithImageHint, cache_control: { type: 'ephemeral' } }];
@@ -599,6 +606,10 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
 
   if (extendedThinkingEnabled) {
     params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
+  }
+  if (adaptiveThinking) {
+    // Chat replies don't need deep reasoning; low effort keeps latency and token spend down.
+    params.output_config = { effort: 'low' };
   }
 
   if (conversationMentionsTime(conversation)) {
@@ -693,6 +704,21 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
   }
 }
 
+/** OpenAI models that accept reasoning effort 'none' (pro variants excluded). Others reject it with a 400. */
+const OPENAI_NONE_EFFORT_PREFIXES = ['gpt-6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2'];
+
+/**
+ * Maps 'none' to 'low' on models that require some reasoning (gpt-6-astra, gpt-6.1-sol, ...).
+ * @param {string} effort
+ * @param {string} model
+ * @returns {string}
+ */
+function openAIEffortForModel(effort, model) {
+  if (effort !== 'none') return effort;
+  const acceptsNone = !model.endsWith('-pro') && OPENAI_NONE_EFFORT_PREFIXES.some(prefix => model.startsWith(prefix));
+  return acceptsNone ? 'none' : 'low';
+}
+
 /**
  * Generates an AI response using OpenAI's API based on the provided conversation history.
  *
@@ -740,8 +766,8 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       ? reasoningEffort.trim().toLowerCase()
       : '';
 
-    if (['none', 'low', 'medium', 'high', 'xhigh'].includes(normalizedReasoningEffort)) {
-      requestParams.reasoning = { effort: normalizedReasoningEffort };
+    if (['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(normalizedReasoningEffort)) {
+      requestParams.reasoning = { effort: openAIEffortForModel(normalizedReasoningEffort, activeModel) };
     }
 
     const normalizedVerbosity = typeof responsesVerbosity === 'string'
@@ -759,18 +785,12 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       requestParams.tools = [{ type: 'web_search' }];
     }
 
-    const usesReasoning = normalizedReasoningEffort && normalizedReasoningEffort !== 'none';
-    let temperatureValue;
-    if (!usesReasoning) {
-      temperatureValue = getTemperature();
-      requestParams.temperature = temperatureValue;
-    }
+    // temperature is always the default (1.0), so it is omitted: reasoning models reject it.
 
     logger.debug(`Sending conversation to OpenAI API using model ${activeModel}.`, {
       messageCount: conversation.length,
       model: activeModel,
-      temperature: temperatureValue,
-      reasoningEffort: normalizedReasoningEffort || undefined,
+      reasoningEffort: requestParams.reasoning?.effort,
       verbosity: normalizedVerbosity || undefined,
       webSearch: enableWebSearch,
       hasImages: hasImages(conversation),
