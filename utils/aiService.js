@@ -185,12 +185,10 @@ function withRequestTimeout(promise, timeoutMs, label) {
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
 
-/** Claude model IDs that support extended thinking (4.x family). */
+/** Claude model IDs that take a thinking budget (4.x family). */
 const CLAUDE_EXTENDED_THINKING_MODELS = [
   'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6',
-  'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5',
-  'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001', 'claude-opus-4-5-20251101',
-  'claude-sonnet-4-20250514', 'claude-sonnet-4-0', 'claude-opus-4-20250514', 'claude-opus-4-0'
+  'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5'
 ];
 
 function claudeSupportsExtendedThinking(model) {
@@ -706,6 +704,21 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
   }
 }
 
+/** OpenAI models that accept reasoning effort 'none' (pro variants excluded). Others reject it with a 400. */
+const OPENAI_NONE_EFFORT_PREFIXES = ['gpt-6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1'];
+
+/**
+ * Maps 'none' to 'low' on models that require some reasoning (gpt-6-astra, gpt-6.1-sol, o3, ...).
+ * @param {string} effort
+ * @param {string} model
+ * @returns {string}
+ */
+function openAIEffortForModel(effort, model) {
+  if (effort !== 'none') return effort;
+  const acceptsNone = !model.endsWith('-pro') && OPENAI_NONE_EFFORT_PREFIXES.some(prefix => model.startsWith(prefix));
+  return acceptsNone ? 'none' : 'low';
+}
+
 /**
  * Generates an AI response using OpenAI's API based on the provided conversation history.
  *
@@ -753,8 +766,8 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       ? reasoningEffort.trim().toLowerCase()
       : '';
 
-    if (['none', 'low', 'medium', 'high', 'xhigh'].includes(normalizedReasoningEffort)) {
-      requestParams.reasoning = { effort: normalizedReasoningEffort };
+    if (['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(normalizedReasoningEffort)) {
+      requestParams.reasoning = { effort: openAIEffortForModel(normalizedReasoningEffort, activeModel) };
     }
 
     const normalizedVerbosity = typeof responsesVerbosity === 'string'
@@ -772,18 +785,12 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       requestParams.tools = [{ type: 'web_search' }];
     }
 
-    const usesReasoning = normalizedReasoningEffort && normalizedReasoningEffort !== 'none';
-    let temperatureValue;
-    if (!usesReasoning) {
-      temperatureValue = getTemperature();
-      requestParams.temperature = temperatureValue;
-    }
+    // temperature is always the default (1.0), so it is omitted: reasoning models reject it.
 
     logger.debug(`Sending conversation to OpenAI API using model ${activeModel}.`, {
       messageCount: conversation.length,
       model: activeModel,
-      temperature: temperatureValue,
-      reasoningEffort: normalizedReasoningEffort || undefined,
+      reasoningEffort: requestParams.reasoning?.effort,
       verbosity: normalizedVerbosity || undefined,
       webSearch: enableWebSearch,
       hasImages: hasImages(conversation),

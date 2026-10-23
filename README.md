@@ -119,11 +119,11 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | Variable            | Description                                                                  | Default                  |
 | :------------------ | :--------------------------------------------------------------------------- | :----------------------- |
 | `AI_PROVIDER`       | `openai`, `gemini`, or `claude`                                              | `openai`                 |
-| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-5.4-nano`           |
-| `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3-flash-preview` |
-| `CLAUDE_MODEL_NAME` | Claude model (e.g. `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`) | `claude-sonnet-4-6`      |
+| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-6-luna`             |
+| `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3.8-flash`       |
+| `CLAUDE_MODEL_NAME` | Claude model (e.g. `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`) | `claude-sonnet-5-5`      |
 
-Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process.
+Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process. Lists were checked against each provider's model and deprecation pages in October 2026, and shut-down models were removed.
 
 ### Advanced AI settings
 
@@ -134,7 +134,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `ENABLE_CONTEXT_CACHE`          | Provider context / prompt caching (system + stable turns)           | `true`         |
 | `GEMINI_CACHE_TTL_SECONDS`      | Gemini cache TTL, seconds (60–2073600, i.e. up to 24 days)          | `3600`         |
 | `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings             | _API defaults_ |
-| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`           | `none`         |
+| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`, `max`. `none` becomes `low` on models that require reasoning (e.g. `gpt-6-astra`, `o3`) | `none`         |
 | `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`                      | `low`          |
 | `CLAUDE_THINKING_BUDGET_TOKENS` | Claude 4.x extended thinking budget (`0` = off, max 32000). Ignored on Claude 5.x models, which think adaptively by default | `0`            |
 | `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                                 | `60000`        |
@@ -181,7 +181,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `IMAGE_GENERATION_TIMEOUT_MS`       | Image request timeout (10000–300000)                                                                      | `120000`                 |
 | `IMAGE_USER_COOLDOWN_MS`            | Per-user per-channel cooldown for `/imagine` (`0` = disabled)                                             | `30000`                  |
 
-The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-2.5-flash-image`) to retry `/imagine` on rate limits or server errors.
+The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-3.1-flash-lite-image`) to retry `/imagine` on rate limits or server errors.
 
 **Behavior notes:**
 

@@ -65,6 +65,37 @@ test('should uses Claude when configured', async () => {
   expect(reply).toBe('hello claude');
 });
 
+test('should map reasoning effort none to low on OpenAI models that require reasoning', async () => {
+  const cases = [
+    ['gpt-6-luna', 'none', 'none'],
+    ['gpt-5.4-mini', 'none', 'none'],
+    ['gpt-6-astra', 'none', 'low'],
+    ['gpt-5.5-pro', 'none', 'low'],
+    ['o3', 'none', 'low'],
+    ['gpt-6-astra', 'max', 'max']
+  ];
+  for (const [model, effort, expected] of cases) {
+    let captured;
+    const aiService = await loadAiService({
+      openai: {
+        OpenAI: class {
+          constructor() {
+            this.responses = {
+              create: async request => {
+                captured = request;
+                return { status: 'completed', output_text: 'ok', id: 'r' };
+              }
+            };
+          }
+        }
+      }
+    }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake', OPENAI_MODEL_NAME: model, REASONING_EFFORT: effort });
+    await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+    expect([model, captured.reasoning.effort]).toEqual([model, expected]);
+    expect(captured.temperature).toBeUndefined();
+  }
+});
+
 test('should openAI request includes reasoning, verbosity, tools, and image prompt handling', async () => {
   let capturedRequest;
   const aiService = await loadAiService({
@@ -1146,10 +1177,9 @@ test('should openAI outer catch handles unexpected generation errors', async () 
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      modelName: 'gpt-5.4-nano',
-      getTemperature: () => {
-        throw { message: 'bare failure' };
-      },
+      // A non-string model name makes the reasoning-effort lookup throw inside the request try block.
+      modelName: { toString: () => 'broken-model' },
+      getTemperature: () => 1,
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
       aiProvider: '',

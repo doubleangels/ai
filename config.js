@@ -1,41 +1,45 @@
 require('dotenv').config();
 const { captureError } = require('./instrument');
 
-// OpenAI: Responses API models with text + image support. Reasoning (gpt-5*, o3, o4-mini), verbosity (gpt-5*), web search (built-in tool).
+// Model lists checked against provider model and deprecation pages (October 2026).
+// Shut-down models are removed; deprecated ones stay until their shutdown date.
+
+// OpenAI: Responses API models with text + image support and reasoning.
+// Scheduled shutdowns: gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro, o3, o3-pro (Dec 11, 2026);
+// gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini (Jan 14, 2027); gpt-5.1, gpt-5.3-codex, gpt-5.4-nano (Apr 1, 2027).
 const SUPPORTED_MODELS = [
+  'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   'gpt-5.5', 'gpt-5.5-pro',
   'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
-  'gpt-5.3-chat-latest', 'gpt-5.3-codex',
-  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex', 'gpt-5.2-chat-latest',
-  'gpt-5.1', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max', 'gpt-5.1-chat-latest',
+  'gpt-5.3-codex',
+  'gpt-5.2', 'gpt-5.2-pro',
+  'gpt-5.1',
   'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-pro',
-  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  'gpt-4.1', 'gpt-4.1-mini',
   'gpt-4o', 'gpt-4o-mini',
-  'o3', 'o4-mini', 'o3-pro', 'o3-mini'
+  'o3', 'o3-pro'
 ];
-const DEFAULT_MODEL = 'gpt-5.4-nano';
+const DEFAULT_MODEL = 'gpt-6-luna';
 
-// Gemini: text + image, search grounding, thinking. Excludes TTS/Live-only IDs by default.
+// Gemini: text + image, search grounding, thinking. Excludes TTS/Live-only IDs.
+// 2.5 models are still served but only to projects that used them before.
 const SUPPORTED_GEMINI_MODELS = [
-  // Gemini 3.x (ai.google.dev/gemini-api/docs/models)
-  'gemini-3.5-flash',
+  'gemini-4-argon',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-pro-preview',
-  'gemini-3.1-pro-preview-customtools',
   'gemini-3-flash-preview',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-3-pro-image-preview',
-  'gemini-3.1-flash-image-preview',
-  'gemini-3.1-flash-image',
-  // Gemini 2.5 (still widely used; some have published shutdown windows in 2026)
   'gemini-2.5-pro',
   'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash-image'
+  'gemini-2.5-flash-lite'
 ];
-const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
-// Claude: vision, extended thinking. Include current primary IDs plus maintained aliases/snapshots.
+// Claude: vision, adaptive (5.x) or budgeted (4.x) thinking.
+// Scheduled retirement: claude-sonnet-4-5 (Nov 30, 2026).
 const SUPPORTED_CLAUDE_MODELS = [
   'claude-fable-5-1', 'claude-fable-5',
   'claude-opus-5-5', 'claude-opus-5',
@@ -43,24 +47,22 @@ const SUPPORTED_CLAUDE_MODELS = [
   'claude-haiku-5-5',
   'claude-opus-4-8',
   'claude-opus-4-7',
+  'claude-opus-4-6',
   'claude-sonnet-4-6',
   'claude-haiku-4-5-20251001', 'claude-haiku-4-5',
-  'claude-opus-4-6',
-  'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5',
   'claude-opus-4-5-20251101', 'claude-opus-4-5',
-  'claude-opus-4-1-20250805', 'claude-opus-4-1',
-  'claude-sonnet-4-20250514', 'claude-sonnet-4-0',
-  'claude-opus-4-20250514', 'claude-opus-4-0'
+  'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5'
 ];
-const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
 
 const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 
 /** Gemini models that support generateContent with IMAGE modality (/imagine). */
 const SUPPORTED_GEMINI_IMAGE_MODELS = [
-  'gemini-3-pro-image-preview',
-  'gemini-3.1-flash-image-preview',
+  'gemini-nano-banana-2.1',
+  'gemini-3-pro-image',
   'gemini-3.1-flash-image',
+  'gemini-3.1-flash-lite-image',
   'gemini-2.5-flash-image'
 ];
 

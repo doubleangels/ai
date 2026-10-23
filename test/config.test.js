@@ -195,7 +195,7 @@ test('should resolves model names from each provider-specific env field', () => 
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: ''
   });
-  expect(openaiBlank.modelName).toBe('gpt-5.4-nano');
+  expect(openaiBlank.modelName).toBe('gpt-6-luna');
 
   const openaiTrimmed = loadConfig({
     AI_PROVIDER: 'openai',
@@ -205,7 +205,7 @@ test('should resolves model names from each provider-specific env field', () => 
 });
 
 test('should accepts current Gemini GA models', () => {
-  for (const model of ['gemini-3.1-flash-lite', 'gemini-3.5-flash']) {
+  for (const model of ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']) {
     const config = loadConfig({
       AI_PROVIDER: 'gemini',
       GEMINI_MODEL_NAME: model,
@@ -320,14 +320,14 @@ test('should uses provider defaults when model env vars are unset', () => {
     GEMINI_MODEL_NAME: undefined,
     OPENAI_MODEL_NAME: undefined
   });
-  expect(geminiDefault.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiDefault.modelName).toBe('gemini-3.8-flash');
 
   const claudeDefault = loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: undefined,
     OPENAI_MODEL_NAME: undefined
   });
-  expect(claudeDefault.modelName).toBe('claude-sonnet-4-6');
+  expect(claudeDefault.modelName).toBe('claude-sonnet-5-5');
 });
 
 test('should falls back to defaults when model env vars are whitespace only', () => {
@@ -336,20 +336,20 @@ test('should falls back to defaults when model env vars are whitespace only', ()
     GEMINI_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(geminiWs.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiWs.modelName).toBe('gemini-3.8-flash');
 
   const claudeWs = loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(claudeWs.modelName).toBe('claude-sonnet-4-6');
+  expect(claudeWs.modelName).toBe('claude-sonnet-5-5');
 
   const openaiWs = loadConfig({
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(openaiWs.modelName).toBe('gpt-5.4-nano');
+  expect(openaiWs.modelName).toBe('gpt-6-luna');
 });
 
 test('should configures secondary model and shard count from env', () => {

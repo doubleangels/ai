@@ -176,7 +176,7 @@ test('should falls back to provider defaults when model env vars are blank', asy
     GEMINI_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(gemini.modelName).toBe('gemini-3-flash-preview');
+  expect(gemini.modelName).toBe('gemini-3.8-flash');
 
   const geminiTrimmed = await loadConfig({
     AI_PROVIDER: 'gemini',
@@ -190,13 +190,13 @@ test('should falls back to provider defaults when model env vars are blank', asy
     CLAUDE_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(claude.modelName).toBe('claude-sonnet-4-6');
+  expect(claude.modelName).toBe('claude-sonnet-5-5');
 
   const openai = await loadConfig({
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(openai.modelName).toBe('gpt-5.4-nano');
+  expect(openai.modelName).toBe('gpt-6-luna');
 });
 
 test('should index sends successful command error replies and swallows metric failures', async () => {
