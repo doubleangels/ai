@@ -32,7 +32,7 @@ function loadConfig(overrides) {
 test('should resolves OpenAI defaults and allowed guilds', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     ALLOWED_GUILD_IDS: 'guild-1, guild-2',
     MAX_HISTORY_LENGTH: '12',
     MAX_HISTORY_TOKENS: '64',
@@ -40,7 +40,7 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
   });
 
   expect(config.aiProvider).toBe('openai');
-  expect(config.modelName).toBe('gpt-5.4-nano');
+  expect(config.modelName).toBe('gpt-6-luna');
   expect(config.allowedGuildIds.size).toBe(2);
   expect(config.maxHistoryLength).toBe(12);
   expect(config.maxHistoryTokens).toBe(64);
@@ -50,14 +50,14 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
 test('should resolves Gemini and parses safety settings', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_SAFETY_SETTINGS: '[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]',
     GEMINI_CACHE_TTL_SECONDS: '90',
     ENABLE_CONTEXT_CACHE: '1'
   });
 
   expect(config.aiProvider).toBe('gemini');
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
   expect(Array.isArray(config.geminiSafetySettings)).toBe(true);
   expect(config.geminiSafetySettings.length).toBe(1);
   expect(config.geminiCacheTtlSeconds).toBe(90);
@@ -79,19 +79,19 @@ test('should resolves Claude and falls back to the open model field', () => {
 test('should resolves gemini model from GEMINI_MODEL_NAME', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
 });
 
 test('should resolves gemini model from OPENAI_MODEL_NAME fallback', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_MODEL_NAME: undefined
   });
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
 });
 
 test('should resolves claude model from OPENAI_MODEL_NAME fallback', () => {
@@ -106,7 +106,7 @@ test('should resolves claude model from OPENAI_MODEL_NAME fallback', () => {
 test('should ignores empty GEMINI_SAFETY_SETTINGS array', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_SAFETY_SETTINGS: '[]'
   });
   expect(config.geminiSafetySettings).toBe(undefined);
@@ -115,7 +115,7 @@ test('should ignores empty GEMINI_SAFETY_SETTINGS array', () => {
 test('should ignores invalid GEMINI_SAFETY_SETTINGS JSON', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_SAFETY_SETTINGS: '{not-json'
   });
 
@@ -125,7 +125,7 @@ test('should ignores invalid GEMINI_SAFETY_SETTINGS JSON', () => {
 test('should clamps MAX_HISTORY_LENGTH to at least 1', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     MAX_HISTORY_LENGTH: '0'
   });
   expect(config.maxHistoryLength).toBe(1);
@@ -134,7 +134,7 @@ test('should clamps MAX_HISTORY_LENGTH to at least 1', () => {
 test('should default MAX_HISTORY_LENGTH to 10 and enable context cache', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     MAX_HISTORY_LENGTH: undefined,
     ENABLE_CONTEXT_CACHE: undefined
   });
@@ -145,7 +145,7 @@ test('should default MAX_HISTORY_LENGTH to 10 and enable context cache', () => {
 test('should disable context cache when ENABLE_CONTEXT_CACHE is false', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     ENABLE_CONTEXT_CACHE: 'false'
   });
   expect(config.enableContextCache).toBe(false);
@@ -154,7 +154,7 @@ test('should disable context cache when ENABLE_CONTEXT_CACHE is false', () => {
 test('should resolves conversation history memory bounds from env', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     CONVERSATION_HISTORY_MAX_CHANNELS: '99999',
     CONVERSATION_HISTORY_IDLE_MS: '999999999'
   });
@@ -165,7 +165,7 @@ test('should resolves conversation history memory bounds from env', () => {
 test('should resolves performance tuning env vars with clamping', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     MAX_REPLY_CHAIN_DEPTH: '99',
     MESSAGE_CACHE_MAX_SIZE: '99999',
     MESSAGE_CACHE_TTL_MS: '999999999'
@@ -179,15 +179,15 @@ test('should resolves performance tuning env vars with clamping', () => {
 test('should resolves model names from each provider-specific env field', () => {
   const geminiPrimary = loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano'
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
+    OPENAI_MODEL_NAME: 'gpt-6-luna'
   });
-  expect(geminiPrimary.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiPrimary.modelName).toBe('gemini-3.6-flash');
 
   const claudePrimary = loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: 'claude-sonnet-4-6',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano'
+    OPENAI_MODEL_NAME: 'gpt-6-luna'
   });
   expect(claudePrimary.modelName).toBe('claude-sonnet-4-6');
 
@@ -199,13 +199,13 @@ test('should resolves model names from each provider-specific env field', () => 
 
   const openaiTrimmed = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: '  gpt-5.4-nano  '
+    OPENAI_MODEL_NAME: '  gpt-6-luna  '
   });
-  expect(openaiTrimmed.modelName).toBe('gpt-5.4-nano');
+  expect(openaiTrimmed.modelName).toBe('gpt-6-luna');
 });
 
 test('should accepts current Gemini GA models', () => {
-  for (const model of ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']) {
+  for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash-lite']) {
     const config = loadConfig({
       AI_PROVIDER: 'gemini',
       GEMINI_MODEL_NAME: model,
@@ -218,7 +218,7 @@ test('should accepts current Gemini GA models', () => {
 test('should falls back when integer env values are invalid', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     USER_COOLDOWN_MS: 'not-a-number'
   });
   expect(config.userCooldownMs).toBe(4000);
@@ -227,7 +227,7 @@ test('should falls back when integer env values are invalid', () => {
 test('should allows zero cooldown env values', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     USER_COOLDOWN_MS: '0',
     CHANNEL_COOLDOWN_MS: '0',
     MAX_PENDING_PER_CHANNEL: '0'
@@ -355,7 +355,7 @@ test('should falls back to defaults when model env vars are whitespace only', ()
 test('should configures secondary model and shard count from env', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     OPENAI_API_KEY: 'sk-test',
     SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
     DISCORD_SHARD_COUNT: 'auto'
@@ -367,14 +367,14 @@ test('should configures secondary model and shard count from env', () => {
 
   const numericShards = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     DISCORD_SHARD_COUNT: '4'
   });
   expect(numericShards.discordShardCount).toBe(4);
 
   const invalidShards = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     DISCORD_SHARD_COUNT: 'not-a-number'
   });
   expect(invalidShards.discordShardCount).toBe(0);
@@ -385,7 +385,7 @@ test('should disables secondary model when unsupported or matches primary', () =
   try {
     const unsupported = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       OPENAI_API_KEY: 'sk-test',
       SECONDARY_MODEL_NAME: 'not-a-real-model'
     });
@@ -395,9 +395,9 @@ test('should disables secondary model when unsupported or matches primary', () =
 
     const sameModel = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       OPENAI_API_KEY: 'sk-test',
-      SECONDARY_MODEL_NAME: 'gpt-5.4-nano'
+      SECONDARY_MODEL_NAME: 'gpt-6-luna'
     });
     expect(sameModel.secondaryModelName).toBeNull();
     expect(sameModel.secondaryProvider).toBeNull();
@@ -411,7 +411,7 @@ test('should disables secondary model when unsupported or matches primary', () =
 test('should configures cross-provider secondary model when model and API key are available', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_API_KEY: 'gem-test',
     OPENAI_API_KEY: 'sk-test',
     SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
@@ -424,7 +424,7 @@ test('should configures cross-provider secondary model when model and API key ar
 test('should configures tertiary model and provider', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     OPENAI_API_KEY: 'sk-test',
     ANTHROPIC_API_KEY: 'ant-test',
     SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
@@ -446,7 +446,7 @@ test('should disables duplicate tertiary model', () => {
   try {
     const config = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       OPENAI_API_KEY: 'sk-test',
       SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
       TERTIARY_MODEL_NAME: 'gpt-5.4-mini'
@@ -463,7 +463,7 @@ test('should disables cross-provider secondary model when API key is missing', (
   try {
     const config = loadConfig({
       AI_PROVIDER: 'gemini',
-      GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+      GEMINI_MODEL_NAME: 'gemini-3.6-flash',
       GEMINI_API_KEY: 'gem-test',
       SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
     });
@@ -479,7 +479,7 @@ test('should disables cross-provider secondary model when API key is missing', (
 test('should honors explicit SECONDARY_AI_PROVIDER', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     OPENAI_API_KEY: 'sk-test',
     ANTHROPIC_API_KEY: 'ant-test',
     SECONDARY_AI_PROVIDER: 'claude',
@@ -494,7 +494,7 @@ test('should warns on invalid ALLOWED_GUILD_IDS entries', () => {
   try {
     loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       ALLOWED_GUILD_IDS: 'not-a-snowflake'
     });
     expect(warnSpy.mock.calls.some(args => String(args[0]).includes('ALLOWED_GUILD_IDS'))).toBe(true);
@@ -506,7 +506,7 @@ test('should warns on invalid ALLOWED_GUILD_IDS entries', () => {
 test('should resolves Gemini Image generation settings', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     GEMINI_API_KEY: 'gemini-test',
     GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
     IMAGE_GENERATION_TIMEOUT_MS: '90000',
@@ -524,7 +524,7 @@ test('should resolves Gemini Image generation settings', () => {
 test('should default Gemini Image model when env model is unset', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     GEMINI_IMAGE_MODEL_NAME: undefined
   });
   expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
@@ -533,11 +533,11 @@ test('should default Gemini Image model when env model is unset', () => {
 test('should configure secondary Gemini Image model from env', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
-    SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-2.5-flash-image'
+    SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-lite-image'
   });
-  expect(config.geminiImageBackupModel).toBe('gemini-2.5-flash-image');
+  expect(config.geminiImageBackupModel).toBe('gemini-3.1-flash-lite-image');
 });
 
 test('should disable secondary Gemini Image model when unsupported or matches primary', () => {
@@ -545,14 +545,14 @@ test('should disable secondary Gemini Image model when unsupported or matches pr
   try {
     const unsupported = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'not-a-real-model'
     });
     expect(unsupported.geminiImageBackupModel).toBeNull();
 
     const sameModel = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
       SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image'
     });
@@ -568,7 +568,7 @@ test('should warn when SECONDARY_AI_PROVIDER is invalid', () => {
   try {
     const config = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       OPENAI_API_KEY: 'fake',
       SECONDARY_MODEL_NAME: 'gpt-5.4-mini',
       SECONDARY_AI_PROVIDER: 'not-a-provider'
@@ -585,7 +585,7 @@ test('should warn when backup model is unsupported for explicit provider', () =>
   try {
     const config = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       OPENAI_API_KEY: 'fake',
       SECONDARY_MODEL_NAME: 'claude-sonnet-4-6',
       SECONDARY_AI_PROVIDER: 'openai'
@@ -602,7 +602,7 @@ test('should replace Imagen primary image model with the default', () => {
   try {
     const config = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       GEMINI_IMAGE_MODEL_NAME: 'imagen-3.0-generate-002'
     });
     expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
@@ -617,7 +617,7 @@ test('should disable Imagen secondary image model', () => {
   try {
     const config = loadConfig({
       AI_PROVIDER: 'openai',
-      OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+      OPENAI_MODEL_NAME: 'gpt-6-luna',
       GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
       SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'imagen-3.0-generate-002'
     });
@@ -631,7 +631,7 @@ test('should disable Imagen secondary image model', () => {
 test('should default to the openai provider when AI_PROVIDER is unset', () => {
   const config = loadConfig({
     AI_PROVIDER: undefined,
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano'
+    OPENAI_MODEL_NAME: 'gpt-6-luna'
   });
   expect(config.aiProvider).toBe('openai');
 });
@@ -639,7 +639,7 @@ test('should default to the openai provider when AI_PROVIDER is unset', () => {
 test('should expose a constant temperature helper', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano'
+    OPENAI_MODEL_NAME: 'gpt-6-luna'
   });
   expect(config.getTemperature()).toBe(1.0);
 });
@@ -647,13 +647,13 @@ test('should expose a constant temperature helper', () => {
 test('should resolve gemini backup provider api key path', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-5.4-nano',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
     OPENAI_API_KEY: 'fake',
     GEMINI_API_KEY: 'gemini-key',
-    SECONDARY_MODEL_NAME: 'gemini-3-flash-preview',
+    SECONDARY_MODEL_NAME: 'gemini-3.6-flash',
     SECONDARY_AI_PROVIDER: 'gemini'
   });
   expect(config.backupModels).toEqual([
-    { model: 'gemini-3-flash-preview', provider: 'gemini', tier: 'secondary' }
+    { model: 'gemini-3.6-flash', provider: 'gemini', tier: 'secondary' }
   ]);
 });

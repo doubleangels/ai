@@ -402,11 +402,11 @@ test('should uses default reply char budget when maxOutputTokens is invalid', ()
     });
   });
 
-  expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-5.4-nano')).toMatch(/800 characters/);
+  expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-6-luna')).toMatch(/800 characters/);
 });
 
 test('should SYSTEM_MESSAGES BASE includes TLDR format guidance', () => {
-  const prompt = aiUtils.SYSTEM_MESSAGES.BASE('gpt-5.4-nano');
+  const prompt = aiUtils.SYSTEM_MESSAGES.BASE('gpt-6-luna');
   expect(prompt).toMatch(/TLDR/i);
   expect(prompt).toMatch(/1–3 short sentences/);
 });

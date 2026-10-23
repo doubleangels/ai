@@ -188,7 +188,7 @@ let geminiCacheEntry = null;
 /** Claude model IDs that take a thinking budget (4.x family). */
 const CLAUDE_EXTENDED_THINKING_MODELS = [
   'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6',
-  'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-opus-4-5'
+  'claude-haiku-4-5', 'claude-opus-4-5'
 ];
 
 function claudeSupportsExtendedThinking(model) {
@@ -705,10 +705,10 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
 }
 
 /** OpenAI models that accept reasoning effort 'none' (pro variants excluded). Others reject it with a 400. */
-const OPENAI_NONE_EFFORT_PREFIXES = ['gpt-6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1'];
+const OPENAI_NONE_EFFORT_PREFIXES = ['gpt-6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2'];
 
 /**
- * Maps 'none' to 'low' on models that require some reasoning (gpt-6-astra, gpt-6.1-sol, o3, ...).
+ * Maps 'none' to 'low' on models that require some reasoning (gpt-6-astra, gpt-6.1-sol, ...).
  * @param {string} effort
  * @param {string} model
  * @returns {string}

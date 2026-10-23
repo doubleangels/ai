@@ -123,7 +123,7 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3.8-flash`       |
 | `CLAUDE_MODEL_NAME` | Claude model (e.g. `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`) | `claude-sonnet-5-5`      |
 
-Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process. Lists were checked against each provider's model and deprecation pages in October 2026, and shut-down models were removed.
+Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process. Lists were checked against each provider's model and deprecation pages in October 2026. Only active models are allowed, so deprecated and shut-down models are rejected.
 
 ### Advanced AI settings
 
