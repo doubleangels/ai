@@ -196,7 +196,7 @@ test('should falls back to provider defaults when model env vars are blank', asy
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(openai.modelName).toBe('gpt-5.4-nano');
+  expect(openai.modelName).toBe('gpt-6-luna');
 });
 
 test('should index sends successful command error replies and swallows metric failures', async () => {
@@ -1096,7 +1096,7 @@ test('should openAI and Claude branch coverage for optional request fields', asy
     stubModule(configPath, {
       ...DEFAULT_CONFIG,
       aiProvider: 'claude',
-      modelName: 'claude-sonnet-4-5'
+      modelName: 'claude-haiku-4-5'
     });
   });
   expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('final after max rounds');

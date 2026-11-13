@@ -3,7 +3,7 @@ const logger = require('../logger')(path.basename(__filename));
 const { safeAttachmentLabel, serializeError } = require('./logSanitize');
 const https = require('https');
 const { URL } = require('url');
-const { imageDownloadTimeoutMs, maxImageBytes, maxOutputTokens } = require('../config');
+const { imageDownloadTimeoutMs, maxImageBytes, maxOutputTokens, maxImageDimension } = require('../config');
 
 /** Only these hosts may be fetched (including redirects) — mitigates SSRF via malicious redirects from attachment URLs. */
 const DISCORD_IMAGE_CDN_HOSTS = new Set([
@@ -345,6 +345,41 @@ function normalizeMediaUrl(item) {
 }
 
 /**
+ * Returns a Discord media-proxy URL that serves the image scaled down so its long side is at most
+ * `maxDimension` px. Vision models bill by pixel area, so this cuts image input tokens without
+ * any local image processing. Returns the original URL when dimensions are unknown, the image is
+ * already small enough, resizing is disabled, or the URL is not a Discord CDN URL.
+ * @param {string} url
+ * @param {number|null|undefined} width
+ * @param {number|null|undefined} height
+ * @param {number} [maxDimension]
+ * @returns {string}
+ */
+function buildResizedImageUrl(url, width, height, maxDimension = maxImageDimension) {
+  if (!url || !(maxDimension > 0)) return url;
+  const w = Number(width);
+  const h = Number(height);
+  if (!(w > 0) || !(h > 0)) return url;
+  const longSide = Math.max(w, h);
+  if (longSide <= maxDimension) return url;
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (!DISCORD_IMAGE_CDN_HOSTS.has(parsed.hostname.toLowerCase())) return url;
+
+  const scale = maxDimension / longSide;
+  // media.discordapp.net resizes attachments on the fly; cdn.discordapp.com does not.
+  parsed.hostname = 'media.discordapp.net';
+  parsed.searchParams.set('width', String(Math.max(1, Math.round(w * scale))));
+  parsed.searchParams.set('height', String(Math.max(1, Math.round(h * scale))));
+  return parsed.toString();
+}
+
+/**
  * Infers image MIME type from a Discord CDN URL path.
  * @param {string} url
  * @returns {string}
@@ -389,14 +424,19 @@ function isAllowedDiscordImageUrl(url) {
  * Collects image/GIF attachment and embed preview URLs from a reply chain (oldest first).
  * @param {Array} replyChain - Discord messages oldest → newest
  * @param {string} botId - Bot user id; bot messages are skipped
- * @param {{ maxImages?: number }} [options]
+ * @param {{ maxImages?: number, maxSourceMessages?: number }} [options]
+ *   maxSourceMessages limits collection to the newest N non-bot messages in the chain (default: all).
+ *   Older images were already sent in earlier turns, so re-sending them re-bills their tokens.
  * @returns {{ attachments: Array, truncated: boolean, attachmentSources: number, embedSources: number }}
  */
 function collectReplyChainMedia(replyChain, botId, options = {}) {
   const maxImages = typeof options.maxImages === 'number' && options.maxImages > 0
     ? options.maxImages
     : 4;
-  const chain = Array.isArray(replyChain) ? replyChain : [];
+  let chain = Array.isArray(replyChain) ? replyChain.filter(msg => msg && msg.author?.id !== botId) : [];
+  if (typeof options.maxSourceMessages === 'number' && options.maxSourceMessages > 0) {
+    chain = chain.slice(-options.maxSourceMessages);
+  }
   const seen = new Set();
   const attachments = [];
   let truncated = false;
@@ -416,8 +456,6 @@ function collectReplyChainMedia(replyChain, botId, options = {}) {
   };
 
   for (const msg of chain) {
-    if (!msg || msg.author?.id === botId) continue;
-
     if (msg.attachments && msg.attachments.size > 0) {
       const values = typeof msg.attachments.values === 'function'
         ? Array.from(msg.attachments.values())
@@ -432,12 +470,12 @@ function collectReplyChainMedia(replyChain, botId, options = {}) {
 
     const embeds = Array.isArray(msg.embeds) ? msg.embeds : [];
     for (const embed of embeds) {
-      const urls = [];
-      if (embed?.image?.url) urls.push(embed.image.url);
-      if (embed?.thumbnail?.url) urls.push(embed.thumbnail.url);
+      const sources = [];
+      if (embed?.image?.url) sources.push(embed.image);
+      if (embed?.thumbnail?.url) sources.push(embed.thumbnail);
 
-      for (const url of urls) {
-        if (pushCandidate({ url, contentType: inferImageContentTypeFromUrl(url) })) {
+      for (const { url, width, height } of sources) {
+        if (pushCandidate({ url, width, height, contentType: inferImageContentTypeFromUrl(url) })) {
           embedSources += 1;
         }
         if (truncated) break;
@@ -481,7 +519,19 @@ async function processImageAttachments(attachments) {
         if (!mediaUrl) {
           return { index, item: null };
         }
-        const base64Image = await downloadImageAsBase64(mediaUrl);
+        const resizedUrl = buildResizedImageUrl(mediaUrl, attachment.width, attachment.height);
+        let base64Image;
+        if (resizedUrl !== mediaUrl) {
+          try {
+            base64Image = await downloadImageAsBase64(resizedUrl);
+          } catch (resizeError) {
+            logger.debug('Resized image download failed; using original.', {
+              label: attachmentLabel,
+              message: resizeError?.message
+            });
+          }
+        }
+        if (!base64Image) base64Image = await downloadImageAsBase64(mediaUrl);
         logger.debug('Successfully processed image attachment.', {
           label: attachmentLabel,
           contentType: attachment.contentType,
@@ -1225,6 +1275,7 @@ module.exports = {
   downloadImageAsBase64,
   createMessageContent,
   collectReplyChainMedia,
+  buildResizedImageUrl,
   normalizeMediaUrl,
   inferImageContentTypeFromUrl,
   processImageAttachments,

@@ -1,8 +1,8 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1
 # Dockerfile for AI Bot
-# Multi-stage build. Use node:24-alpine (no digest) so CI can pull latest Node + Alpine each build.
+# Multi-stage build. Use node:26-alpine (Active LTS, no digest) so CI can pull latest Node + Alpine each build.
 
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=256"
@@ -21,7 +21,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 # Build stage for native modules
 FROM base AS builder
 
-RUN corepack enable
+# Node 25+ no longer bundles corepack; install the pnpm version pinned in package.json#packageManager.
+RUN PNPM_VERSION=$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]") && \
+    npm install -g "pnpm@${PNPM_VERSION}" && pnpm --version
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     apk update && apk add --no-cache python3 make g++ && \

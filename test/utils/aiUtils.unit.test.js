@@ -402,11 +402,11 @@ test('should uses default reply char budget when maxOutputTokens is invalid', ()
     });
   });
 
-  expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-5.4-nano')).toMatch(/800 characters/);
+  expect(aiUtilsInvalid.SYSTEM_MESSAGES.BASE('gpt-6-luna')).toMatch(/800 characters/);
 });
 
 test('should SYSTEM_MESSAGES BASE includes TLDR format guidance', () => {
-  const prompt = aiUtils.SYSTEM_MESSAGES.BASE('gpt-5.4-nano');
+  const prompt = aiUtils.SYSTEM_MESSAGES.BASE('gpt-6-luna');
   expect(prompt).toMatch(/TLDR/i);
   expect(prompt).toMatch(/1–3 short sentences/);
 });
@@ -862,4 +862,81 @@ test('should collectReplyChainMedia truncates across embed urls and chain messag
   );
   expect(chainCap.attachments).toHaveLength(1);
   expect(chainCap.truncated).toBe(true);
+});
+
+test('should buildResizedImageUrl scale large Discord images through the media proxy', () => {
+  const resized = aiUtils.buildResizedImageUrl(
+    'https://cdn.discordapp.com/attachments/1/2/photo.png?ex=abc&is=def&hm=123',
+    4000,
+    2000,
+    1024
+  );
+  const url = new URL(resized);
+  expect(url.hostname).toBe('media.discordapp.net');
+  expect(url.searchParams.get('width')).toBe('1024');
+  expect(url.searchParams.get('height')).toBe('512');
+  expect(url.searchParams.get('hm')).toBe('123');
+});
+
+test('should buildResizedImageUrl leave small, unknown-size, non-Discord, or disabled cases alone', () => {
+  const src = 'https://cdn.discordapp.com/attachments/1/2/photo.png';
+  expect(aiUtils.buildResizedImageUrl(src, 800, 600, 1024)).toBe(src);
+  expect(aiUtils.buildResizedImageUrl(src, null, null, 1024)).toBe(src);
+  expect(aiUtils.buildResizedImageUrl(src, 4000, 3000, 0)).toBe(src);
+  expect(aiUtils.buildResizedImageUrl('https://example.com/a.png', 4000, 3000, 1024)).toBe('https://example.com/a.png');
+});
+
+test('should collectReplyChainMedia limit images to the newest non-bot messages', () => {
+  const userMsg = (id, file) => ({
+    author: { id },
+    attachments: { size: 1, values: () => [{ url: `https://cdn.discordapp.com/${file}`, contentType: 'image/png' }] },
+    embeds: []
+  });
+  const chain = [
+    userMsg('user-1', 'oldest.png'),
+    userMsg('user-2', 'referenced.png'),
+    userMsg('bot-123', 'bot.png'),
+    userMsg('user-1', 'current.png')
+  ];
+  const { attachments } = aiUtils.collectReplyChainMedia(chain, 'bot-123', { maxImages: 10, maxSourceMessages: 2 });
+  expect(attachments.map(a => a.url)).toEqual([
+    'https://cdn.discordapp.com/referenced.png',
+    'https://cdn.discordapp.com/current.png'
+  ]);
+});
+
+test('should buildResizedImageUrl return unparseable URLs unchanged', () => {
+  expect(aiUtils.buildResizedImageUrl('not a url', 4000, 3000, 1024)).toBe('not a url');
+});
+
+test('should processImageAttachments download large images resized, falling back to the original URL', async () => {
+  const requested = [];
+  await withHttpsStub((url, callback) => {
+    requested.push(url);
+    const request = new EventEmitter();
+    request.setTimeout = () => {};
+    request.destroy = error => request.emit('error', error);
+    const isResized = url.includes('width=');
+    // The first image's resized request fails; the second one's succeeds.
+    const fail = isResized && url.includes('first');
+    queueMicrotask(() => {
+      callback(fail
+        ? createResponse(500, {}, [])
+        : createResponse(200, { 'content-type': 'image/png', 'content-length': '4' }, ['data']));
+    });
+    return request;
+  }, async () => {
+    const processed = await aiUtils.processImageAttachments([
+      { contentType: 'image/png', url: 'https://cdn.discordapp.com/first.png', width: 4000, height: 2000 },
+      { contentType: 'image/png', url: 'https://cdn.discordapp.com/second.png', width: 2000, height: 4000 }
+    ]);
+    expect(processed).toHaveLength(2);
+  });
+
+  expect(requested).toEqual(expect.arrayContaining([
+    'https://media.discordapp.net/first.png?width=1024&height=512',
+    'https://cdn.discordapp.com/first.png',
+    'https://media.discordapp.net/second.png?width=512&height=1024'
+  ]));
+  expect(requested).not.toContain('https://cdn.discordapp.com/second.png');
 });

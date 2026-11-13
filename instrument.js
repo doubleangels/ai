@@ -2,7 +2,7 @@
  * Sentry must load before other application modules.
  * Set SENTRY_DSN in the environment to enable reporting.
  */
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const Sentry = require('@sentry/node');
 let nodeProfilingIntegration;
@@ -50,12 +50,30 @@ if (typeof nodeProfilingIntegration === 'function') {
 const environment = process.env.NODE_ENV || 'production';
 const isProduction = environment === 'production';
 
+const sendDefaultPii = process.env.SENTRY_SEND_DEFAULT_PII === 'true' || process.env.SENTRY_SEND_DEFAULT_PII === '1';
+const enableLogs = process.env.SENTRY_ENABLE_LOGS !== 'false';
+const enableMetrics = process.env.SENTRY_ENABLE_METRICS !== 'false';
+
+/**
+ * Sentry v11 replaced `sendDefaultPii` with `dataCollection` and collects by default (including
+ * gen-AI prompts/responses). Unless PII is explicitly opted in, keep the pre-v11 privacy posture.
+ */
+const restrictedDataCollection = {
+  userInfo: false,
+  cookies: false,
+  httpHeaders: false,
+  httpBodies: [],
+  genAI: { inputs: false, outputs: false },
+  mcp: { inputs: false, outputs: false }
+};
+
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
-  sendDefaultPii: process.env.SENTRY_SEND_DEFAULT_PII === 'true' || process.env.SENTRY_SEND_DEFAULT_PII === '1',
+  ...(sendDefaultPii ? {} : { dataCollection: restrictedDataCollection }),
   tracesSampleRate: parseSampleRate(process.env.SENTRY_TRACES_SAMPLE_RATE, isProduction ? 0.1 : 1.0),
-  enableLogs: process.env.SENTRY_ENABLE_LOGS !== 'false',
-  enableMetrics: process.env.SENTRY_ENABLE_METRICS !== 'false',
+  // v11 removed enableLogs/enableMetrics; drop at send time when disabled.
+  ...(enableLogs ? {} : { beforeSendLog: () => null }),
+  ...(enableMetrics ? {} : { beforeSendMetric: () => null }),
   profileSessionSampleRate: parseSampleRate(process.env.SENTRY_PROFILE_SESSION_SAMPLE_RATE, isProduction ? 0.1 : 1.0),
   profileLifecycle: process.env.SENTRY_PROFILE_LIFECYCLE || 'trace',
   includeLocalVariables: !isProduction,
@@ -92,7 +110,7 @@ function captureError(error, tags = {}) {
 }
 
 function recordMetric(metricType, name, value, options = {}) {
-  if (!Sentry.isEnabled() || !Sentry.metrics) return;
+  if (!enableMetrics || !Sentry.isEnabled() || !Sentry.metrics) return;
 
   const metricOptions = {};
   if (options.unit) {

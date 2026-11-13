@@ -34,6 +34,27 @@ const {
 /** Max characters from replied-to messages injected into the prompt (saves input tokens). */
 const QUOTED_REPLY_CONTEXT_MAX_CHARS = 2000;
 
+/**
+ * Max characters of that quoted context kept in stored history after the turn. The full quote is
+ * only needed for the request that answers it; keeping it would re-send it on every later turn.
+ */
+const QUOTED_REPLY_HISTORY_MAX_CHARS = 300;
+
+/** Images are collected from the newest N non-bot messages in a reply chain (current + referenced). */
+const REPLY_CHAIN_IMAGE_SOURCE_MESSAGES = 2;
+
+/**
+ * Replaces the request-time text of a stored user turn with its compact history form.
+ * @param {{ content: Array }} message - User turn built by createMessageContent (always an array)
+ * @param {string} requestText - Text sent with the request (includes the full quoted context)
+ * @param {string} historyText - Text to keep in history
+ */
+function compactStoredUserText(message, requestText, historyText) {
+  if (requestText === historyText) return;
+  // createMessageContent puts the text part first, and a turn with quoted context always has text.
+  message.content[0] = { ...message.content[0], text: historyText };
+}
+
 function userCooldownKey(userId, channelId) {
   return `${userId}:${channelId}`;
 }
@@ -246,15 +267,24 @@ async function runChannelChat({
     if (text) quotedTextParts.push(`${msg.author.username}: ${text}`);
   }
 
+  const withQuote = (block, text) => (text
+    ? `[Previous conversation:\n${block}]\n\n${text}`
+    : `[Previous conversation:\n${block}]`);
+
   let resolvedUserText = userText || '';
+  let historyUserText = resolvedUserText;
   if (quotedTextParts.length > 0) {
-    let quotedBlock = quotedTextParts.join('\n');
+    const fullQuote = quotedTextParts.join('\n');
+    let quotedBlock = fullQuote;
     if (quotedBlock.length > QUOTED_REPLY_CONTEXT_MAX_CHARS) {
       quotedBlock = `${quotedBlock.slice(0, QUOTED_REPLY_CONTEXT_MAX_CHARS).trimEnd()}\n[truncated]`;
     }
-    resolvedUserText = resolvedUserText
-      ? `[Previous conversation:\n${quotedBlock}]\n\n${resolvedUserText}`
-      : `[Previous conversation:\n${quotedBlock}]`;
+    let historyQuote = fullQuote;
+    if (historyQuote.length > QUOTED_REPLY_HISTORY_MAX_CHARS) {
+      historyQuote = `${historyQuote.slice(0, QUOTED_REPLY_HISTORY_MAX_CHARS).trimEnd()}…`;
+    }
+    historyUserText = withQuote(historyQuote, resolvedUserText).trim();
+    resolvedUserText = withQuote(quotedBlock, resolvedUserText);
   }
 
   const {
@@ -262,7 +292,10 @@ async function runChannelChat({
     truncated: replyChainImagesTruncated,
     attachmentSources,
     embedSources
-  } = collectReplyChainMedia(replyChain, client.user.id, { maxImages: maxReplyChainImages });
+  } = collectReplyChainMedia(replyChain, client.user.id, {
+    maxImages: maxReplyChainImages,
+    maxSourceMessages: REPLY_CHAIN_IMAGE_SOURCE_MESSAGES
+  });
 
   const combinedAttachments = [...chainAttachments];
   for (const attachment of extraImageAttachments) {
@@ -308,10 +341,11 @@ async function runChannelChat({
     ];
   }
 
-  channelHistory.push({
+  const userTurnMessage = {
     role: 'user',
     content: finalMessageContent
-  });
+  };
+  channelHistory.push(userTurnMessage);
 
   trimConversationHistory(channelHistory, maxHistoryLength, maxHistoryTokens);
   logger.debug('Updated conversation history for channel.', {
@@ -547,6 +581,7 @@ async function runChannelChat({
     }
   } finally {
     stripImagesFromHistory(channelHistory);
+    compactStoredUserText(userTurnMessage, resolvedUserText, historyUserText);
     const durationMs = Date.now() - startedAt;
     recordDistribution('discord.message.processing_ms', durationMs, {
       unit: 'millisecond',

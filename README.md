@@ -5,7 +5,7 @@
   <p><b>A multi-provider AI Discord assistant powered by OpenAI, Google Gemini, and Anthropic Claude.</b></p>
 
 [![DeepScan grade](https://deepscan.io/api/teams/29402/projects/31349/branches/1015181/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=29402&pid=31349&bid=1015181)
-[![Node.js](https://img.shields.io/badge/node.js-24.x-brightgreen.svg?style=flat-square&logo=nodedotjs)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node.js-26.x-brightgreen.svg?style=flat-square&logo=nodedotjs)](https://nodejs.org/)
 [![Discord.js](https://img.shields.io/badge/discord.js-14.x-blue.svg?style=flat-square&logo=discord)](https://discord.js.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?style=flat-square&logo=docker)](https://www.docker.com/)
 [![Doppler](https://img.shields.io/badge/doppler-secrets-000000.svg?style=flat-square&logo=doppler)](https://www.doppler.com/)
@@ -119,11 +119,30 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | Variable            | Description                                                                  | Default                  |
 | :------------------ | :--------------------------------------------------------------------------- | :----------------------- |
 | `AI_PROVIDER`       | `openai`, `gemini`, or `claude`                                              | `openai`                 |
-| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-5.4-nano`           |
+| `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-6-luna`             |
 | `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3-flash-preview` |
 | `CLAUDE_MODEL_NAME` | Claude model                                                                 | `claude-sonnet-4-6`      |
 
 Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process.
+
+Only **current** models are accepted: nothing deprecated, legacy, or shut down, per each provider's model and deprecation pages as of 2026-11-12. Revisit the lists in `config.js` when providers announce deprecations.
+
+| Provider | Supported models |
+| :------- | :--------------- |
+| OpenAI | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro` |
+| Gemini (chat) | `gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gemini-3-flash-preview`, `gemini-2.5-flash-lite` |
+| Gemini (`/imagine`) | `gemini-nano-banana-2.1`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`, `gemini-2.5-flash-image` |
+| Claude | `claude-fable-5-2`, `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-haiku-4-5` |
+
+An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_NAME` falls back to `gemini-3.1-flash-image` with a warning.
+
+**Per-model request adjustments** (from each provider's docs, so newer models don't reject requests):
+
+- **OpenAI:** `REASONING_EFFORT` is raised to the model's minimum: `low` for `gpt-6-astra` and `gpt-6.1-sol`, and `medium` for the `-pro` models. An invalid value counts as `none`. With reasoning on, `max_output_tokens` gets 25,000 tokens of headroom, because reasoning tokens count against it. `prompt_cache_retention: 24h` is sent only to `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4` and `gpt-5.2`; newer models use their default 30-minute cache. `temperature` is never sent. The `-pro` models can take several minutes per request, so raise `OPENAI_TIMEOUT_MS` if you use them.
+- **Gemini:** `temperature` is never sent (deprecated on Gemini 3+, ignored by Gemini 4). `maxOutputTokens` gets 8,192 tokens of headroom (capped at 32,768), because thinking tokens count against it. Gemini 4 models skip explicit context caching, which they reject. GIF images aren't a documented Gemini input type, so they're replaced with a short note. Requests never start or end on a model turn.
+- **Claude:** requests never start with or end on an assistant turn (Claude requires a user turn first and rejects assistant prefill on 4.6+ models).
+
+**Claude thinking:** Claude Haiku 4.5 thinks only when `CLAUDE_THINKING_BUDGET_TOKENS` > 0 (sent as `budget_tokens`). Claude 4.6–4.8 models use adaptive thinking when that variable is > 0 (the number only sizes `max_tokens` headroom). Claude 5 and Fable models always think adaptively; control their depth and cost with `CLAUDE_EFFORT` (`low` is a good fit for chat). Claude requests never send `temperature`: the API version used by Anthropic SDK 1.x (`2026-10-21`) rejects sampling parameters.
 
 ### Advanced AI settings
 
@@ -131,12 +150,14 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | :------------------------------ | :------------------------------------------------------------------ | :------------- |
 | `ENABLE_WEB_SEARCH`             | Live internet search (OpenAI/Gemini)                                | `false`        |
 | `ENABLE_GOOGLE_MAPS`            | Google Maps grounding (Gemini)                                      | `false`        |
-| `ENABLE_CONTEXT_CACHE`          | Provider context / prompt caching (system + stable turns)           | `true`         |
-| `GEMINI_CACHE_TTL_SECONDS`      | Gemini cache TTL, seconds (60–2073600, i.e. up to 24 days)          | `3600`         |
+| `ENABLE_CONTEXT_CACHE`          | Provider context / prompt caching (see behavior notes)              | `true`         |
+| `CLAUDE_CACHE_MIN_TOKENS`       | Estimated prompt size before Claude prompts are marked for caching (1024–200000) | `2048` |
+| `GEMINI_CACHE_TTL_SECONDS`      | Gemini explicit cache TTL, seconds (60–2073600, i.e. up to 24 days) | `3600`         |
 | `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings             | _API defaults_ |
-| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`           | `none`         |
+| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh` (raised to the model's minimum) | `none` |
 | `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`                      | `low`          |
-| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude extended thinking budget (`0` = off, max 32000)              | `0`            |
+| `CLAUDE_THINKING_BUDGET_TOKENS` | Claude thinking (`0` = off, max 32000); see **Claude thinking** above | `0`          |
+| `CLAUDE_EFFORT`                 | Claude effort: `low`, `medium`, `high`, `xhigh`, `max` (mapped or dropped for models that don't support a level) | _model default_ |
 | `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                                 | `60000`        |
 | `OPENAI_MAX_RETRIES`            | OpenAI client retries (0–5)                                         | `2`            |
 | `GEMINI_TIMEOUT_MS`             | Gemini request timeout (5000–300000)                                | `60000`        |
@@ -169,6 +190,7 @@ Supported model IDs are validated in [`config.js`](config.js). Unsupported value
 | `MESSAGE_CACHE_TTL_MS`      | Message cache TTL (ms)                                   | `1800000` (30 min) | 60000–86400000 |
 | `IMAGE_DOWNLOAD_TIMEOUT_MS` | Vision image download timeout                            | `8000`             | —              |
 | `MAX_IMAGE_BYTES`           | Max bytes per downloaded image                           | `6000000`          | —              |
+| `MAX_IMAGE_DIMENSION`       | Long-side pixel cap for images sent to vision models, resized by Discord's media proxy (`0` = off) | `1024` | 256–4096 |
 | `MAX_REPLY_CHAIN_IMAGES`    | Max images/GIFs collected from a reply chain per request | `4`                | 1–10           |
 
 ### Image generation (`/imagine`)
@@ -185,12 +207,13 @@ The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is
 
 **Behavior notes:**
 
-- When you **reply** to the bot, quoted text from the reply chain is prepended to your message **in addition to** stored `conversationHistory` (useful for translation and thread grounding).
-- **Images and GIFs** (attachments and embed previews) are collected from non-bot messages in the reply chain, oldest first, up to `MAX_REPLY_CHAIN_IMAGES`. Video attachments are not analyzed.
-- Set `MAX_HISTORY_TOKENS` in production for long threads to cap API payload size.
-- With `ENABLE_CONTEXT_CACHE=true` (default), the system prompt and prior turns are marked for provider prompt caching (~90% off cached input tokens). Each bot **process** creates its own Gemini cache entry; multiple replicas each pay a one-time cache-creation cost on cold start. Set `ENABLE_CONTEXT_CACHE=false` to disable.
+- When you **reply** to the bot, quoted text from the reply chain (up to 2,000 characters) is prepended to your message **in addition to** stored `conversationHistory` (useful for translation and thread grounding). Only that request gets the full quote; stored history keeps a 300-character excerpt so later turns don't pay for it again.
+- **Images and GIFs** (attachments and embed previews) come from your message and the nearest earlier non-bot message in the reply chain, up to `MAX_REPLY_CHAIN_IMAGES`. Images from older turns were already sent and are not re-billed. Large images are downscaled to `MAX_IMAGE_DIMENSION` before upload. Video attachments are not analyzed.
+- Set `MAX_HISTORY_TOKENS` in production for long threads to cap API payload size (it is off by default).
+- With `ENABLE_CONTEXT_CACHE=true` (default): **OpenAI** caches repeated prefixes automatically and the bot sends a stable `prompt_cache_key`. **Claude** gets one cache breakpoint before the latest user turn, but only once the prompt is estimated at `CLAUDE_CACHE_MIN_TOKENS` or more, because cache writes cost 1.25x input and expire after 5 minutes. **Gemini** explicit caches are created only when the system prompt reaches 1,024 tokens (the built-in prompt is ~200 tokens, so in practice Gemini's automatic implicit caching applies). Set `ENABLE_CONTEXT_CACHE=false` to disable.
+- **Token usage** is logged per call (`AI token usage.`) with input, output, cached-input, cache-write and reasoning tokens, and recorded as `ai.tokens.*` metrics. Use these to check cache hit rates and cost per provider/model.
 - **History staleness:** `conversationHistory` does not track Discord message IDs. Edited or deleted user messages may remain in memory until `/reset`, idle eviction, or token/length trimming. Deleting a **bot** reply removes the matching last assistant turn when content still matches.
-- **SVG images** are excluded from vision (raster formats only).
+- **SVG images** are excluded from vision (raster formats only). Gemini also can't analyze GIFs.
 - Set `SECONDARY_MODEL_NAME` (and optionally `TERTIARY_MODEL_NAME`) to lighter models if your primary often returns rate-limit or overload errors. Provider is inferred from the model ID; override with `SECONDARY_AI_PROVIDER` / `TERTIARY_AI_PROVIDER`. Each backup can use a different provider; its API key must be configured.
 
 ---
@@ -240,12 +263,14 @@ Set `SENTRY_DSN` in Doppler to enable Sentry. [`instrument.js`](instrument.js) l
 | `SENTRY_TRACES_SAMPLE_RATE`          | `0.1` prod / `1.0` dev  | Performance traces (`0.0`–`1.0`)                                                     |
 | `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `0.1` prod / `1.0` dev  | Code profiling sample rate (`0.0`–`1.0`)                                             |
 | `SENTRY_PROFILE_LIFECYCLE`           | `trace`                 | Profile lifecycle (e.g. `trace`, `manual`)                                           |
-| `SENTRY_ENABLE_LOGS`                 | `true`                  | Forward Pino logs to Sentry                                                          |
-| `SENTRY_ENABLE_METRICS`              | `true`                  | Emit custom metrics                                                                  |
-| `SENTRY_SEND_DEFAULT_PII`            | `false`                 | Send default PII (user IDs, etc.)                                                    |
+| `SENTRY_ENABLE_LOGS`                 | `true`                  | Forward Pino logs to Sentry (`false` drops them before sending)                      |
+| `SENTRY_ENABLE_METRICS`              | `true`                  | Emit custom metrics (`false` skips them)                                             |
+| `SENTRY_SEND_DEFAULT_PII`            | `false`                 | `true` enables Sentry's full default data collection (see below)                    |
 | `NODE_ENV`                           | `production`            | Sentry environment tag; local variable capture is enabled only when not `production` |
 
 "prod" means `NODE_ENV=production`, which is the Docker image default — set `SENTRY_TRACES_SAMPLE_RATE=1.0` explicitly if you want full sampling in production. Sample rates are clamped to `[0, 1]`; invalid values fall back to the default for the current environment.
+
+**Data collection (Sentry SDK 11):** Sentry 11 replaced `sendDefaultPii` with `dataCollection` and collects broadly by default, **including AI prompts and responses** from its OpenAI, Anthropic and Google GenAI integrations. With `SENTRY_SEND_DEFAULT_PII` unset or `false`, [`instrument.js`](instrument.js) turns off user info, cookies, HTTP headers and bodies, and gen-AI/MCP inputs and outputs. Setting it to `true` uses Sentry's defaults, which send Discord users' messages and the bot's replies to Sentry.
 
 Local variable capture on errors (`includeLocalVariables`) is enabled only outside production (`NODE_ENV` other than `production`). In Docker with `NODE_ENV=production` (the default), Sentry does not open the Node inspector, so container logs stay free of “Debugger listening on ws://…”.
 
@@ -331,6 +356,7 @@ Metrics are no-ops when Sentry is disabled or metrics are turned off. Attributes
 | Metric                                                        | Unit       | Source                  |
 | :------------------------------------------------------------ | :--------- | :---------------------- |
 | `ai.generate.duration_ms`                                     | ms         | `aiService.js`          |
+| `ai.tokens.input` / `.output` / `.cached_input` / `.cache_write` / `.reasoning` | tokens (`provider`, `model`) | `aiService.js` |
 | `discord.message.processing_ms`                               | ms         | `channelChatHandler.js` |
 | `discord.message.response_chars`                              | —          | `channelChatHandler.js` |
 | `discord.command.duration_ms`                                 | ms         | `bot.js`                |
@@ -362,14 +388,14 @@ After deploying with `SENTRY_DSN` set:
 
 ### Prerequisites
 
-- **Node.js 24.x** (matches CI and the Docker image)
-- **pnpm 10.28** via [Corepack](https://nodejs.org/api/corepack.html)
+- **Node.js 26.x** (matches CI and the Docker image; `>=24` is supported)
+- **pnpm 12.18** (pinned in `package.json` `packageManager`). Node 25+ no longer bundles Corepack, so install pnpm with `npm install -g pnpm@12.18.0` (or `corepack enable` on Node 24)
 - Optional: [Doppler CLI](https://docs.doppler.com/docs/cli) for local secrets
 
 ### Install and run
 
 ```bash
-corepack enable
+npm install -g pnpm@12.18.0   # or: corepack enable (Node 24 only)
 pnpm install --frozen-lockfile
 ```
 
@@ -452,10 +478,10 @@ The runtime stage contains application code and production dependencies only (`p
 | `utils/logSanitize.js`          | Redacts secrets (tokens, keys) from log and error output                   |
 | `scripts/audit-log-messages.js` | Log message style audit (maintainer)                                       |
 | `test/`                         | Jest suite (not shipped in Docker images)                                  |
-| `Dockerfile`                    | Multi-stage production image (Node 24 Alpine)                              |
+| `Dockerfile`                    | Multi-stage production image (Node 26 Alpine)                              |
 | `docker-compose.yml`            | Example production compose stack                                           |
 
 <br>
 <div align="center">
-  <sub>Built with Node.js 24 and Discord.js 14</sub>
+  <sub>Built with Node.js 26 and Discord.js 14</sub>
 </div>

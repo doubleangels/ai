@@ -51,6 +51,7 @@ function loadInstrumentWithStubs({ profilingThrows = false, sampleRates = {}, om
     'SENTRY_DSN',
     'SENTRY_ENABLE_LOGS',
     'SENTRY_ENABLE_METRICS',
+    'SENTRY_SEND_DEFAULT_PII',
     'SENTRY_PROFILE_LIFECYCLE',
     'NODE_ENV'
   ];
@@ -284,10 +285,32 @@ test('should disables logs and metrics when env flags are false', () => {
   });
 
   try {
-    expect(sentryCalls.init.enableLogs).toBe(false);
-    expect(sentryCalls.init.enableMetrics).toBe(false);
+    expect(sentryCalls.init.beforeSendLog({})).toBeNull();
+    expect(sentryCalls.init.beforeSendMetric({})).toBeNull();
   } finally {
     restore();
+  }
+});
+
+test('should restrict data collection unless SENTRY_SEND_DEFAULT_PII is set', () => {
+  const restricted = loadInstrumentWithStubs({
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1' }
+  });
+  try {
+    expect(restricted.sentryCalls.init.dataCollection.genAI).toEqual({ inputs: false, outputs: false });
+    expect(restricted.sentryCalls.init.dataCollection.userInfo).toBe(false);
+    expect(restricted.sentryCalls.init.beforeSendLog).toBeUndefined();
+  } finally {
+    restricted.restore();
+  }
+
+  const optedIn = loadInstrumentWithStubs({
+    sampleRates: { SENTRY_DSN: 'https://example.invalid/1', SENTRY_SEND_DEFAULT_PII: 'true' }
+  });
+  try {
+    expect(optedIn.sentryCalls.init.dataCollection).toBeUndefined();
+  } finally {
+    optedIn.restore();
   }
 });
 

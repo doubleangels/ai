@@ -1,61 +1,59 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const { captureError } = require('./instrument');
 
-// OpenAI: Responses API models with text + image support. Reasoning (gpt-5*, o3, o4-mini), verbosity (gpt-5*), web search (built-in tool).
-const SUPPORTED_MODELS = [
-  'gpt-5.5', 'gpt-5.5-pro',
-  'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
-  'gpt-5.3-chat-latest', 'gpt-5.3-codex',
-  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.2-codex', 'gpt-5.2-chat-latest',
-  'gpt-5.1', 'gpt-5.1-codex', 'gpt-5.1-codex-mini', 'gpt-5.1-codex-max', 'gpt-5.1-chat-latest',
-  'gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5-pro',
-  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
-  'gpt-4o', 'gpt-4o-mini',
-  'o3', 'o4-mini', 'o3-pro', 'o3-mini'
-];
-const DEFAULT_MODEL = 'gpt-5.4-nano';
+// Model lists contain only CURRENT models (not deprecated, not shut down) per each provider's
+// model and deprecation pages as of 2026-11-12. Revisit when providers announce deprecations.
 
-// Gemini: text + image, search grounding, thinking. Excludes TTS/Live-only IDs by default.
+// OpenAI: Responses API models with text + image input (developers.openai.com/api/docs/models).
+const SUPPORTED_MODELS = [
+  'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-6.1-sol', 'gpt-6.1-terra',
+  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
+  'gpt-5.5', 'gpt-5.5-pro',
+  'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini',
+  'gpt-5.2', 'gpt-5.2-pro'
+];
+// gpt-6-luna is OpenAI's high-volume efficiency model (replacement for the deprecated gpt-5.4-nano).
+const DEFAULT_MODEL = 'gpt-6-luna';
+
+// Gemini: text + image chat models for generateContent (aistudio.google.com/docs/models).
+// Excludes TTS, Live, embedding and image-generation models.
 const SUPPORTED_GEMINI_MODELS = [
-  // Gemini 3.x (ai.google.dev/gemini-api/docs/models)
-  'gemini-3.5-flash',
+  'gemini-4-hydrogen', 'gemini-4-carbon', 'gemini-4-argon',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-pro-preview',
-  'gemini-3.1-pro-preview-customtools',
-  'gemini-3-flash-preview',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-3-pro-image-preview',
-  'gemini-3.1-flash-image-preview',
-  'gemini-3.1-flash-image',
-  // Gemini 2.5 (still widely used; some have published shutdown windows in 2026)
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-flash-image'
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash-lite'
 ];
 const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
 
-// Claude: vision, extended thinking. Include current primary IDs plus maintained aliases/snapshots.
+// Claude: current models (platform.claude.com models overview). Legacy, deprecated and retired
+// models (Opus 4.5, Sonnet 4.5, Opus 4.1, Opus 4, Sonnet 4) are excluded.
 const SUPPORTED_CLAUDE_MODELS = [
-  'claude-opus-4-7',
+  'claude-fable-5-2', 'claude-fable-5-1', 'claude-fable-5',
+  'claude-opus-5-5', 'claude-opus-5',
+  'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6',
+  'claude-sonnet-5-5', 'claude-sonnet-5',
   'claude-sonnet-4-6',
-  'claude-haiku-4-5-20251001', 'claude-haiku-4-5',
-  'claude-opus-4-6',
-  'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5',
-  'claude-opus-4-5-20251101', 'claude-opus-4-5',
-  'claude-opus-4-1-20250805', 'claude-opus-4-1',
-  'claude-sonnet-4-20250514', 'claude-sonnet-4-0',
-  'claude-opus-4-20250514', 'claude-opus-4-0'
+  'claude-haiku-5-5',
+  'claude-haiku-4-5', 'claude-haiku-4-5-20251001'
 ];
 const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
 
+/** Output effort levels accepted by Claude's output_config.effort. */
+const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 
-/** Gemini models that support generateContent with IMAGE modality (/imagine). */
+/** Current Gemini models that support generateContent with IMAGE output (/imagine). */
 const SUPPORTED_GEMINI_IMAGE_MODELS = [
-  'gemini-3-pro-image-preview',
-  'gemini-3.1-flash-image-preview',
+  'gemini-nano-banana-2.1',
   'gemini-3.1-flash-image',
+  'gemini-3.1-flash-lite-image',
+  'gemini-3-pro-image',
   'gemini-2.5-flash-image'
 ];
 
@@ -78,6 +76,12 @@ function resolveGeminiImagePrimaryModel(envName = 'GEMINI_IMAGE_MODEL_NAME') {
     if (primary.startsWith('imagen-')) {
       console.warn(
         `${envName} "${primary}" is an Imagen model; using ${DEFAULT_GEMINI_IMAGE_MODEL} instead.`
+      );
+      return DEFAULT_GEMINI_IMAGE_MODEL;
+    }
+    if (!SUPPORTED_GEMINI_IMAGE_MODELS.includes(primary)) {
+      console.warn(
+        `${envName} "${primary}" is not a supported Gemini Image model; using ${DEFAULT_GEMINI_IMAGE_MODEL} instead.`
       );
       return DEFAULT_GEMINI_IMAGE_MODEL;
     }
@@ -277,6 +281,11 @@ for (const guildId of allowedGuildIdList) {
 
 const allowedGuildIds = new Set(allowedGuildIdList);
 
+const claudeEffortRaw = (process.env.CLAUDE_EFFORT || '').trim().toLowerCase();
+if (claudeEffortRaw && !CLAUDE_EFFORT_LEVELS.includes(claudeEffortRaw)) {
+  console.warn(`CLAUDE_EFFORT "${process.env.CLAUDE_EFFORT}" is invalid; supported values are ${CLAUDE_EFFORT_LEVELS.join(', ')}. Ignoring.`);
+}
+
 const reservedBackupKeys = new Set();
 const backupModels = [];
 const backupModelSlots = [
@@ -366,8 +375,13 @@ const config = {
   })(),
   // Max output tokens per response (all providers). Unset, invalid, or 0 => use default 1024; clamped to 256–65536.
   maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
-  // Claude extended thinking: token budget for reasoning (0 = disabled). Only used for models that support it (e.g. 4.5).
+  // Claude thinking (0 = off). Claude 4.5 models use this as budget_tokens; 4.6+ models use adaptive
+  // thinking (any value > 0 turns it on) and ignore the number. Claude 5 models always think; use CLAUDE_EFFORT.
   claudeThinkingBudgetTokens: Math.max(0, Math.min(32000, parseInt(process.env.CLAUDE_THINKING_BUDGET_TOKENS, 10) || 0)),
+  // Claude output_config.effort (low|medium|high|xhigh|max); unset = model default. `low` suits chat.
+  claudeEffort: CLAUDE_EFFORT_LEVELS.includes(claudeEffortRaw) ? claudeEffortRaw : null,
+  // Only mark Claude prompts for caching once the estimated prefix is this large (cache writes cost 1.25x input).
+  claudeCacheMinTokens: Math.max(1024, Math.min(200_000, parseEnvInt(process.env.CLAUDE_CACHE_MIN_TOKENS, 2048))),
   // Basic anti-spam/cost controls (in-memory, per process).
   userCooldownMs: parseEnvInt(process.env.USER_COOLDOWN_MS, 4000),
   channelCooldownMs: parseEnvInt(process.env.CHANNEL_COOLDOWN_MS, 1500),
@@ -380,6 +394,11 @@ const config = {
   // Image download safety limits
   imageDownloadTimeoutMs: parseInt(process.env.IMAGE_DOWNLOAD_TIMEOUT_MS, 10) || 8000,
   maxImageBytes: parseInt(process.env.MAX_IMAGE_BYTES, 10) || 6_000_000,
+  // Long-side pixel cap for images sent to vision models (resized by Discord's media proxy). 0 disables.
+  maxImageDimension: (() => {
+    const value = parseEnvInt(process.env.MAX_IMAGE_DIMENSION, 1024);
+    return value <= 0 ? 0 : Math.max(256, Math.min(4096, value));
+  })(),
   // Max images (attachments + embed previews) collected from a reply chain per request.
   maxReplyChainImages: Math.max(1, Math.min(10, parseInt(process.env.MAX_REPLY_CHAIN_IMAGES, 10) || 4)),
   // OpenAI client: request timeout (ms) and max retries for transient failures.
@@ -398,13 +417,6 @@ const config = {
   token: process.env.DISCORD_BOT_TOKEN,
 };
 
-/**
- * Gets the temperature setting for the current model.
- * @returns {number} Temperature value (1.0 for all models)
- */
-function getTemperature() {
-  return 1.0;
-}
 
 module.exports = {
   ...config,
@@ -412,7 +424,7 @@ module.exports = {
   SUPPORTED_GEMINI_MODELS,
   SUPPORTED_GEMINI_IMAGE_MODELS,
   SUPPORTED_CLAUDE_MODELS,
+  CLAUDE_EFFORT_LEVELS,
   IMAGE_ASPECT_RATIOS,
-  DEFAULT_GEMINI_IMAGE_MODEL,
-  getTemperature
+  DEFAULT_GEMINI_IMAGE_MODEL
 };

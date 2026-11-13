@@ -15,7 +15,7 @@ const DEFAULT_CONFIG = {
   logLevel: 'info',
   maxHistoryLength: 10,
   maxHistoryTokens: 0,
-  modelName: 'gpt-5.4-nano',
+  modelName: 'gpt-6-luna',
   openaiApiKey: 'fake',
   geminiApiKey: 'fake',
   anthropicApiKey: 'fake',
