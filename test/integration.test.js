@@ -176,21 +176,21 @@ test('should falls back to provider defaults when model env vars are blank', asy
     GEMINI_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(gemini.modelName).toBe('gemini-3-flash-preview');
+  expect(gemini.modelName).toBe('gemini-3.8-flash');
 
   const geminiTrimmed = await loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: '  gemini-3-flash-preview  ',
+    GEMINI_MODEL_NAME: '  gemini-3.6-flash  ',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(geminiTrimmed.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiTrimmed.modelName).toBe('gemini-3.6-flash');
 
   const claude = await loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: '   '
   });
-  expect(claude.modelName).toBe('claude-sonnet-4-6');
+  expect(claude.modelName).toBe('claude-sonnet-5-5');
 
   const openai = await loadConfig({
     AI_PROVIDER: 'openai',
@@ -270,6 +270,46 @@ test('should index allows DM/user-install interactions even when a guild allowli
 
   expect(executed).toBe(true);
   expect(replyContent).toBeNull();
+});
+
+test('should index rejects interactions from users outside the user allowlist', async () => {
+  const client = loadIndexHarness(() => {}, { allowedUserIds: new Set(['allowed-user']) });
+
+  const executed = [];
+  client.commands.set('cmd-user', { execute: async interaction => { executed.push(interaction.user.id); } });
+  const handlers = client.handlers.get('interactionCreate') || [];
+
+  const replies = [];
+  const baseInteraction = {
+    isChatInputCommand: () => true,
+    isContextMenuCommand: () => false,
+    commandName: 'cmd-user',
+    guildId: null,
+    guild: null,
+    inGuild: () => false,
+    replied: false,
+    deferred: false,
+    reply: async payload => { replies.push(payload); },
+    followUp: async () => {}
+  };
+
+  await handlers[0]({ ...baseInteraction, user: { id: 'blocked-user', tag: 'Blocked#1' } });
+  await handlers[0]({
+    ...baseInteraction,
+    user: { id: 'blocked-user', tag: 'Blocked#1' },
+    reply: async () => { throw new Error('reply failed'); }
+  });
+  await handlers[0]({ ...baseInteraction, user: { id: 'allowed-user', tag: 'Allowed#1' } });
+  await handlers[0]({
+    ...baseInteraction,
+    user: { id: 'guild-member', tag: 'Member#1' },
+    guildId: 'guild-1',
+    inGuild: () => true,
+    authorizingIntegrationOwners: { 0: 'guild-1' }
+  });
+
+  expect(executed).toEqual(['allowed-user', 'guild-member']);
+  expect(replies).toEqual([expect.objectContaining({ content: "You don't have access to this bot." })]);
 });
 
 test('should index rejects interactions from guilds outside the allowlist', async () => {
@@ -987,6 +1027,17 @@ test('should index covers interaction handler guard branches and httpStatus fall
 
   await handlers[0]({
     isChatInputCommand: () => false,
+    isContextMenuCommand: () => false,
+    commandName: 'ignored',
+    user: { id: 'u1', tag: 'User#1' },
+    guildId: 'guild-1',
+    inGuild: () => true,
+    reply: async () => {},
+    followUp: async () => {}
+  });
+
+  await handlers[0]({
+    isChatInputCommand: () => false,
     isContextMenuCommand: () => true,
     commandName: 'ignored',
     user: { id: 'u1', tag: 'User#1' },
@@ -1415,9 +1466,9 @@ test('should and aiUtils cover remaining model and download branches', async () 
   const geminiOpenaiOnly = await loadConfig({
     AI_PROVIDER: 'gemini',
     GEMINI_MODEL_NAME: undefined,
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview'
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash'
   });
-  expect(geminiOpenaiOnly.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiOpenaiOnly.modelName).toBe('gemini-3.6-flash');
 
   const aiUtilsLocal = require(aiUtilsPath);
   expect((await aiUtilsLocal.processImageAttachments(null)).length).toBe(0);
@@ -1677,8 +1728,8 @@ test('should aiService and aiUtils remaining branches', async () => {
 
   const config = await loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
 });

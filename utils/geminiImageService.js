@@ -1,4 +1,3 @@
-const { GoogleGenAI } = require('@google/genai');
 const path = require('path');
 const {
   geminiApiKey,
@@ -12,13 +11,15 @@ const { captureError, recordCount, recordDistribution, startSpan } = require('..
 const logger = require('../logger')(path.basename(__filename));
 const { serializeError } = require('./logSanitize');
 
-/** @type {GoogleGenAI|null} */
-const genAI = geminiApiKey ? new GoogleGenAI({
-  apiKey: geminiApiKey,
-  // @google/genai 3.x defaults to v1; preview models, context caching and grounding tools need v1beta.
-  // GOOGLE_GENAI_API_VERSION still wins when set.
-  ...(process.env.GOOGLE_GENAI_API_VERSION ? {} : { apiVersion: 'v1beta' })
-}) : null;
+/** @type {import('@google/genai').GoogleGenAI|null} */
+const genAI = geminiApiKey
+  ? new (require('@google/genai').GoogleGenAI)({
+    apiKey: geminiApiKey,
+    // @google/genai 3.x defaults to v1; preview models, context caching and grounding tools need v1beta.
+    // GOOGLE_GENAI_API_VERSION still wins when set.
+    ...(process.env.GOOGLE_GENAI_API_VERSION ? {} : { apiVersion: 'v1beta' })
+  })
+  : null;
 
 class GeminiImageError extends Error {
   /**

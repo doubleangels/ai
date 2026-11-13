@@ -12,6 +12,7 @@ const DEFAULT_CONFIG = {
   token: 'fake-token',
   clientId: 'client-1',
   allowedGuildIds: new Set(),
+  allowedUserIds: new Set(),
   logLevel: 'info',
   maxHistoryLength: 10,
   maxHistoryTokens: 0,

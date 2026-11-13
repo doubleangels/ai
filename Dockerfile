@@ -9,6 +9,9 @@ ENV NODE_OPTIONS="--max-old-space-size=256"
 
 WORKDIR /app
 
+# Fail the build if a stale cached base image predates the Oct 2026 Node security release (24.22.1)
+RUN node -e "const [a,b,c]=process.versions.node.split('.').map(Number);if(a<24||(a===24&&(b<22||(b===22&&c<1)))){console.error('Node '+process.versions.node+' < 24.22.1');process.exit(1)}"
+
 # Update Alpine package index and upgrade all packages, then add runtime deps
 RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache dumb-init su-exec && \
@@ -53,18 +56,13 @@ COPY --from=builder --chown=discordbot:nodejs /app/node_modules ./node_modules
 # Use a .dockerignore to exclude node_modules, .git, and other unneeded files from the build context.
 COPY --chown=discordbot:nodejs . .
 
-# Set permissions and create data directory in a single layer
-RUN mkdir -p /app/data && \
-    chown -R discordbot:nodejs /app && \
-    chmod 750 /app/data
+# Set ownership for the runtime user
+RUN chown -R discordbot:nodejs /app
 
     # Apply latest Alpine secfixes after all layers (node base, doppler repo, app copy).
 # npm/npx are unused at runtime (pnpm in build, node + doppler at runtime); remove bundled npm CVE surface.
 RUN apk update && apk upgrade --no-cache && \
 rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
-
-# Create volume mount point for database persistence
-VOLUME ["/app/data"]
 
 # Doppler config/cache dir; use /tmp so it works when root FS is read-only (compose tmpfs: /tmp)
 ENV DOPPLER_CONFIG_DIR=/tmp

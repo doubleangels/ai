@@ -8,7 +8,7 @@ const configPath = path.resolve(__dirname, '..', 'config.js');
 const instrumentPath = path.resolve(__dirname, '..', 'instrument.js');
 const discordApiPath = path.resolve(__dirname, '..', 'utils', 'discordApi.js');
 
-function loadHandler({ config = {}, processImageAttachments } = {}) {
+function loadHandler({ config = {}, processImageAttachments, aiUtilsOverrides = {} } = {}) {
   return reloadModule(channelChatHandlerPath, () => {
     stubModule(discordApiPath, { withDiscordRetry: fn => fn() });
     stubModule(configPath, {
@@ -32,7 +32,8 @@ function loadHandler({ config = {}, processImageAttachments } = {}) {
       pruneConversationHistories: () => {},
       stripImagesFromHistory: () => {},
       formatAIUserMessage: () => 'error message',
-      isAIUserErrorMessage: () => false
+      isAIUserErrorMessage: () => false,
+      ...aiUtilsOverrides
     });
   });
 }
@@ -81,4 +82,77 @@ test('should cap extra image attachments at maxReplyChainImages', async () => {
   });
 
   expect(processed).toHaveLength(2);
+});
+
+test('should ensureClientChatState schedules one unref-ed periodic cleanup timer per client', () => {
+  const { ensureClientChatState } = loadHandler();
+  const client = createClient();
+
+  ensureClientChatState(client);
+  const firstInterval = client.chatStateCleanupInterval;
+  expect(firstInterval).toBeDefined();
+
+  ensureClientChatState(client);
+  expect(client.chatStateCleanupInterval).toBe(firstInterval);
+
+  clearInterval(client.chatStateCleanupInterval);
+});
+
+test('should runPeriodicChatStateCleanup prunes histories and cooldown maps on the configured cadence', () => {
+  const pruneConversationHistoriesCalls = [];
+  const pruneStaleMapEntriesCalls = [];
+  const { runPeriodicChatStateCleanup } = loadHandler({
+    config: { userCooldownMs: 4000, channelCooldownMs: 1500 },
+    aiUtilsOverrides: {
+      pruneConversationHistories: (...args) => pruneConversationHistoriesCalls.push(args),
+      pruneStaleMapEntries: (...args) => pruneStaleMapEntriesCalls.push(args)
+    }
+  });
+
+  const client = createClient();
+  runPeriodicChatStateCleanup(client);
+
+  expect(pruneConversationHistoriesCalls).toHaveLength(1);
+  expect(pruneConversationHistoriesCalls[0][0]).toBe(client.conversationHistory);
+  expect(pruneConversationHistoriesCalls[0][1]).toBe(client.channelLastActivity);
+
+  // userCooldownMs 4000, channelCooldownMs 1500 -> max(4000, 1500) * 10 = 40000
+  expect(pruneStaleMapEntriesCalls).toEqual([
+    [client.userCooldowns, 40000],
+    [client.channelCooldowns, 40000]
+  ]);
+});
+
+test('should runPeriodicChatStateCleanup falls back to a default prune age when a cooldown value is invalid', () => {
+  const pruneStaleMapEntriesCalls = [];
+  const { runPeriodicChatStateCleanup } = loadHandler({
+    // channelCooldownMs > 0 so pruning still runs; userCooldownMs is NaN so Math.max(...) * 10 is NaN.
+    config: { userCooldownMs: Number.NaN, channelCooldownMs: 5 },
+    aiUtilsOverrides: {
+      pruneStaleMapEntries: (...args) => pruneStaleMapEntriesCalls.push(args)
+    }
+  });
+
+  const client = createClient();
+  runPeriodicChatStateCleanup(client);
+
+  // Math.max(NaN, 5) * 10 is NaN, which is falsy for `||`, so it falls back to 600_000.
+  expect(pruneStaleMapEntriesCalls).toEqual([
+    [client.userCooldowns, 600_000],
+    [client.channelCooldowns, 600_000]
+  ]);
+});
+
+test('should runPeriodicChatStateCleanup skips cooldown pruning when both cooldowns are disabled', () => {
+  const pruneStaleMapEntriesCalls = [];
+  const { runPeriodicChatStateCleanup } = loadHandler({
+    config: { userCooldownMs: 0, channelCooldownMs: 0 },
+    aiUtilsOverrides: {
+      pruneStaleMapEntries: (...args) => pruneStaleMapEntriesCalls.push(args)
+    }
+  });
+
+  runPeriodicChatStateCleanup(createClient());
+
+  expect(pruneStaleMapEntriesCalls).toHaveLength(0);
 });

@@ -1,6 +1,3 @@
-const { OpenAI } = require('openai');
-const { GoogleGenAI } = require('@google/genai');
-const Anthropic = require('@anthropic-ai/sdk');
 const {
   openaiApiKey,
   geminiApiKey,
@@ -113,7 +110,12 @@ const OPENAI_MIN_REASONING_EFFORT = {
   'gpt-5.4-pro': 'medium',
   'gpt-5.2-pro': 'medium'
 };
-const OPENAI_REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh'];
+const OPENAI_REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Only the GPT-5.6 and GPT-6 families accept reasoning effort 'max'; others top out at 'xhigh'. */
+function openAIAcceptsMaxEffort(model) {
+  return model.startsWith('gpt-6') || model.startsWith('gpt-5.6');
+}
 
 /** Models documented to accept prompt_cache_retention '24h' (newer models default to a 30m cache). */
 const OPENAI_EXTENDED_CACHE_MODELS = new Set(['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.2']);
@@ -134,7 +136,8 @@ const OPENAI_MAX_OUTPUT_TOKENS = 128000;
  */
 function resolveOpenAIReasoningEffort(model, configured) {
   const normalized = typeof configured === 'string' ? configured.trim().toLowerCase() : '';
-  const effort = OPENAI_REASONING_EFFORTS.includes(normalized) ? normalized : 'none';
+  let effort = OPENAI_REASONING_EFFORTS.includes(normalized) ? normalized : 'none';
+  if (effort === 'max' && !openAIAcceptsMaxEffort(model)) effort = 'xhigh';
   const minimum = OPENAI_MIN_REASONING_EFFORT[model];
   if (minimum && OPENAI_REASONING_EFFORTS.indexOf(effort) < OPENAI_REASONING_EFFORTS.indexOf(minimum)) {
     return minimum;
@@ -302,8 +305,9 @@ function markMessageForPromptCache(message) {
  * OpenAI client instance configured with API key, timeout, and retries (used when aiProvider === 'openai').
  * @type {OpenAI}
  */
+// SDKs are required only when their key is set, so unused providers cost no startup time or heap.
 const openai = openaiApiKey
-  ? new OpenAI({
+  ? new (require('openai').OpenAI)({
       apiKey: openaiApiKey,
       timeout: openaiTimeoutMs,
       maxRetries: openaiMaxRetries
@@ -314,19 +318,21 @@ const openai = openaiApiKey
  * Google GenAI client (used when aiProvider === 'gemini').
  * @type {GoogleGenAI|null}
  */
-const genAI = geminiApiKey ? new GoogleGenAI({
-  apiKey: geminiApiKey,
-  // @google/genai 3.x defaults to v1; preview models, context caching and grounding tools need v1beta.
-  // GOOGLE_GENAI_API_VERSION still wins when set.
-  ...(process.env.GOOGLE_GENAI_API_VERSION ? {} : { apiVersion: 'v1beta' })
-}) : null;
+const genAI = geminiApiKey
+  ? new (require('@google/genai').GoogleGenAI)({
+    apiKey: geminiApiKey,
+    // @google/genai 3.x defaults to v1; preview models, context caching and grounding tools need v1beta.
+    // GOOGLE_GENAI_API_VERSION still wins when set.
+    ...(process.env.GOOGLE_GENAI_API_VERSION ? {} : { apiVersion: 'v1beta' })
+  })
+  : null;
 
 /**
  * Anthropic client (used when aiProvider === 'claude').
  * @type {Anthropic|null}
  */
 const anthropic = anthropicApiKey
-  ? new Anthropic({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
+  ? new (require('@anthropic-ai/sdk'))({ apiKey: anthropicApiKey, timeout: claudeTimeoutMs })
   : null;
 
 /**
@@ -381,7 +387,7 @@ function claudeThinkingMode(model) {
 }
 
 /**
- * Maps CLAUDE_EFFORT onto what the model accepts (or null to omit `output_config.effort`).
+ * Maps CLAUDE_REASONING_EFFORT onto what the model accepts (or null to omit `output_config.effort`).
  * @param {string} model
  * @param {string|null} effort
  * @returns {string|null}
@@ -416,7 +422,8 @@ function buildClaudeThinkingParams(model) {
     if (mode === 'optional') result.thinking = { type: 'adaptive' };
   }
 
-  const effort = claudeEffortFor(model, claudeEffort);
+  // Chat replies don't need deep reasoning: always-thinking models default to low effort.
+  const effort = claudeEffortFor(model, claudeEffort || (mode === 'always' ? 'low' : null));
   if (effort) result.outputConfig = { effort };
   return result;
 }

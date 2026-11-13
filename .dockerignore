@@ -179,6 +179,13 @@ Dockerfile
 README.md
 *.md
 
+# Repo-only images (README/GitHub rendering); not read by the app at runtime
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
 # IDE
 .vscode
 .idea

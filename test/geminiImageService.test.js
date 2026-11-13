@@ -256,7 +256,7 @@ test('should retry with backup image model on rate limit', async () => {
   const svc = loadService({
     configOverrides: {
       geminiImageModel: 'gemini-3.1-flash-image',
-      geminiImageBackupModel: 'gemini-2.5-flash-image'
+      geminiImageBackupModel: 'gemini-3.1-flash-lite-image'
     },
     generateContentImpl: async params => {
       calls.push(params.model);
@@ -275,8 +275,8 @@ test('should retry with backup image model on rate limit', async () => {
 
   const result = await svc.generateImage({ prompt: 'a red apple' });
 
-  expect(calls).toEqual(['gemini-3.1-flash-image', 'gemini-2.5-flash-image']);
-  expect(result.modelId).toBe('gemini-2.5-flash-image');
+  expect(calls).toEqual(['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image']);
+  expect(result.modelId).toBe('gemini-3.1-flash-lite-image');
 });
 
 test('should not retry content filtered errors with backup model', async () => {
@@ -284,7 +284,7 @@ test('should not retry content filtered errors with backup model', async () => {
   const svc = loadService({
     configOverrides: {
       geminiImageModel: 'gemini-3.1-flash-image',
-      geminiImageBackupModel: 'gemini-2.5-flash-image'
+      geminiImageBackupModel: 'gemini-3.1-flash-lite-image'
     },
     generateContentImpl: async params => {
       calls.push(params.model);

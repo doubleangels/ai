@@ -111,7 +111,8 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | :------------------ | :------------------------------------------------------------------------------------------------------------------------------ | :-------------------- |
 | `DISCORD_BOT_TOKEN` | Bot token                                                                                                                       | _required_            |
 | `DISCORD_CLIENT_ID` | Application ID                                                                                                                  | _required for deploy_ |
-| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (DMs blocked); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
+| `ALLOWED_GUILD_IDS` | Comma-separated guild IDs. Empty = all guilds **and DMs**. Non-empty = listed guilds only (slash commands and **Ask AI** still work in DMs and group DMs for user installs); the bot **leaves** any other server on startup and when it receives a message or slash command there. **Set in production.** | _all servers + DMs_   |
+| `ALLOWED_USER_IDS`  | Comma-separated Discord user IDs (Developer Mode → right-click user → Copy User ID). Empty = everyone. Non-empty = only listed users can use the bot through **user installs** (DMs, group DMs, servers the bot isn't in). Everyone in a server the bot is installed in can still use it there (see `ALLOWED_GUILD_IDS`). Others get a private "You don't have access to this bot." reply. | _everyone_ |
 | `LOG_LEVEL`         | Pino log level                                                                                                                  | `info`                |
 
 ### AI provider and models
@@ -120,10 +121,10 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | :------------------ | :--------------------------------------------------------------------------- | :----------------------- |
 | `AI_PROVIDER`       | `openai`, `gemini`, or `claude`                                              | `openai`                 |
 | `OPENAI_MODEL_NAME` | OpenAI model (also fallback for other providers if their model env is unset) | `gpt-6-luna`             |
-| `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3-flash-preview` |
-| `CLAUDE_MODEL_NAME` | Claude model                                                                 | `claude-sonnet-4-6`      |
+| `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3.8-flash`       |
+| `CLAUDE_MODEL_NAME` | Claude model (e.g. `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`) | `claude-sonnet-5-5`      |
 
-Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process.
+Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process. Lists were checked against each provider's model and deprecation pages in October 2026. Only active models are allowed, so deprecated and shut-down models are rejected.
 
 Only **current** models are accepted: nothing deprecated, legacy, or shut down, per each provider's model and deprecation pages as of 2026-11-12. Revisit the lists in `config.js` when providers announce deprecations.
 
@@ -131,7 +132,7 @@ Only **current** models are accepted: nothing deprecated, legacy, or shut down, 
 | :------- | :--------------- |
 | OpenAI | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro` |
 | Gemini (chat) | `gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gemini-3-flash-preview`, `gemini-2.5-flash-lite` |
-| Gemini (`/imagine`) | `gemini-nano-banana-2.1`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image`, `gemini-2.5-flash-image` |
+| Gemini (`/imagine`) | `gemini-nano-banana-2.1`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image` |
 | Claude | `claude-fable-5-2`, `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-haiku-4-5` |
 
 An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_NAME` falls back to `gemini-3.1-flash-image` with a warning.
@@ -142,7 +143,7 @@ An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_N
 - **Gemini:** `temperature` is never sent (deprecated on Gemini 3+, ignored by Gemini 4). `maxOutputTokens` gets 8,192 tokens of headroom (capped at 32,768), because thinking tokens count against it. Gemini 4 models skip explicit context caching, which they reject. GIF images aren't a documented Gemini input type, so they're replaced with a short note. Requests never start or end on a model turn.
 - **Claude:** requests never start with or end on an assistant turn (Claude requires a user turn first and rejects assistant prefill on 4.6+ models).
 
-**Claude thinking:** Claude Haiku 4.5 thinks only when `CLAUDE_THINKING_BUDGET_TOKENS` > 0 (sent as `budget_tokens`). Claude 4.6–4.8 models use adaptive thinking when that variable is > 0 (the number only sizes `max_tokens` headroom). Claude 5 and Fable models always think adaptively; control their depth and cost with `CLAUDE_EFFORT` (`low` is a good fit for chat). Claude requests never send `temperature`: the API version used by Anthropic SDK 1.x (`2026-10-21`) rejects sampling parameters.
+**Claude thinking:** Claude Haiku 4.5 thinks only when `CLAUDE_THINKING_BUDGET_TOKENS` > 0 (sent as `budget_tokens`). Claude 4.6–4.8 models use adaptive thinking when that variable is > 0 (the number only sizes `max_tokens` headroom). Claude 5 and Fable models always think adaptively; control their depth and cost with `CLAUDE_REASONING_EFFORT` (`low` is a good fit for chat). Claude requests never send `temperature`: the API version used by Anthropic SDK 1.x (`2026-10-21`) rejects sampling parameters.
 
 ### Advanced AI settings
 
@@ -154,10 +155,10 @@ An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_N
 | `CLAUDE_CACHE_MIN_TOKENS`       | Estimated prompt size before Claude prompts are marked for caching (1024–200000) | `2048` |
 | `GEMINI_CACHE_TTL_SECONDS`      | Gemini explicit cache TTL, seconds (60–2073600, i.e. up to 24 days) | `3600`         |
 | `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings             | _API defaults_ |
-| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh` (raised to the model's minimum) | `none` |
+| `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`, `max` (raised to the model's minimum; `max` becomes `xhigh` outside GPT-5.6/GPT-6) | `none` |
 | `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`                      | `low`          |
 | `CLAUDE_THINKING_BUDGET_TOKENS` | Claude thinking (`0` = off, max 32000); see **Claude thinking** above | `0`          |
-| `CLAUDE_EFFORT`                 | Claude effort: `low`, `medium`, `high`, `xhigh`, `max` (mapped or dropped for models that don't support a level) | _model default_ |
+| `CLAUDE_REASONING_EFFORT`                 | Claude effort: `low`, `medium`, `high`, `xhigh`, `max` (mapped or dropped for models that don't support a level) | `low` on Claude 5 / Fable, otherwise model default |
 | `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                                 | `60000`        |
 | `OPENAI_MAX_RETRIES`            | OpenAI client retries (0–5)                                         | `2`            |
 | `GEMINI_TIMEOUT_MS`             | Gemini request timeout (5000–300000)                                | `60000`        |
@@ -203,7 +204,7 @@ An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_N
 | `IMAGE_GENERATION_TIMEOUT_MS`       | Image request timeout (10000–300000)                                                                      | `120000`                 |
 | `IMAGE_USER_COOLDOWN_MS`            | Per-user per-channel cooldown for `/imagine` (`0` = disabled)                                             | `30000`                  |
 
-The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-2.5-flash-image`) to retry `/imagine` on rate limits or server errors.
+The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is set (same key as Gemini chat when using `AI_PROVIDER=gemini`). Set `SECONDARY_GEMINI_IMAGE_MODEL_NAME` (e.g. `gemini-3.1-flash-lite-image`) to retry `/imagine` on rate limits or server errors.
 
 **Behavior notes:**
 
@@ -242,6 +243,8 @@ Chat with `/chat message:What is the capital of France?` instead of @mentioning 
 | `/chat`    | Chat with the bot (same as @mentioning it)                              | Everyone      |
 | `/imagine` | Generate an image from a text prompt (Gemini Image)                     | Everyone      |
 | `/reset`   | Clear history for a channel (including threads) or **this server only** | Administrator |
+| `/forget`  | Clear history for the current DM or group DM (user installs)            | Everyone      |
+| **Ask AI** | Right-click a message → Apps → Ask AI. Works where the bot isn't a member | Everyone      |
 
 Slash commands are registered automatically when the bot starts (`index.js` calls `deploy-commands.js` before connecting). To deploy without starting the bot:
 
@@ -261,8 +264,9 @@ Set `SENTRY_DSN` in Doppler to enable Sentry. [`instrument.js`](instrument.js) l
 | :----------------------------------- | :---------------------- | :----------------------------------------------------------------------------------- |
 | `SENTRY_DSN`                         | _unset_                 | Enable reporting                                                                     |
 | `SENTRY_TRACES_SAMPLE_RATE`          | `0.1` prod / `1.0` dev  | Performance traces (`0.0`–`1.0`)                                                     |
-| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `0.1` prod / `1.0` dev  | Code profiling sample rate (`0.0`–`1.0`)                                             |
-| `SENTRY_PROFILE_LIFECYCLE`           | `trace`                 | Profile lifecycle (e.g. `trace`, `manual`)                                           |
+| `SENTRY_ENABLE_PROFILING`            | `false`                 | Enable the CPU profiling integration (adds per-trace sampling overhead; opt-in)      |
+| `SENTRY_PROFILE_SESSION_SAMPLE_RATE` | `0.1` prod / `1.0` dev  | Code profiling sample rate (`0.0`–`1.0`); only applies when profiling is enabled     |
+| `SENTRY_PROFILE_LIFECYCLE`           | `trace`                 | Profile lifecycle (e.g. `trace`, `manual`); only applies when profiling is enabled   |
 | `SENTRY_ENABLE_LOGS`                 | `true`                  | Forward Pino logs to Sentry (`false` drops them before sending)                      |
 | `SENTRY_ENABLE_METRICS`              | `true`                  | Emit custom metrics (`false` skips them)                                             |
 | `SENTRY_SEND_DEFAULT_PII`            | `false`                 | `true` enables Sentry's full default data collection (see below)                    |
@@ -293,7 +297,7 @@ Local variable capture on errors (`includeLocalVariables`) is enabled only outsi
 | Command deploy             | `deploy-commands.js`    | Slash command registration                        |
 | Client ready setup         | `ready.js`              | Post-login setup                                  |
 
-Profiling uses `@sentry/profiling-node` when available; if the integration fails to load, the bot continues without profiling.
+Profiling uses `@sentry/profiling-node` when available and `SENTRY_ENABLE_PROFILING=true` is set; it's off by default to avoid its sampling overhead, and the bot continues without profiling if the integration fails to load.
 
 ### Logs
 
@@ -402,7 +406,7 @@ pnpm install --frozen-lockfile
 With Doppler:
 
 ```bash
-pnpm dev                 # nodemon + Doppler
+pnpm dev                 # node --watch + Doppler
 pnpm start               # deploy slash commands + start bot (Doppler)
 pnpm commands:deploy     # deploy slash commands only
 pnpm predeploy           # test + deploy commands
@@ -473,7 +477,7 @@ The runtime stage contains application code and production dependencies only (`p
 | `utils/aiUtils.js`              | Message splitting, vision download, history trimming, error classification |
 | `utils/replyChainTracer.js`     | Reply-chain traversal and message LRU cache                                |
 | `utils/discordApi.js`           | Discord REST call wrapper with retry/backoff on rate limits                |
-| `utils/guildAccess.js`          | `ALLOWED_GUILD_IDS` enforcement; leaves disallowed guilds                  |
+| `utils/guildAccess.js`          | `ALLOWED_GUILD_IDS` and `ALLOWED_USER_IDS` enforcement; leaves disallowed guilds |
 | `utils/imagineMessage.js`       | Detects bot-generated `/imagine` image posts for reply handling            |
 | `utils/logSanitize.js`          | Redacts secrets (tokens, keys) from log and error output                   |
 | `scripts/audit-log-messages.js` | Log message style audit (maintainer)                                       |

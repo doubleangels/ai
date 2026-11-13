@@ -35,6 +35,7 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: 'gpt-6-luna',
     ALLOWED_GUILD_IDS: 'guild-1, guild-2',
+    ALLOWED_USER_IDS: '',
     MAX_HISTORY_LENGTH: '12',
     MAX_HISTORY_TOKENS: '64',
     MAX_OUTPUT_TOKENS: '2048'
@@ -43,6 +44,7 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
   expect(config.aiProvider).toBe('openai');
   expect(config.modelName).toBe('gpt-6-luna');
   expect(config.allowedGuildIds.size).toBe(2);
+  expect(config.allowedUserIds.size).toBe(0);
   expect(config.maxHistoryLength).toBe(12);
   expect(config.maxHistoryTokens).toBe(64);
   expect(config.maxOutputTokens).toBe(2048);
@@ -51,14 +53,14 @@ test('should resolves OpenAI defaults and allowed guilds', () => {
 test('should resolves Gemini and parses safety settings', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_SAFETY_SETTINGS: '[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_MEDIUM_AND_ABOVE"}]',
     GEMINI_CACHE_TTL_SECONDS: '90',
     ENABLE_CONTEXT_CACHE: '1'
   });
 
   expect(config.aiProvider).toBe('gemini');
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
   expect(Array.isArray(config.geminiSafetySettings)).toBe(true);
   expect(config.geminiSafetySettings.length).toBe(1);
   expect(config.geminiCacheTtlSeconds).toBe(90);
@@ -80,19 +82,19 @@ test('should resolves Claude and falls back to the open model field', () => {
 test('should resolves gemini model from GEMINI_MODEL_NAME', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
 });
 
 test('should resolves gemini model from OPENAI_MODEL_NAME fallback', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_MODEL_NAME: undefined
   });
-  expect(config.modelName).toBe('gemini-3-flash-preview');
+  expect(config.modelName).toBe('gemini-3.6-flash');
 });
 
 test('should resolves claude model from OPENAI_MODEL_NAME fallback', () => {
@@ -107,7 +109,7 @@ test('should resolves claude model from OPENAI_MODEL_NAME fallback', () => {
 test('should ignores empty GEMINI_SAFETY_SETTINGS array', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_SAFETY_SETTINGS: '[]'
   });
   expect(config.geminiSafetySettings).toBe(undefined);
@@ -116,7 +118,7 @@ test('should ignores empty GEMINI_SAFETY_SETTINGS array', () => {
 test('should ignores invalid GEMINI_SAFETY_SETTINGS JSON', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_SAFETY_SETTINGS: '{not-json'
   });
 
@@ -180,10 +182,10 @@ test('should resolves performance tuning env vars with clamping', () => {
 test('should resolves model names from each provider-specific env field', () => {
   const geminiPrimary = loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     OPENAI_MODEL_NAME: 'gpt-6-luna'
   });
-  expect(geminiPrimary.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiPrimary.modelName).toBe('gemini-3.6-flash');
 
   const claudePrimary = loadConfig({
     AI_PROVIDER: 'claude',
@@ -206,7 +208,7 @@ test('should resolves model names from each provider-specific env field', () => 
 });
 
 test('should accepts current Gemini GA models', () => {
-  for (const model of ['gemini-3.1-flash-lite', 'gemini-3.6-flash']) {
+  for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash-lite']) {
     const config = loadConfig({
       AI_PROVIDER: 'gemini',
       GEMINI_MODEL_NAME: model,
@@ -321,14 +323,14 @@ test('should uses provider defaults when model env vars are unset', () => {
     GEMINI_MODEL_NAME: undefined,
     OPENAI_MODEL_NAME: undefined
   });
-  expect(geminiDefault.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiDefault.modelName).toBe('gemini-3.8-flash');
 
   const claudeDefault = loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: undefined,
     OPENAI_MODEL_NAME: undefined
   });
-  expect(claudeDefault.modelName).toBe('claude-sonnet-4-6');
+  expect(claudeDefault.modelName).toBe('claude-sonnet-5-5');
 });
 
 test('should falls back to defaults when model env vars are whitespace only', () => {
@@ -337,14 +339,14 @@ test('should falls back to defaults when model env vars are whitespace only', ()
     GEMINI_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(geminiWs.modelName).toBe('gemini-3-flash-preview');
+  expect(geminiWs.modelName).toBe('gemini-3.8-flash');
 
   const claudeWs = loadConfig({
     AI_PROVIDER: 'claude',
     CLAUDE_MODEL_NAME: '   ',
     OPENAI_MODEL_NAME: undefined
   });
-  expect(claudeWs.modelName).toBe('claude-sonnet-4-6');
+  expect(claudeWs.modelName).toBe('claude-sonnet-5-5');
 
   const openaiWs = loadConfig({
     AI_PROVIDER: 'openai',
@@ -412,7 +414,7 @@ test('should disables secondary model when unsupported or matches primary', () =
 test('should configures cross-provider secondary model when model and API key are available', () => {
   const config = loadConfig({
     AI_PROVIDER: 'gemini',
-    GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+    GEMINI_MODEL_NAME: 'gemini-3.6-flash',
     GEMINI_API_KEY: 'gem-test',
     OPENAI_API_KEY: 'sk-test',
     SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
@@ -464,7 +466,7 @@ test('should disables cross-provider secondary model when API key is missing', (
   try {
     const config = loadConfig({
       AI_PROVIDER: 'gemini',
-      GEMINI_MODEL_NAME: 'gemini-3-flash-preview',
+      GEMINI_MODEL_NAME: 'gemini-3.6-flash',
       GEMINI_API_KEY: 'gem-test',
       SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
     });
@@ -536,9 +538,9 @@ test('should configure secondary Gemini Image model from env', () => {
     AI_PROVIDER: 'openai',
     OPENAI_MODEL_NAME: 'gpt-6-luna',
     GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-image',
-    SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-2.5-flash-image'
+    SECONDARY_GEMINI_IMAGE_MODEL_NAME: 'gemini-3.1-flash-lite-image'
   });
-  expect(config.geminiImageBackupModel).toBe('gemini-2.5-flash-image');
+  expect(config.geminiImageBackupModel).toBe('gemini-3.1-flash-lite-image');
 });
 
 test('should disable secondary Gemini Image model when unsupported or matches primary', () => {
@@ -643,11 +645,11 @@ test('should resolve gemini backup provider api key path', () => {
     OPENAI_MODEL_NAME: 'gpt-6-luna',
     OPENAI_API_KEY: 'fake',
     GEMINI_API_KEY: 'gemini-key',
-    SECONDARY_MODEL_NAME: 'gemini-3-flash-preview',
+    SECONDARY_MODEL_NAME: 'gemini-3.6-flash',
     SECONDARY_AI_PROVIDER: 'gemini'
   });
   expect(config.backupModels).toEqual([
-    { model: 'gemini-3-flash-preview', provider: 'gemini', tier: 'secondary' }
+    { model: 'gemini-3.6-flash', provider: 'gemini', tier: 'secondary' }
   ]);
 });
 
@@ -699,13 +701,13 @@ test('should fall back to the default image model when GEMINI_IMAGE_MODEL_NAME i
   }
 });
 
-test('should parse CLAUDE_EFFORT, CLAUDE_CACHE_MIN_TOKENS and MAX_IMAGE_DIMENSION', () => {
+test('should parse CLAUDE_REASONING_EFFORT, CLAUDE_CACHE_MIN_TOKENS and MAX_IMAGE_DIMENSION', () => {
   const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     const config = loadConfig({
       AI_PROVIDER: 'claude',
       CLAUDE_MODEL_NAME: 'claude-opus-5-5',
-      CLAUDE_EFFORT: 'LOW',
+      CLAUDE_REASONING_EFFORT: 'LOW',
       CLAUDE_CACHE_MIN_TOKENS: '10',
       MAX_IMAGE_DIMENSION: '100000'
     });
@@ -716,15 +718,27 @@ test('should parse CLAUDE_EFFORT, CLAUDE_CACHE_MIN_TOKENS and MAX_IMAGE_DIMENSIO
     const defaults = loadConfig({
       AI_PROVIDER: 'claude',
       CLAUDE_MODEL_NAME: 'claude-opus-5-5',
-      CLAUDE_EFFORT: 'turbo',
+      CLAUDE_REASONING_EFFORT: 'turbo',
       CLAUDE_CACHE_MIN_TOKENS: undefined,
       MAX_IMAGE_DIMENSION: '0'
     });
     expect(defaults.claudeEffort).toBeNull();
     expect(defaults.claudeCacheMinTokens).toBe(2048);
     expect(defaults.maxImageDimension).toBe(0);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/CLAUDE_EFFORT "turbo" is invalid/));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/CLAUDE_REASONING_EFFORT "turbo" is invalid/));
   } finally {
     warnSpy.mockRestore();
   }
+});
+
+test('should parse ALLOWED_USER_IDS and warn about non-snowflake entries', () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const config = loadConfig({
+    AI_PROVIDER: 'openai',
+    OPENAI_MODEL_NAME: 'gpt-6-luna',
+    ALLOWED_USER_IDS: ' 123456789012345678 , not-an-id '
+  });
+  expect([...config.allowedUserIds]).toEqual(['123456789012345678', 'not-an-id']);
+  expect(warn.mock.calls.some(([msg]) => /ALLOWED_USER_IDS contains invalid user ID "not-an-id"/.test(msg))).toBe(true);
+  warn.mockRestore();
 });

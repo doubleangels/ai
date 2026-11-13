@@ -28,7 +28,7 @@ const SUPPORTED_GEMINI_MODELS = [
   'gemini-3-flash-preview',
   'gemini-2.5-flash-lite'
 ];
-const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
 // Claude: current models (platform.claude.com models overview). Legacy, deprecated and retired
 // models (Opus 4.5, Sonnet 4.5, Opus 4.1, Opus 4, Sonnet 4) are excluded.
@@ -41,7 +41,7 @@ const SUPPORTED_CLAUDE_MODELS = [
   'claude-haiku-5-5',
   'claude-haiku-4-5', 'claude-haiku-4-5-20251001'
 ];
-const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-5-5';
 
 /** Output effort levels accepted by Claude's output_config.effort. */
 const CLAUDE_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -51,10 +51,9 @@ const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 /** Current Gemini models that support generateContent with IMAGE output (/imagine). */
 const SUPPORTED_GEMINI_IMAGE_MODELS = [
   'gemini-nano-banana-2.1',
-  'gemini-3.1-flash-image',
-  'gemini-3.1-flash-lite-image',
   'gemini-3-pro-image',
-  'gemini-2.5-flash-image'
+  'gemini-3.1-flash-image',
+  'gemini-3.1-flash-lite-image'
 ];
 
 /** Aspect ratios supported by Gemini Image models. */
@@ -266,24 +265,41 @@ const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
  * Does not affect DM/user-install slash-command usage (see bot.js#interactionAllowedInGuild), which has no
  * guild to check against; plain-message (mention/reply) chat in events/messageCreate.js still ignores DMs.
  */
-const allowedGuildIdList = (process.env.ALLOWED_GUILD_IDS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+/**
+ * Parses a comma-separated list of Discord IDs, warning about entries that are not snowflakes.
+ * @param {string} envName
+ * @param {string} kind - 'guild' or 'user', used in the warning
+ * @returns {Set<string>}
+ */
+function parseSnowflakeList(envName, kind) {
+  const ids = (process.env[envName] || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 
-for (const guildId of allowedGuildIdList) {
-  if (!DISCORD_SNOWFLAKE_RE.test(guildId)) {
-    console.warn(
-      `ALLOWED_GUILD_IDS contains invalid guild ID "${guildId}" (expected a numeric Discord snowflake). Messages from that ID will never match.`
-    );
+  for (const id of ids) {
+    if (!DISCORD_SNOWFLAKE_RE.test(id)) {
+      console.warn(
+        `${envName} contains invalid ${kind} ID "${id}" (expected a numeric Discord snowflake). Messages from that ID will never match.`
+      );
+    }
   }
+
+  return new Set(ids);
 }
 
-const allowedGuildIds = new Set(allowedGuildIdList);
+const allowedGuildIds = parseSnowflakeList('ALLOWED_GUILD_IDS', 'guild');
 
-const claudeEffortRaw = (process.env.CLAUDE_EFFORT || '').trim().toLowerCase();
+/**
+ * When non-empty, only listed user IDs may use the bot through user installs (DMs, group DMs,
+ * servers the bot isn't in). Members of servers the bot is installed in are governed by
+ * ALLOWED_GUILD_IDS instead. When empty, all users are allowed.
+ */
+const allowedUserIds = parseSnowflakeList('ALLOWED_USER_IDS', 'user');
+
+const claudeEffortRaw = (process.env.CLAUDE_REASONING_EFFORT || '').trim().toLowerCase();
 if (claudeEffortRaw && !CLAUDE_EFFORT_LEVELS.includes(claudeEffortRaw)) {
-  console.warn(`CLAUDE_EFFORT "${process.env.CLAUDE_EFFORT}" is invalid; supported values are ${CLAUDE_EFFORT_LEVELS.join(', ')}. Ignoring.`);
+  console.warn(`CLAUDE_REASONING_EFFORT "${process.env.CLAUDE_REASONING_EFFORT}" is invalid; supported values are ${CLAUDE_EFFORT_LEVELS.join(', ')}. Ignoring.`);
 }
 
 const reservedBackupKeys = new Set();
@@ -333,6 +349,7 @@ if (shardCountRaw === 'auto') {
 const config = {
   clientId: process.env.DISCORD_CLIENT_ID,
   allowedGuildIds,
+  allowedUserIds,
   logLevel: process.env.LOG_LEVEL || 'info',
   maxHistoryLength: (() => {
     if (Number.isNaN(parsedHistoryLength) || parsedHistoryLength < 0) return 10;
@@ -376,9 +393,9 @@ const config = {
   // Max output tokens per response (all providers). Unset, invalid, or 0 => use default 1024; clamped to 256–65536.
   maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
   // Claude thinking (0 = off). Claude 4.5 models use this as budget_tokens; 4.6+ models use adaptive
-  // thinking (any value > 0 turns it on) and ignore the number. Claude 5 models always think; use CLAUDE_EFFORT.
+  // thinking (any value > 0 turns it on) and ignore the number. Claude 5 models always think; use CLAUDE_REASONING_EFFORT.
   claudeThinkingBudgetTokens: Math.max(0, Math.min(32000, parseInt(process.env.CLAUDE_THINKING_BUDGET_TOKENS, 10) || 0)),
-  // Claude output_config.effort (low|medium|high|xhigh|max); unset = model default. `low` suits chat.
+  // Claude output_config.effort (low|medium|high|xhigh|max). Unset: low for Claude 5 / Fable models, model default otherwise.
   claudeEffort: CLAUDE_EFFORT_LEVELS.includes(claudeEffortRaw) ? claudeEffortRaw : null,
   // Only mark Claude prompts for caching once the estimated prefix is this large (cache writes cost 1.25x input).
   claudeCacheMinTokens: Math.max(1024, Math.min(200_000, parseEnvInt(process.env.CLAUDE_CACHE_MIN_TOKENS, 2048))),

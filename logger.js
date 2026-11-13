@@ -44,12 +44,8 @@ function getLogger(label) {
   try {
     const childLogger = baseLogger.child({ label });
 
-    function sendToSentry(level, message, meta) {
-      const sentryLogger = Sentry && Sentry.logger;
-      if (!sentryLogger || typeof sentryLogger[level] !== 'function') {
-        return;
-      }
-
+    // Callers must only invoke this once they've confirmed Sentry.logger[level] exists.
+    function sendToSentry(level, message, meta, sentryLogger) {
       try {
         if (meta && typeof meta === 'object') {
           sentryLogger[level](message, meta);
@@ -62,6 +58,16 @@ function getLogger(label) {
     }
 
     function write(level, message, meta) {
+      const sentryLogger = Sentry && Sentry.logger;
+      const canForwardToSentry = Boolean(sentryLogger && typeof sentryLogger[level] === 'function');
+      const pinoEnabled = typeof childLogger.isLevelEnabled === 'function'
+        ? childLogger.isLevelEnabled(level)
+        : true;
+
+      // Nothing will consume this line (pino level too low, Sentry logging off/unconfigured) —
+      // skip building the message and deep-sanitizing meta instead of paying that cost and discarding it.
+      if (!pinoEnabled && !canForwardToSentry) return;
+
       if (typeof message === 'string' && message.trim().length > 0) {
         const trimmed = message.trim();
         const last = trimmed[trimmed.length - 1];
@@ -74,13 +80,17 @@ function getLogger(label) {
 
       const sanitizedMeta = meta && typeof meta === 'object' ? sanitizeLogMeta(meta) : meta;
 
-      if (sanitizedMeta && typeof sanitizedMeta === 'object') {
-        childLogger[level](sanitizedMeta, message);
-      } else {
-        childLogger[level](message);
+      if (pinoEnabled) {
+        if (sanitizedMeta && typeof sanitizedMeta === 'object') {
+          childLogger[level](sanitizedMeta, message);
+        } else {
+          childLogger[level](message);
+        }
       }
 
-      sendToSentry(level, message, sanitizedMeta);
+      if (canForwardToSentry) {
+        sendToSentry(level, message, sanitizedMeta, sentryLogger);
+      }
     }
 
     return {

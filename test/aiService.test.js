@@ -65,6 +65,39 @@ test('should uses Claude when configured', async () => {
   expect(reply).toBe('hello claude');
 });
 
+test('should map reasoning effort none to low on OpenAI models that require reasoning', async () => {
+  const cases = [
+    ['gpt-6-luna', 'none', 'none'],
+    ['gpt-5.4-mini', 'none', 'none'],
+    ['gpt-6-astra', 'none', 'low'],
+    // -pro models start at medium (docs list only medium, high, xhigh).
+    ['gpt-5.5-pro', 'none', 'medium'],
+    ['gpt-5.4', 'max', 'xhigh'],
+    ['gpt-6.1-sol', 'none', 'low'],
+    ['gpt-6-astra', 'max', 'max']
+  ];
+  for (const [model, effort, expected] of cases) {
+    let captured;
+    const aiService = await loadAiService({
+      openai: {
+        OpenAI: class {
+          constructor() {
+            this.responses = {
+              create: async request => {
+                captured = request;
+                return { status: 'completed', output_text: 'ok', id: 'r' };
+              }
+            };
+          }
+        }
+      }
+    }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake', OPENAI_MODEL_NAME: model, REASONING_EFFORT: effort });
+    await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+    expect([model, captured.reasoning.effort]).toEqual([model, expected]);
+    expect(captured.temperature).toBeUndefined();
+  }
+});
+
 test('should openAI request includes reasoning, verbosity, tools, and image prompt handling', async () => {
   let capturedRequest;
   const aiService = await loadAiService({
@@ -311,7 +344,7 @@ test('should gemini uses cache, tools, safety settings, and handles failures', a
   }, {
     AI_PROVIDER: 'gemini',
     GEMINI_API_KEY: 'fake',
-    OPENAI_MODEL_NAME: 'gemini-3-flash-preview',
+    OPENAI_MODEL_NAME: 'gemini-3.6-flash',
     ENABLE_CONTEXT_CACHE: '1',
     ENABLE_WEB_SEARCH: '1',
     ENABLE_GOOGLE_MAPS: '1',
@@ -473,6 +506,45 @@ test('should claude uses plain system prompt when context cache is disabled', as
   expect(capturedParams).not.toHaveProperty('temperature');
   expect(capturedParams).not.toHaveProperty('top_p');
   expect(capturedParams).not.toHaveProperty('top_k');
+});
+
+test('should claude 5.x models get low effort, thinking headroom, and no sampling params', async () => {
+  const captured = [];
+  const factory = () => function FakeAnthropic() {
+    this.messages = {
+      create: async params => {
+        captured.push(params);
+        return { content: [{ type: 'text', text: 'ok' }] };
+      }
+    };
+  };
+  const conversation = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }];
+
+  const haiku = await loadAiService({ anthropic: factory() }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_MODEL_NAME: 'claude-haiku-5-5',
+    MAX_OUTPUT_TOKENS: '1024',
+    CLAUDE_THINKING_BUDGET_TOKENS: '2048'
+  });
+  await haiku.generateAIResponse(conversation);
+  expect(captured[0].model).toBe('claude-haiku-5-5');
+  expect(captured[0].output_config).toEqual({ effort: 'low' });
+  // CLAUDE_THINKING_BUDGET_TOKENS sizes the thinking headroom when set.
+  expect(captured[0].max_tokens).toBe(1024 + 2048);
+  expect(captured[0].thinking).toBeUndefined();
+  expect(captured[0].temperature).toBeUndefined();
+
+  const sonnet4 = await loadAiService({ anthropic: factory() }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_MODEL_NAME: 'claude-sonnet-4-6',
+    MAX_OUTPUT_TOKENS: '1024'
+  });
+  await sonnet4.generateAIResponse(conversation);
+  expect(captured[1].output_config).toBeUndefined();
+  expect(captured[1].max_tokens).toBe(1024);
+  expect(captured[1].temperature).toBeUndefined();
 });
 
 test('should claude marks prior turns for prompt caching when enabled', async () => {
@@ -1387,7 +1459,7 @@ test('should retries with cross-provider fallback when primary is overloaded', a
       openaiApiKey: 'fake',
       geminiApiKey: 'fake',
       anthropicApiKey: undefined,
-      modelName: 'gemini-3-flash-preview',
+      modelName: 'gemini-3.6-flash',
       backupModels: [{ model: 'gpt-5.4-mini', provider: 'openai', tier: 'secondary' }],
       getTemperature: () => 1,
       reasoningEffort: 'none',
@@ -1777,7 +1849,7 @@ async function claudeParamsFor(env) {
     AI_PROVIDER: 'claude',
     ANTHROPIC_API_KEY: 'fake',
     CLAUDE_THINKING_BUDGET_TOKENS: undefined,
-    CLAUDE_EFFORT: undefined,
+    CLAUDE_REASONING_EFFORT: undefined,
     ...env
   });
   await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
@@ -1802,7 +1874,7 @@ test('should claude use adaptive thinking on 4.6-4.8 models when requested, and 
 });
 
 test('should claude send no thinking field to always-thinking models and pass effort', async () => {
-  const params = await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-5-5', CLAUDE_EFFORT: 'low' });
+  const params = await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-5-5', CLAUDE_REASONING_EFFORT: 'low' });
   expect(params).not.toHaveProperty('thinking');
   expect(params).not.toHaveProperty('temperature');
   expect(params.output_config).toEqual({ effort: 'low' });
@@ -1812,9 +1884,11 @@ test('should claude send no thinking field to always-thinking models and pass ef
 });
 
 test('should claude map or drop effort for models with narrower effort support', async () => {
-  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-sonnet-4-6', CLAUDE_EFFORT: 'xhigh' })).output_config)
+  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-sonnet-4-6', CLAUDE_REASONING_EFFORT: 'xhigh' })).output_config)
     .toEqual({ effort: 'high' });
-  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-haiku-4-5', CLAUDE_EFFORT: 'low' })).output_config)
+  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-4-6', CLAUDE_REASONING_EFFORT: 'max' })).output_config)
+    .toEqual({ effort: 'max' });
+  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-haiku-4-5', CLAUDE_REASONING_EFFORT: 'low' })).output_config)
     .toBeUndefined();
 });
 

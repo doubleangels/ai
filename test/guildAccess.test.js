@@ -321,3 +321,28 @@ test('should not leave allowlisted guild', async () => {
   expect(left).toBe(false);
   expect(leaveCount).toBe(0);
 });
+
+test('should allow every user when the user allowlist is empty or unset', () => {
+  expect(loadGuildAccess().isUserAllowlisted('user-1')).toBe(true);
+  expect(loadGuildAccess({ allowedUserIds: undefined }).isUserAllowlisted('user-1')).toBe(true);
+});
+
+test('should only allow listed users when the user allowlist is set', () => {
+  const { isUserAllowlisted } = loadGuildAccess({ allowedUserIds: new Set(['111']) });
+  expect(isUserAllowlisted('111')).toBe(true);
+  expect(isUserAllowlisted('222')).toBe(false);
+  expect(isUserAllowlisted(null)).toBe(false);
+});
+
+test('should allow guild-install interactions regardless of the user allowlist', () => {
+  const { isInteractionUserAllowed } = loadGuildAccess({ allowedUserIds: new Set(['111']) });
+  const base = { user: { id: '222' } };
+
+  expect(isInteractionUserAllowed({ ...base, guildId: 'g1', authorizingIntegrationOwners: { 0: 'g1' } })).toBe(true);
+  // User install in a server the bot isn't in
+  expect(isInteractionUserAllowed({ ...base, guildId: 'g1', authorizingIntegrationOwners: { 1: '222' } })).toBe(false);
+  // Bot DM: guild-install owner is '0', not a guild
+  expect(isInteractionUserAllowed({ ...base, guildId: null, authorizingIntegrationOwners: { 0: '0' } })).toBe(false);
+  expect(isInteractionUserAllowed({ guildId: null })).toBe(false);
+  expect(isInteractionUserAllowed({ user: { id: '111' }, guildId: null })).toBe(true);
+});
