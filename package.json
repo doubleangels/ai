@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A Discord bot that uses AI to respond to messages.",
   "main": "index.js",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0",
   "engines": {
     "node": ">=24.22.1"
   },
@@ -28,17 +28,17 @@
   },
   "homepage": "https://github.com/doubleangels/ai#readme",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
+    "@anthropic-ai/sdk": "^1.8.0",
     "@discordjs/rest": "^2.6.3",
-    "@google/genai": "^2.22.0",
-    "@sentry/node": "^10.74.0",
-    "@sentry/profiling-node": "^10.74.0",
-    "discord.js": "^14.27.0",
-    "dotenv": "^17.4.2",
-    "openai": "^7.15.0",
-    "pino": "^10.3.1"
+    "@google/genai": "^3.3.0",
+    "@sentry/node": "^11.12.0",
+    "@sentry/profiling-node": "^11.12.0",
+    "discord.js": "^14.28.1",
+    "dotenv": "^18.0.10",
+    "openai": "^7.57.0",
+    "pino": "^10.4.0"
   },
   "devDependencies": {
-    "jest": "^30.5.1"
+    "jest": "^30.5.2"
   }
 }

@@ -24,6 +24,9 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  // Default for every send/reply/edit: model output (or echoed user text) can never ping
+  // @everyone, roles or users. Replies still notify the replied-to author.
+  allowedMentions: { parse: [], repliedUser: true },
   makeCache: Options.cacheWithLimits({
     ...Options.DefaultMakeCacheSettings,
     MessageManager: 50,

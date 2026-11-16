@@ -4,7 +4,6 @@ const {
   anthropicApiKey,
   modelName,
   backupModels,
-  getTemperature,
   reasoningEffort,
   responsesVerbosity,
   aiProvider,
@@ -14,6 +13,9 @@ const {
   enableContextCache,
   geminiCacheTtlSeconds,
   claudeThinkingBudgetTokens,
+  claudeEffort,
+  claudeCacheMinTokens,
+  geminiThinkingLevel,
   geminiSafetySettings,
   openaiTimeoutMs,
   openaiMaxRetries,
@@ -84,33 +86,234 @@ function prepareConversationForApi(conversation) {
 /** Gemini context cache minimum token count (API requirement; Flash 1024, Pro 4096). */
 const GEMINI_MIN_CACHE_TOKENS = 1024;
 
-/** Stable key so OpenAI routes repeat requests to cache-friendly servers. */
+/**
+ * Gemini 3+ models think by default and thinking tokens count against maxOutputTokens, so a small
+ * cap can return empty text. Headroom keeps replies intact; the non-streaming cap on Gemini 4
+ * Carbon/Argon is 32,768 tokens.
+ */
+const GEMINI_THINKING_HEADROOM_TOKENS = 8192;
+const GEMINI_MAX_OUTPUT_TOKENS = 32768;
+
+/**
+ * Gemini thinking per model (aistudio.google.com/docs/thinking, 2026-11-16): the model's default
+ * level and the levels it accepts. Defaults are medium or high on most models, which bills far more
+ * thinking than a chat reply needs.
+ */
+const GEMINI_LEVEL_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const GEMINI_THINKING_PROFILES = {
+  'gemini-2.5-flash-lite': { default: 'off', levels: ['low', 'medium', 'high'] },
+  'gemini-3-flash-preview': { default: 'high', levels: ['minimal', 'low', 'medium', 'high'] },
+  'gemini-3.1-pro-preview': { default: 'high', levels: ['low', 'medium', 'high'] },
+  'gemini-3.5-flash-lite': { default: 'minimal', levels: ['minimal', 'low', 'medium', 'high'] },
+  'gemini-3.6-flash': { default: 'medium', levels: ['minimal', 'low', 'medium', 'high'] },
+  'gemini-3.8-flash': { default: 'medium', levels: ['low', 'medium', 'high'] },
+  'gemini-4-hydrogen': { default: 'high', levels: ['low', 'medium', 'high', 'xhigh'] },
+  'gemini-4-carbon': { default: 'medium', levels: ['low', 'medium', 'high'] },
+  'gemini-4-argon': { default: 'medium', levels: ['low', 'medium', 'high'] }
+};
+
+/**
+ * Thinking level to send for a Gemini model, or null to leave the model's default. Unsupported
+ * levels move to the nearest supported one. A low/minimal setting never raises thinking on a model
+ * that already defaults to less (off or minimal): nothing is sent then.
+ * @param {string} model
+ * @param {string|null} configured
+ * @returns {string|null} lowercase level
+ */
+function resolveGeminiThinkingLevel(model, configured) {
+  const profile = GEMINI_THINKING_PROFILES[model];
+  if (!configured || !profile) return null;
+  const rank = level => GEMINI_LEVEL_ORDER.indexOf(level);
+  if (rank(configured) <= rank('low') && rank(profile.default) < rank(configured)) return null;
+  if (profile.levels.includes(configured)) return configured === profile.default ? null : configured;
+  const nearest = rank(configured) < rank(profile.levels[0])
+    ? profile.levels[0]
+    : profile.levels[profile.levels.length - 1];
+  return nearest === profile.default ? null : nearest;
+}
+
+/** Image types Gemini documents for inline input (GIF is not among them). */
+const GEMINI_INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif']);
+
+/** Stable key so OpenAI routes repeat requests to cache-friendly servers (OpenAI caches automatically). */
 const OPENAI_PROMPT_CACHE_KEY = 'ai-bot-system-v1';
 
 /**
- * Marks the message before the latest user turn for prompt-cache reuse (Anthropic/OpenAI).
- * @param {Array<{role: string, content: string|Array}>} messages
+ * Lowest reasoning effort each OpenAI model accepts, where that isn't 'none'
+ * (developers.openai.com model pages, 2026-11-12). Lower configured values are raised to it.
+ */
+const OPENAI_MIN_REASONING_EFFORT = {
+  'gpt-6-astra': 'low',
+  'gpt-6.1-sol': 'low',
+  'gpt-5.5-pro': 'medium',
+  'gpt-5.4-pro': 'medium',
+  'gpt-5.2-pro': 'medium'
+};
+const OPENAI_REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Only the GPT-5.6 and GPT-6 families accept reasoning effort 'max'; others top out at 'xhigh'. */
+function openAIAcceptsMaxEffort(model) {
+  return model.startsWith('gpt-6') || model.startsWith('gpt-5.6');
+}
+
+/** Models documented to accept prompt_cache_retention '24h' (newer models default to a 30m cache). */
+const OPENAI_EXTENDED_CACHE_MODELS = new Set(['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.2']);
+
+/**
+ * Reasoning tokens count against max_output_tokens; OpenAI recommends reserving ~25k when reasoning
+ * so replies aren't cut off (status "incomplete"). The cap is a ceiling, not a charge.
+ */
+const OPENAI_REASONING_HEADROOM_TOKENS = 25000;
+const OPENAI_MAX_OUTPUT_TOKENS = 128000;
+
+/**
+ * Configured effort, raised to the model's minimum. Invalid or empty values count as 'none' so a
+ * model's own default (often 'medium') never silently applies.
+ * @param {string} model
+ * @param {string} configured
+ * @returns {string}
+ */
+function resolveOpenAIReasoningEffort(model, configured) {
+  const normalized = typeof configured === 'string' ? configured.trim().toLowerCase() : '';
+  let effort = OPENAI_REASONING_EFFORTS.includes(normalized) ? normalized : 'none';
+  if (effort === 'max' && !openAIAcceptsMaxEffort(model)) effort = 'xhigh';
+  const minimum = OPENAI_MIN_REASONING_EFFORT[model];
+  if (minimum && OPENAI_REASONING_EFFORTS.indexOf(effort) < OPENAI_REASONING_EFFORTS.indexOf(minimum)) {
+    return minimum;
+  }
+  return effort;
+}
+
+/** Rough per-image token estimate for Claude prefix sizing (a ~1024px image is ~1,400 tokens). */
+const CLAUDE_ESTIMATED_TOKENS_PER_IMAGE = 1400;
+
+/**
+ * Highest max_tokens sent on a non-streaming Claude request. The Anthropic SDK refuses non-streaming
+ * requests whose max_tokens implies more than ~10 minutes of generation (about 21k tokens).
+ */
+const CLAUDE_MAX_NONSTREAMING_TOKENS = 20000;
+
+/** Extra max_tokens headroom for Claude models that think, when no budget is configured. */
+const CLAUDE_DEFAULT_THINKING_HEADROOM = 8192;
+
+/**
+ * Normalized token usage. `inputTokens` is the full prompt including cached tokens.
+ * @typedef {{ inputTokens?: number, outputTokens?: number, cachedInputTokens?: number,
+ *   cacheWriteTokens?: number, reasoningTokens?: number }} TokenUsage
+ */
+
+/** @param {*} value */
+function tokenCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * @param {*} usage - OpenAI Responses `response.usage`
+ * @returns {TokenUsage|null}
+ */
+function normalizeOpenAIUsage(usage) {
+  if (!usage) return null;
+  return {
+    inputTokens: tokenCount(usage.input_tokens),
+    outputTokens: tokenCount(usage.output_tokens),
+    cachedInputTokens: tokenCount(usage.input_tokens_details?.cached_tokens),
+    reasoningTokens: tokenCount(usage.output_tokens_details?.reasoning_tokens)
+  };
+}
+
+/**
+ * @param {*} usage - Gemini `response.usageMetadata`
+ * @returns {TokenUsage|null}
+ */
+function normalizeGeminiUsage(usage) {
+  if (!usage) return null;
+  const prompt = tokenCount(usage.promptTokenCount);
+  const toolPrompt = tokenCount(usage.toolUsePromptTokenCount);
+  return {
+    inputTokens: (prompt || 0) + (toolPrompt || 0),
+    outputTokens: tokenCount(usage.candidatesTokenCount),
+    cachedInputTokens: tokenCount(usage.cachedContentTokenCount),
+    reasoningTokens: tokenCount(usage.thoughtsTokenCount)
+  };
+}
+
+/**
+ * Adds one Claude response's usage (possibly one of several tool rounds) into a running total.
+ * Claude reports uncached input separately from cache reads and writes; all three are prompt tokens.
+ * @param {TokenUsage|null} total
+ * @param {*} usage - Claude `response.usage`
+ * @returns {TokenUsage|null}
+ */
+function addClaudeUsage(total, usage) {
+  if (!usage) return total;
+  const cacheRead = tokenCount(usage.cache_read_input_tokens) || 0;
+  const cacheWrite = tokenCount(usage.cache_creation_input_tokens) || 0;
+  const input = (tokenCount(usage.input_tokens) || 0) + cacheRead + cacheWrite;
+  const base = total || { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0 };
+  return {
+    inputTokens: base.inputTokens + input,
+    outputTokens: base.outputTokens + (tokenCount(usage.output_tokens) || 0),
+    cachedInputTokens: base.cachedInputTokens + cacheRead,
+    cacheWriteTokens: base.cacheWriteTokens + cacheWrite
+  };
+}
+
+const TOKEN_METRIC_NAMES = {
+  inputTokens: 'ai.tokens.input',
+  outputTokens: 'ai.tokens.output',
+  cachedInputTokens: 'ai.tokens.cached_input',
+  cacheWriteTokens: 'ai.tokens.cache_write',
+  reasoningTokens: 'ai.tokens.reasoning'
+};
+
+/**
+ * Logs and records token usage for one provider call so spend can be measured per provider/model.
+ * @param {string} provider
+ * @param {string} model
+ * @param {TokenUsage|null} usage
+ */
+function recordTokenUsage(provider, model, usage) {
+  if (!usage) return;
+  const counts = Object.fromEntries(
+    Object.entries(usage).filter(([, value]) => typeof value === 'number')
+  );
+  if (Object.keys(counts).length === 0) return;
+  logger.info('AI token usage.', { provider, model, ...counts });
+  for (const [key, value] of Object.entries(counts)) {
+    const metricName = TOKEN_METRIC_NAMES[key];
+    if (metricName) {
+      recordDistribution(metricName, value, { attributes: { provider, model } });
+    }
+  }
+}
+
+/**
+ * Rough token estimate for a Claude system prompt plus messages (used to decide whether caching pays off).
+ * @param {string|undefined} system
+ * @param {Array<{content: string|Array}>} messages
+ * @returns {number}
+ */
+function estimateClaudePromptTokens(system, messages) {
+  let total = estimateTokensFromText(system);
+  for (const msg of messages) {
+    const blocks = typeof msg.content === 'string' ? [{ text: msg.content }] : msg.content;
+    for (const block of blocks) {
+      total += block.type === 'image' ? CLAUDE_ESTIMATED_TOKENS_PER_IMAGE : estimateTokensFromText(block.text);
+    }
+  }
+  return total;
+}
+
+/**
+ * Marks the message before the latest user turn for Claude prompt-cache reuse. One breakpoint caches
+ * the whole prefix (system + earlier turns), so the system prompt needs no breakpoint of its own.
+ * @param {Array<{role: string, content: string|Array}>} messages - Claude-format messages
  * @returns {Array<{role: string, content: string|Array}>}
  */
 function applyConversationCacheBreakpoints(messages) {
-  if (!Array.isArray(messages) || messages.length < 2) return messages;
-
-  let lastUserIdx = -1;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i]?.role === 'user') {
-      lastUserIdx = i;
-      break;
-    }
-  }
-  if (lastUserIdx <= 0) return messages;
-
-  const breakpointIdx = lastUserIdx - 1;
-  if (messages[breakpointIdx]?.role === 'system') return messages;
-
-  return messages.map((msg, idx) => {
-    if (idx !== breakpointIdx) return msg;
-    return markMessageForPromptCache(msg);
-  });
+  const breakpointIdx = messages.length - 2;
+  if (breakpointIdx < 0 || messages[messages.length - 1].role !== 'user') return messages;
+  return messages.map((msg, idx) => (idx === breakpointIdx ? markMessageForPromptCache(msg) : msg));
 }
 
 /**
@@ -125,9 +328,15 @@ function markMessageForPromptCache(message) {
       content: [{ type: 'text', text: message.content, cache_control: cacheControl }]
     };
   }
-  if (!Array.isArray(message.content) || message.content.length === 0) return message;
-  const content = message.content.map(part => ({ ...part }));
-  content[content.length - 1] = { ...content[content.length - 1], cache_control: cacheControl };
+  // Thinking blocks can't carry cache_control; mark the last block that can.
+  let marked = false;
+  const content = [...message.content].reverse().map(part => {
+    if (!marked && part.type !== 'thinking' && part.type !== 'redacted_thinking') {
+      marked = true;
+      return { ...part, cache_control: cacheControl };
+    }
+    return part;
+  }).reverse();
   return { ...message, content };
 }
 
@@ -148,7 +357,14 @@ const openai = openaiApiKey
  * Google GenAI client (used when aiProvider === 'gemini').
  * @type {GoogleGenAI|null}
  */
-const genAI = geminiApiKey ? new (require('@google/genai').GoogleGenAI)({ apiKey: geminiApiKey }) : null;
+const genAI = geminiApiKey
+  ? new (require('@google/genai').GoogleGenAI)({
+    apiKey: geminiApiKey,
+    // @google/genai 3.x defaults to v1; preview models, context caching and grounding tools need v1beta.
+    // GOOGLE_GENAI_API_VERSION still wins when set.
+    ...(process.env.GOOGLE_GENAI_API_VERSION ? {} : { apiVersion: 'v1beta' })
+  })
+  : null;
 
 /**
  * Anthropic client (used when aiProvider === 'claude').
@@ -182,26 +398,73 @@ function withRequestTimeout(promise, timeoutMs, label) {
   });
 }
 
+/** Placeholder user turn when history would otherwise start with an assistant/model turn. */
+const EARLIER_CONVERSATION_MARKER = '[Earlier conversation]';
+
 /** In-memory Gemini context cache: one entry for system instruction (reused across channels). */
 let geminiCacheEntry = null;
 
-/** Claude model IDs that take a thinking budget (4.x family). */
-const CLAUDE_EXTENDED_THINKING_MODELS = [
-  'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6',
-  'claude-haiku-4-5', 'claude-opus-4-5'
-];
+/** Claude Haiku 4.5: thinking only via `{ type: 'enabled', budget_tokens }`. */
+const CLAUDE_BUDGET_THINKING_MODELS = ['claude-haiku-4-5'];
 
-function claudeSupportsExtendedThinking(model) {
-  return CLAUDE_EXTENDED_THINKING_MODELS.some(m => model && model.startsWith(m));
+/**
+ * Claude 4.6-4.8: adaptive thinking, off unless requested (`budget_tokens` is deprecated on 4.6 and
+ * rejected on 4.7+). Every newer model (Claude 5 family, Fable) thinks adaptively by default, and
+ * several reject attempts to disable it, so for those the request sends no `thinking` field at all.
+ */
+const CLAUDE_OPTIONAL_ADAPTIVE_MODELS = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-7', 'claude-opus-4-8'];
+
+/**
+ * @param {string} model
+ * @returns {'budget'|'optional'|'always'}
+ */
+function claudeThinkingMode(model) {
+  const id = model;
+  if (CLAUDE_BUDGET_THINKING_MODELS.some(m => id.startsWith(m))) return 'budget';
+  if (CLAUDE_OPTIONAL_ADAPTIVE_MODELS.some(m => id.startsWith(m))) return 'optional';
+  return 'always';
 }
 
-/** Claude 5.x models think adaptively by default; thinking tokens count against max_tokens. */
-const CLAUDE_ADAPTIVE_THINKING_PATTERN = /^claude-(fable|opus|sonnet|haiku)-5/;
-/** Extra max_tokens headroom for adaptive thinking so short MAX_OUTPUT_TOKENS caps don't truncate replies. */
-const CLAUDE_ADAPTIVE_THINKING_HEADROOM = 4096;
+/**
+ * Maps CLAUDE_REASONING_EFFORT onto what the model accepts (or null to omit `output_config.effort`).
+ * @param {string} model
+ * @param {string|null} effort
+ * @returns {string|null}
+ */
+function claudeEffortFor(model, effort) {
+  if (!effort) return null;
+  const id = model;
+  // Haiku 4.5 rejects effort; the 4.6 models have no xhigh level.
+  if (id.startsWith('claude-haiku-4-5')) return null;
+  if (id.startsWith('claude-opus-4-6') || id.startsWith('claude-sonnet-4-6')) return effort === 'xhigh' ? 'high' : effort;
+  return effort;
+}
 
-function claudeThinksByDefault(model) {
-  return CLAUDE_ADAPTIVE_THINKING_PATTERN.test(model);
+/**
+ * Builds the thinking, effort and max_tokens fields of a Claude request.
+ * @param {string} model
+ * @returns {{ thinking?: object, outputConfig?: object, maxTokens: number }}
+ */
+function buildClaudeThinkingParams(model) {
+  const mode = claudeThinkingMode(model);
+  const requested = claudeThinkingBudgetTokens > 0;
+  const result = { maxTokens: Math.min(CLAUDE_MAX_NONSTREAMING_TOKENS, maxOutputTokens) };
+
+  if (mode === 'budget' && requested) {
+    result.maxTokens = Math.min(CLAUDE_MAX_NONSTREAMING_TOKENS, maxOutputTokens + claudeThinkingBudgetTokens);
+    // budget_tokens must be >= 1024 and below max_tokens, leaving some room for the reply.
+    const budget = Math.max(1024, Math.min(claudeThinkingBudgetTokens, result.maxTokens - 256));
+    result.thinking = { type: 'enabled', budget_tokens: budget };
+  } else if ((mode === 'optional' && requested) || mode === 'always') {
+    const headroom = requested ? claudeThinkingBudgetTokens : CLAUDE_DEFAULT_THINKING_HEADROOM;
+    result.maxTokens = Math.min(CLAUDE_MAX_NONSTREAMING_TOKENS, maxOutputTokens + headroom);
+    if (mode === 'optional') result.thinking = { type: 'adaptive' };
+  }
+
+  // Chat replies don't need deep reasoning: always-thinking models default to low effort.
+  const effort = claudeEffortFor(model, claudeEffort || (mode === 'always' ? 'low' : null));
+  if (effort) result.outputConfig = { effort };
+  return result;
 }
 
 /** Claude tools: optional tools the model can call. */
@@ -298,7 +561,11 @@ function conversationToGeminiFormat(conversation) {
           }
           if (item.type === 'input_image') {
             const parsed = parseDataUrl(item.image_url);
-            if (parsed) parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
+            if (parsed && GEMINI_INLINE_IMAGE_TYPES.has(parsed.mimeType.toLowerCase())) {
+              parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.data } });
+            } else if (parsed) {
+              parts.push({ text: `[An attached ${parsed.mimeType} image could not be analyzed.]` });
+            }
           }
         }
       } else if (typeof content === 'string' && content.trim()) {
@@ -312,6 +579,13 @@ function conversationToGeminiFormat(conversation) {
       const text = typeof msg.content === 'string' ? msg.content : '';
       if (text.trim()) contents.push({ role: 'model', parts: [{ text: text.trim() }] });
     }
+  }
+
+  // Newer Gemini models return 400 when the request ends on a model turn, and the first turn must
+  // be a user turn (a reply to the bot can start history with the bot's own message).
+  while (contents.length > 0 && contents[contents.length - 1].role === 'model') contents.pop();
+  if (contents.length > 0 && contents[0].role === 'model') {
+    contents.unshift({ role: 'user', parts: [{ text: EARLIER_CONVERSATION_MARKER }] });
   }
 
   return { systemInstruction, contents };
@@ -364,6 +638,13 @@ function conversationToClaudeFormat(conversation) {
     }
   }
 
+  // Claude rejects a trailing assistant turn (prefill) on 4.6+ models and requires the first
+  // message to be a user turn (a reply to the bot can start history with the bot's own message).
+  while (messages.length > 0 && messages[messages.length - 1].role === 'assistant') messages.pop();
+  if (messages.length > 0 && messages[0].role === 'assistant') {
+    messages.unshift({ role: 'user', content: EARLIER_CONVERSATION_MARKER });
+  }
+
   return { system, messages };
 }
 
@@ -392,16 +673,21 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
     systemWithImageHint = SYSTEM_MESSAGES.IMAGE_ANALYSIS;
   }
 
+  // No temperature: Gemini 3+ deprecates sampling parameters (Gemini 4 ignores them), and the bot
+  // only ever sent the default.
   const config = {
-    temperature: getTemperature(),
-    maxOutputTokens
+    maxOutputTokens: Math.min(GEMINI_MAX_OUTPUT_TOKENS, maxOutputTokens + GEMINI_THINKING_HEADROOM_TOKENS)
   };
+  const thinkingLevel = resolveGeminiThinkingLevel(activeModel, geminiThinkingLevel);
+  if (thinkingLevel) config.thinkingConfig = { thinkingLevel: thinkingLevel.toUpperCase() };
 
   let useCachedContent = false;
   const systemTokenEstimate = systemWithImageHint ? estimateTokensFromText(systemWithImageHint) : 0;
   const meetsMinForCache = systemTokenEstimate >= GEMINI_MIN_CACHE_TOKENS;
 
-  if (enableContextCache && systemWithImageHint && genAI.caches && meetsMinForCache) {
+  // Gemini 4 models reject explicit caching (implicit caching applies automatically).
+  const supportsExplicitCache = !activeModel.startsWith('gemini-4');
+  if (enableContextCache && systemWithImageHint && genAI.caches && meetsMinForCache && supportsExplicitCache) {
     const now = Date.now();
     if (geminiCacheEntry && geminiCacheEntry.systemInstruction === systemWithImageHint && geminiCacheEntry.expiresAt > now) {
       config.cachedContent = geminiCacheEntry.name;
@@ -456,6 +742,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
     mapsGrounding: geminiUseMaps,
     hasImages: hasImages(conversation),
     usingContextCache: useCachedContent,
+    thinkingLevel: thinkingLevel || 'model default',
     safetySettings: config.safetySettings ? config.safetySettings.length : 0
   });
 
@@ -470,6 +757,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
       geminiTimeoutMs,
       'Gemini'
     );
+    recordTokenUsage('gemini', activeModel, normalizeGeminiUsage(response?.usageMetadata));
 
     const text = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
     if (!text || !text.trim()) {
@@ -518,6 +806,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
           geminiTimeoutMs,
           'Gemini'
         );
+        recordTokenUsage('gemini', activeModel, normalizeGeminiUsage(response?.usageMetadata));
         const retryText = (typeof response?.text === 'function' ? response.text() : response?.text) ?? '';
         if (retryText && retryText.trim()) {
           logger.info('Generated AI response successfully (Gemini, retry without cache).', {
@@ -581,50 +870,41 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
     systemWithImageHint = SYSTEM_MESSAGES.IMAGE_ANALYSIS;
   }
 
-  const extendedThinkingEnabled = claudeThinkingBudgetTokens > 0 && claudeSupportsExtendedThinking(activeModel);
-  const adaptiveThinking = claudeThinksByDefault(activeModel);
-  const claudeMaxTokens = extendedThinkingEnabled
-    ? Math.min(65536, maxOutputTokens + claudeThinkingBudgetTokens)
-    : adaptiveThinking
-      ? Math.min(65536, maxOutputTokens + CLAUDE_ADAPTIVE_THINKING_HEADROOM)
-      : maxOutputTokens;
-  const cachedMessages = enableContextCache ? applyConversationCacheBreakpoints(messages) : messages;
+  const thinkingParams = buildClaudeThinkingParams(activeModel);
+  // No sampling params: Anthropic API version 2026-10-21 (SDK >= 1.0) rejects temperature/top_p/top_k with a 400.
   const params = {
     model: activeModel,
-    max_tokens: claudeMaxTokens,
-    messages: cachedMessages
+    max_tokens: thinkingParams.maxTokens
   };
-  // temperature is always the default (1.0), so it is omitted: Claude 4.7+ and 5.x models
-  // reject sampling params, and API version 2026-10-21 rejects them on every model.
-  if (systemWithImageHint) {
-    if (enableContextCache) {
-      params.system = [{ type: 'text', text: systemWithImageHint, cache_control: { type: 'ephemeral' } }];
-    } else {
-      params.system = systemWithImageHint;
-    }
-  }
-
-  if (extendedThinkingEnabled) {
-    params.thinking = { type: 'enabled', budget_tokens: claudeThinkingBudgetTokens };
-  }
-  if (adaptiveThinking) {
-    // Chat replies don't need deep reasoning; low effort keeps latency and token spend down.
-    params.output_config = { effort: 'low' };
-  }
+  if (systemWithImageHint) params.system = systemWithImageHint;
+  if (thinkingParams.thinking) params.thinking = thinkingParams.thinking;
+  if (thinkingParams.outputConfig) params.output_config = thinkingParams.outputConfig;
 
   if (conversationMentionsTime(conversation)) {
     params.tools = CLAUDE_TOOLS;
   }
+
+  // Cache writes cost 1.25x input and expire after 5 minutes, so only mark prompts large enough
+  // for later turns to plausibly re-read them. Small prefixes fall below Claude's cache minimum anyway.
+  const promptCacheActive = enableContextCache
+    && estimateClaudePromptTokens(systemWithImageHint, messages) >= claudeCacheMinTokens;
 
   logger.debug(`Sending conversation to Claude API using model ${activeModel}.`, {
     messageCount: conversation.length,
     model: activeModel,
     messagesLength: messages.length,
     hasImages: hasImages(conversation),
-    promptCacheEnabled: enableContextCache,
-    extendedThinking: params.thinking ? params.thinking.budget_tokens : undefined
+    promptCacheActive,
+    thinking: params.thinking?.type,
+    effort: params.output_config?.effort
   });
 
+  let usageTotal = null;
+  // Billed tokens (including earlier tool rounds) are recorded on every exit path.
+  const finish = value => {
+    recordTokenUsage('claude', activeModel, usageTotal);
+    return value;
+  };
   try {
     let currentMessages = [...messages];
     const maxToolRounds = 5;
@@ -632,7 +912,7 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
     let response;
 
     while (round < maxToolRounds) {
-      const roundMessages = enableContextCache
+      const roundMessages = promptCacheActive
         ? applyConversationCacheBreakpoints(currentMessages)
         : currentMessages;
       response = await withRequestTimeout(
@@ -640,6 +920,22 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
         claudeTimeoutMs,
         'Claude'
       );
+      usageTotal = addClaudeUsage(usageTotal, response.usage);
+
+      // Claude 5 / Fable safety classifiers decline with HTTP 200 and stop_reason "refusal";
+      // the content is then empty or partial, so report it as a policy block, not an empty reply.
+      if (response.stop_reason === 'refusal') {
+        logger.warn('Claude declined the request.', {
+          provider: 'claude',
+          model: activeModel,
+          category: response.stop_details?.category ?? null,
+          toolRounds: round,
+          durationMs: Date.now() - startedAt,
+          outcome: 'refusal'
+        });
+        recordCount('ai.generate.refusal', 1, { provider: 'claude', model: activeModel });
+        return finish(formatAIUserMessage({ reason: 'content_filter', provider: 'claude' }));
+      }
 
       const toolUseBlocks = (response.content || []).filter(b => b.type === 'tool_use');
       if (toolUseBlocks.length === 0) {
@@ -653,7 +949,7 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
             durationMs: Date.now() - startedAt,
             outcome: 'empty'
           });
-          return formatAIUserMessage({ reason: 'empty_response' });
+          return finish(formatAIUserMessage({ reason: 'empty_response' }));
         }
         logger.info('Generated AI response successfully (Claude).', {
           provider: 'claude',
@@ -664,7 +960,7 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
           durationMs: Date.now() - startedAt,
           outcome: 'success'
         });
-        return text;
+        return finish(text);
       }
 
       const toolResults = toolUseBlocks.map(block => ({
@@ -681,7 +977,7 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
 
     const textBlock = response.content && response.content.find(b => b.type === 'text');
     const text = (textBlock && textBlock.text && textBlock.text.trim()) ? textBlock.text.trim() : '';
-    if (text) return text;
+    if (text) return finish(text);
     logger.warn('Claude hit max tool rounds without final text.', {
       provider: 'claude',
       model: activeModel,
@@ -689,8 +985,9 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
       durationMs: Date.now() - startedAt,
       outcome: 'empty'
     });
-    return formatAIUserMessage({ reason: 'api_error' });
+    return finish(formatAIUserMessage({ reason: 'api_error' }));
   } catch (apiError) {
+    recordTokenUsage('claude', activeModel, usageTotal);
     rethrowIfBusyForBackup(apiError, 'claude', activeModel);
     captureError(apiError, { provider: 'claude' });
     logger.error('Claude API request failed.', {
@@ -702,21 +999,6 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
     });
     return formatAIUserMessage({ error: apiError, provider: 'claude' });
   }
-}
-
-/** OpenAI models that accept reasoning effort 'none' (pro variants excluded). Others reject it with a 400. */
-const OPENAI_NONE_EFFORT_PREFIXES = ['gpt-6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.2'];
-
-/**
- * Maps 'none' to 'low' on models that require some reasoning (gpt-6-astra, gpt-6.1-sol, ...).
- * @param {string} effort
- * @param {string} model
- * @returns {string}
- */
-function openAIEffortForModel(effort, model) {
-  if (effort !== 'none') return effort;
-  const acceptsNone = !model.endsWith('-pro') && OPENAI_NONE_EFFORT_PREFIXES.some(prefix => model.startsWith(prefix));
-  return acceptsNone ? 'none' : 'low';
 }
 
 /**
@@ -750,24 +1032,24 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       }
     }
 
-    const inputMessages = enableContextCache ? applyConversationCacheBreakpoints(messages) : messages;
+    // OpenAI caches repeated prefixes automatically; prompt_cache_key below improves hit rates.
+    // (Anthropic-style cache_control blocks are not part of the Responses API.)
+    const normalizedReasoningEffort = resolveOpenAIReasoningEffort(activeModel, reasoningEffort);
+    const usesReasoning = normalizedReasoningEffort !== 'none';
+    // No temperature: the bot only ever used the default (1.0), and GPT-6 docs say to drop sampling
+    // parameters whenever reasoning is on.
     const requestParams = {
       model: activeModel,
-      input: inputMessages,
-      max_output_tokens: maxOutputTokens
+      input: messages,
+      max_output_tokens: usesReasoning
+        ? Math.min(OPENAI_MAX_OUTPUT_TOKENS, maxOutputTokens + OPENAI_REASONING_HEADROOM_TOKENS)
+        : maxOutputTokens,
+      reasoning: { effort: normalizedReasoningEffort }
     };
 
     if (enableContextCache) {
       requestParams.prompt_cache_key = OPENAI_PROMPT_CACHE_KEY;
-      requestParams.prompt_cache_retention = '24h';
-    }
-
-    const normalizedReasoningEffort = typeof reasoningEffort === 'string'
-      ? reasoningEffort.trim().toLowerCase()
-      : '';
-
-    if (['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(normalizedReasoningEffort)) {
-      requestParams.reasoning = { effort: openAIEffortForModel(normalizedReasoningEffort, activeModel) };
+      if (OPENAI_EXTENDED_CACHE_MODELS.has(activeModel)) requestParams.prompt_cache_retention = '24h';
     }
 
     const normalizedVerbosity = typeof responsesVerbosity === 'string'
@@ -785,12 +1067,10 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       requestParams.tools = [{ type: 'web_search' }];
     }
 
-    // temperature is always the default (1.0), so it is omitted: reasoning models reject it.
-
     logger.debug(`Sending conversation to OpenAI API using model ${activeModel}.`, {
       messageCount: conversation.length,
       model: activeModel,
-      reasoningEffort: requestParams.reasoning?.effort,
+      reasoningEffort: normalizedReasoningEffort,
       verbosity: normalizedVerbosity || undefined,
       webSearch: enableWebSearch,
       hasImages: hasImages(conversation),
@@ -812,6 +1092,8 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       });
       return formatAIUserMessage({ error: apiError, provider: 'openai' });
     }
+
+    recordTokenUsage('openai', activeModel, normalizeOpenAIUsage(response?.usage));
 
     logger.debug('Received response from OpenAI API.', {
       responseId: response.id,
@@ -1000,5 +1282,6 @@ async function generateAIResponse(conversation) {
 
 module.exports = {
   generateAIResponse,
-  ProviderBusyError
+  ProviderBusyError,
+  resolveGeminiThinkingLevel
 };

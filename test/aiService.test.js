@@ -65,12 +65,43 @@ test('should uses Claude when configured', async () => {
   expect(reply).toBe('hello claude');
 });
 
+test('should report a Claude refusal stop reason as a content-policy block', async () => {
+  const aiService = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async () => ({
+          content: [],
+          stop_reason: 'refusal',
+          stop_details: { type: 'refusal', category: 'cyber', explanation: 'x' },
+          usage: { input_tokens: 10, output_tokens: 0 }
+        })
+      };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake', CLAUDE_MODEL_NAME: 'claude-sonnet-5-5' });
+
+  const reply = await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hi' }
+  ]);
+  expect(reply).toBe('⚠️ Claude blocked the request due to content policy.');
+
+  const noDetails = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = { create: async () => ({ content: [], stop_reason: 'refusal' }) };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake', CLAUDE_MODEL_NAME: 'claude-sonnet-5-5' });
+  expect(await noDetails.generateAIResponse([{ role: 'user', content: 'hi' }]))
+    .toBe('⚠️ Claude blocked the request due to content policy.');
+});
+
 test('should map reasoning effort none to low on OpenAI models that require reasoning', async () => {
   const cases = [
     ['gpt-6-luna', 'none', 'none'],
     ['gpt-5.4-mini', 'none', 'none'],
     ['gpt-6-astra', 'none', 'low'],
-    ['gpt-5.5-pro', 'none', 'low'],
+    // -pro models start at medium (docs list only medium, high, xhigh).
+    ['gpt-5.5-pro', 'none', 'medium'],
+    ['gpt-5.4', 'max', 'xhigh'],
     ['gpt-6.1-sol', 'none', 'low'],
     ['gpt-6-astra', 'max', 'max']
   ];
@@ -474,10 +505,12 @@ test('should gemini reuses valid cache entries without recreating', async () => 
 test('should claude uses plain system prompt when context cache is disabled', async () => {
   let capturedSystem;
   let capturedMessages;
+  let capturedParams;
   const aiService = await loadAiService({
     anthropic: function FakeAnthropic() {
       this.messages = {
         create: async params => {
+          capturedParams = params;
           capturedSystem = params.system;
           capturedMessages = params.messages;
           return { content: [{ type: 'text', text: 'ok' }] };
@@ -498,6 +531,10 @@ test('should claude uses plain system prompt when context cache is disabled', as
   ]);
   expect(capturedSystem).toBe('sys');
   expect(capturedMessages[1].content).toBe('reply');
+  // API version 2026-10-21 rejects sampling params on Messages requests.
+  expect(capturedParams).not.toHaveProperty('temperature');
+  expect(capturedParams).not.toHaveProperty('top_p');
+  expect(capturedParams).not.toHaveProperty('top_k');
 });
 
 test('should claude 5.x models get low effort, thinking headroom, and no sampling params', async () => {
@@ -522,7 +559,8 @@ test('should claude 5.x models get low effort, thinking headroom, and no samplin
   await haiku.generateAIResponse(conversation);
   expect(captured[0].model).toBe('claude-haiku-5-5');
   expect(captured[0].output_config).toEqual({ effort: 'low' });
-  expect(captured[0].max_tokens).toBe(1024 + 4096);
+  // CLAUDE_THINKING_BUDGET_TOKENS sizes the thinking headroom when set.
+  expect(captured[0].max_tokens).toBe(1024 + 2048);
   expect(captured[0].thinking).toBeUndefined();
   expect(captured[0].temperature).toBeUndefined();
 
@@ -557,15 +595,71 @@ test('should claude marks prior turns for prompt caching when enabled', async ()
     ENABLE_CONTEXT_CACHE: '1'
   });
 
+  // Large enough prefix (~3k estimated tokens) to pass CLAUDE_CACHE_MIN_TOKENS (default 2048).
+  const longReply = 'reply '.repeat(2000);
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: longReply },
+    { role: 'user', content: 'second' }
+  ]);
+  // One breakpoint on the turn before the latest user message caches the whole prefix.
+  expect(capturedSystem).toBe('sys');
+  expect(capturedMessages[1].content[0].cache_control).toEqual({ type: 'ephemeral' });
+  expect(capturedMessages[2].content).toBe('second');
+
+  // Small conversations are not marked: below the threshold a cache write would rarely pay off.
   await aiService.generateAIResponse([
     { role: 'system', content: 'sys' },
     { role: 'user', content: 'first' },
     { role: 'assistant', content: 'reply' },
     { role: 'user', content: 'second' }
   ]);
-  expect(capturedSystem[0].cache_control).toEqual({ type: 'ephemeral' });
-  expect(capturedMessages[1].content[0].cache_control).toEqual({ type: 'ephemeral' });
-  expect(capturedMessages[2].content).toBe('second');
+  expect(capturedMessages[1].content).toBe('reply');
+});
+
+test('should claude never puts cache_control on thinking blocks during tool rounds', async () => {
+  const calls = [];
+  const aiService = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async params => {
+          calls.push(JSON.parse(JSON.stringify(params)));
+          if (calls.length === 1) {
+            return {
+              content: [
+                { type: 'thinking', thinking: '', signature: 'sig' },
+                { type: 'tool_use', id: 'tool-1', name: 'get_current_time', input: {} },
+                { type: 'thinking', thinking: '', signature: 'sig2' }
+              ],
+              usage: { input_tokens: 10, output_tokens: 5 }
+            };
+          }
+          return {
+            content: [{ type: 'text', text: 'It is noon.' }],
+            usage: { input_tokens: 20, output_tokens: 4, cache_read_input_tokens: 3000 }
+          };
+        }
+      };
+    }
+  }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    ENABLE_CONTEXT_CACHE: '1',
+    CLAUDE_MODEL_NAME: 'claude-opus-5-5'
+  });
+
+  const reply = await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'background '.repeat(2000) },
+    { role: 'assistant', content: 'ok' },
+    { role: 'user', content: 'what time is it' }
+  ]);
+  expect(reply).toBe('It is noon.');
+  const toolRoundAssistant = calls[1].messages[calls[1].messages.length - 2];
+  expect(toolRoundAssistant.content[1].cache_control).toEqual({ type: 'ephemeral' });
+  expect(toolRoundAssistant.content[0].cache_control).toBeUndefined();
+  expect(toolRoundAssistant.content[2].cache_control).toBeUndefined();
 });
 
 test('should openai uses prompt cache settings when context cache is enabled', async () => {
@@ -597,8 +691,11 @@ test('should openai uses prompt cache settings when context cache is enabled', a
   ]);
 
   expect(capturedParams.prompt_cache_key).toBe('ai-bot-system-v1');
-  expect(capturedParams.prompt_cache_retention).toBe('24h');
-  expect(capturedParams.input[2].content[0].cache_control).toEqual({ type: 'ephemeral' });
+  // gpt-6-luna (default) isn't documented for 24h retention; it uses the default 30m cache.
+  expect(capturedParams).not.toHaveProperty('prompt_cache_retention');
+  // cache_control is an Anthropic field; OpenAI caches prefixes automatically.
+  expect(JSON.stringify(capturedParams.input)).not.toMatch(/cache_control/);
+  expect(capturedParams.input[2].content).toBe('reply');
 });
 
 test('should skip cache breakpoints when the only user turn is first', async () => {
@@ -681,7 +778,7 @@ test('should claude uses image analysis prompt without a system message', async 
   await aiService.generateAIResponse([
     { role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,QUFB' }] }
   ]);
-  expect(capturedSystem[0].text).toMatch(/When analyzing images/);
+  expect(capturedSystem).toMatch(/When analyzing images/);
 });
 
 test('should claude handles tools, thinking, empty responses, and API failures', async () => {
@@ -706,7 +803,7 @@ test('should claude handles tools, thinking, empty responses, and API failures',
   }, {
     AI_PROVIDER: 'claude',
     ANTHROPIC_API_KEY: 'fake',
-    OPENAI_MODEL_NAME: 'claude-sonnet-4-6',
+    OPENAI_MODEL_NAME: 'claude-haiku-4-5',
     CLAUDE_THINKING_BUDGET_TOKENS: '1024',
     ENABLE_CONTEXT_CACHE: '1'
   });
@@ -759,10 +856,12 @@ test('should claude handles tools, thinking, empty responses, and API failures',
       this.messages = { create: async () => ({ content: [{ type: 'text', text: 'ok' }] }) };
     }
   }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  // The unusable user turn is dropped, leaving only an assistant turn: Claude would reject that
+  // (assistant prefill / no user turn), so the bot reports an error instead of sending it.
   expect(await oddContent.generateAIResponse([
     { role: 'assistant', content: 'ignored' },
     { role: 'user', content: { not: 'text' } }
-  ])).toBe('ok');
+  ])).toMatch(/^⚠️/);
 
   const apiFail = await loadAiService({
     anthropic: function FakeAnthropic() {
@@ -1177,9 +1276,7 @@ test('should openAI outer catch handles unexpected generation errors', async () 
       openaiApiKey: 'fake',
       geminiApiKey: undefined,
       anthropicApiKey: undefined,
-      // A non-string model name makes the reasoning-effort lookup throw inside the request try block.
-      modelName: { toString: () => 'broken-model' },
-      getTemperature: () => 1,
+      modelName: 'gpt-6-luna',
       reasoningEffort: 'none',
       responsesVerbosity: 'low',
       aiProvider: '',
@@ -1197,7 +1294,17 @@ test('should openAI outer catch handles unexpected generation errors', async () 
     global.__openaiStub = {
       OpenAI: class {
         constructor() {
-          this.responses = { create: async () => ({ status: 'completed', output_text: 'ok', id: 'r1' }) };
+          // Reading usage throws after the request succeeds, which only the outer catch handles.
+          this.responses = {
+            create: async () => ({
+              status: 'completed',
+              output_text: 'ok',
+              id: 'r1',
+              get usage() {
+                throw { message: 'bare failure' };
+              }
+            })
+          };
         }
       }
     };
@@ -1750,4 +1857,460 @@ test('should busy retry logging falls back when attemptedModel is missing', asyn
 
   const reply = await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
   expect(reply).toBe('fallback ok');
+});
+
+function captureClaudeParams() {
+  const calls = [];
+  const FakeAnthropic = function FakeAnthropic() {
+    this.messages = {
+      create: async params => {
+        calls.push(params);
+        return { content: [{ type: 'text', text: 'ok' }] };
+      }
+    };
+  };
+  return { calls, FakeAnthropic };
+}
+
+async function claudeParamsFor(env) {
+  const { calls, FakeAnthropic } = captureClaudeParams();
+  const aiService = await loadAiService({ anthropic: FakeAnthropic }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    CLAUDE_THINKING_BUDGET_TOKENS: undefined,
+    CLAUDE_REASONING_EFFORT: undefined,
+    ...env
+  });
+  await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  return calls[0];
+}
+
+test('should claude use budget_tokens thinking only on 4.5 models', async () => {
+  const params = await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-haiku-4-5', CLAUDE_THINKING_BUDGET_TOKENS: '2048' });
+  expect(params.thinking).toEqual({ type: 'enabled', budget_tokens: 2048 });
+  expect(params.max_tokens).toBe(1024 + 2048);
+  expect(params.output_config).toBeUndefined();
+});
+
+test('should claude use adaptive thinking on 4.6-4.8 models when requested, and none otherwise', async () => {
+  const on = await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-4-7', CLAUDE_THINKING_BUDGET_TOKENS: '4096' });
+  expect(on.thinking).toEqual({ type: 'adaptive' });
+  expect(on.max_tokens).toBe(1024 + 4096);
+
+  const off = await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-4-7' });
+  expect(off.thinking).toBeUndefined();
+  expect(off.max_tokens).toBe(1024);
+});
+
+test('should claude send no thinking field to always-thinking models and pass effort', async () => {
+  const params = await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-5-5', CLAUDE_REASONING_EFFORT: 'low' });
+  expect(params).not.toHaveProperty('thinking');
+  expect(params).not.toHaveProperty('temperature');
+  expect(params.output_config).toEqual({ effort: 'low' });
+  // Headroom for thinking, but never above the SDK's non-streaming limit.
+  expect(params.max_tokens).toBe(1024 + 8192);
+  expect(params.max_tokens).toBeLessThanOrEqual(20000);
+});
+
+test('should claude map or drop effort for models with narrower effort support', async () => {
+  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-sonnet-4-6', CLAUDE_REASONING_EFFORT: 'xhigh' })).output_config)
+    .toEqual({ effort: 'high' });
+  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-opus-4-6', CLAUDE_REASONING_EFFORT: 'max' })).output_config)
+    .toEqual({ effort: 'max' });
+  expect((await claudeParamsFor({ CLAUDE_MODEL_NAME: 'claude-haiku-4-5', CLAUDE_REASONING_EFFORT: 'low' })).output_config)
+    .toBeUndefined();
+});
+
+test('should claude cap max_tokens below the SDK non-streaming limit', async () => {
+  const params = await claudeParamsFor({
+    CLAUDE_MODEL_NAME: 'claude-haiku-4-5',
+    CLAUDE_THINKING_BUDGET_TOKENS: '32000',
+    MAX_OUTPUT_TOKENS: '8000'
+  });
+  expect(params.max_tokens).toBe(20000);
+  expect(params.thinking.budget_tokens).toBeLessThan(params.max_tokens);
+});
+
+test('should record normalized token usage for each provider', async () => {
+  const recorded = [];
+  const instrument = {
+    recordDistribution: (name, value, options) => {
+      if (name.startsWith('ai.tokens.')) recorded.push([name, value, options.attributes.provider]);
+    }
+  };
+
+  const openaiService = await loadAiService({
+    instrument,
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async () => ({
+              id: 'r1',
+              status: 'completed',
+              output_text: 'hi',
+              usage: {
+                input_tokens: 100,
+                output_tokens: 20,
+                input_tokens_details: { cached_tokens: 64 },
+                output_tokens_details: { reasoning_tokens: 0 }
+              }
+            })
+          };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake' });
+  await openaiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+
+  const geminiService = await loadAiService({
+    instrument,
+    genai: {
+      GoogleGenAI: class {
+        constructor() {
+          this.models = {
+            generateContent: async () => ({
+              text: 'hi',
+              usageMetadata: { promptTokenCount: 50, toolUsePromptTokenCount: 10, candidatesTokenCount: 5, thoughtsTokenCount: 7 }
+            })
+          };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
+  await geminiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+
+  const claudeService = await loadAiService({
+    instrument,
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async () => ({
+          content: [{ type: 'text', text: 'hi' }],
+          usage: { input_tokens: 30, output_tokens: 8, cache_read_input_tokens: 200, cache_creation_input_tokens: 10 }
+        })
+      };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+
+  expect(recorded).toEqual(expect.arrayContaining([
+    ['ai.tokens.input', 100, 'openai'],
+    ['ai.tokens.output', 20, 'openai'],
+    ['ai.tokens.cached_input', 64, 'openai'],
+    ['ai.tokens.input', 60, 'gemini'],
+    ['ai.tokens.output', 5, 'gemini'],
+    ['ai.tokens.reasoning', 7, 'gemini'],
+    // Claude: uncached + cache read + cache write are all prompt tokens.
+    ['ai.tokens.input', 240, 'claude'],
+    ['ai.tokens.cached_input', 200, 'claude'],
+    ['ai.tokens.cache_write', 10, 'claude'],
+    ['ai.tokens.output', 8, 'claude']
+  ]));
+});
+
+test('should pin Gemini chat to v1beta unless GOOGLE_GENAI_API_VERSION is set', async () => {
+  const constructorOptions = [];
+  const genai = {
+    GoogleGenAI: class {
+      constructor(options) {
+        constructorOptions.push(options);
+        this.models = { generateContent: async () => ({ text: 'ok' }) };
+      }
+    }
+  };
+  await loadAiService({ genai }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GOOGLE_GENAI_API_VERSION: undefined });
+  await loadAiService({ genai }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GOOGLE_GENAI_API_VERSION: 'v1' });
+  expect(constructorOptions[0].apiVersion).toBe('v1beta');
+  expect(constructorOptions[1]).not.toHaveProperty('apiVersion');
+});
+
+test('should tolerate partial usage objects', async () => {
+  const recorded = [];
+  const instrument = {
+    recordDistribution: (name, value) => {
+      if (name.startsWith('ai.tokens.')) recorded.push([name, value]);
+    }
+  };
+  const geminiService = await loadAiService({
+    instrument,
+    genai: {
+      GoogleGenAI: class {
+        constructor() {
+          this.models = { generateContent: async () => ({ text: 'ok', usageMetadata: { candidatesTokenCount: 3 } }) };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake' });
+  await geminiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(recorded).toEqual([['ai.tokens.input', 0], ['ai.tokens.output', 3]]);
+
+  recorded.length = 0;
+  const claudeService = await loadAiService({
+    instrument,
+    anthropic: function FakeAnthropic() {
+      this.messages = { create: async () => ({ content: [{ type: 'text', text: 'ok' }], usage: {} }) };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  expect(recorded).toEqual(expect.arrayContaining([['ai.tokens.input', 0], ['ai.tokens.output', 0]]));
+});
+
+test('should claude skip the cache breakpoint when there is no earlier turn or the last turn is not a user turn', async () => {
+  const { calls, FakeAnthropic } = captureClaudeParams();
+  const aiService = await loadAiService({ anthropic: FakeAnthropic }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    ENABLE_CONTEXT_CACHE: '1'
+  });
+  const longText = 'context '.repeat(2000);
+
+  await aiService.generateAIResponse([{ role: 'user', content: longText }]);
+  await aiService.generateAIResponse([
+    { role: 'user', content: longText },
+    { role: 'assistant', content: 'prev' }
+  ]);
+
+  for (const call of calls) {
+    expect(JSON.stringify(call.messages)).not.toMatch(/cache_control/);
+  }
+});
+
+test('should claude rethrow busy errors to the backup model and still record billed usage', async () => {
+  const recorded = [];
+  let claudeCalls = 0;
+  const aiService = await loadAiService({
+    instrument: {
+      recordDistribution: (name, value, options) => {
+        if (name.startsWith('ai.tokens.')) recorded.push([name, value, options.attributes.provider]);
+      }
+    },
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async () => {
+          claudeCalls += 1;
+          if (claudeCalls === 1) {
+            // First round asks for a tool, so tokens are billed before the overload error.
+            return {
+              content: [{ type: 'tool_use', id: 't1', name: 'get_current_time', input: {} }],
+              usage: { input_tokens: 12, output_tokens: 3 }
+            };
+          }
+          const error = new Error('Overloaded');
+          error.status = 529;
+          throw error;
+        }
+      };
+    },
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = { create: async () => ({ id: 'r', status: 'completed', output_text: 'backup reply' }) };
+        }
+      }
+    }
+  }, {
+    AI_PROVIDER: 'claude',
+    ANTHROPIC_API_KEY: 'fake',
+    OPENAI_API_KEY: 'fake',
+    SECONDARY_MODEL_NAME: 'gpt-5.4-mini'
+  });
+
+  const reply = await aiService.generateAIResponse([{ role: 'user', content: 'what time is it' }]);
+  expect(reply).toBe('backup reply');
+  expect(recorded).toEqual(expect.arrayContaining([['ai.tokens.input', 12, 'claude'], ['ai.tokens.output', 3, 'claude']]));
+});
+
+async function openaiParamsFor(env) {
+  let captured;
+  const aiService = await loadAiService({
+    openai: {
+      OpenAI: class {
+        constructor() {
+          this.responses = {
+            create: async params => {
+              captured = params;
+              return { id: 'r', status: 'completed', output_text: 'ok' };
+            }
+          };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'openai', OPENAI_API_KEY: 'fake', REASONING_EFFORT: undefined, ...env });
+  await aiService.generateAIResponse([{ role: 'user', content: 'hi' }]);
+  return captured;
+}
+
+test('should openai raise reasoning effort to each model minimum and never send temperature', async () => {
+  const luna = await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-6-luna' });
+  expect(luna.reasoning).toEqual({ effort: 'none' });
+  expect(luna.max_output_tokens).toBe(1024);
+  expect(luna).not.toHaveProperty('temperature');
+
+  const astra = await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-6-astra', REASONING_EFFORT: 'none' });
+  expect(astra.reasoning).toEqual({ effort: 'low' });
+  // Reasoning tokens count against max_output_tokens, so the cap gets headroom.
+  expect(astra.max_output_tokens).toBe(1024 + 25000);
+
+  const pro = await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-5.5-pro', REASONING_EFFORT: 'low' });
+  expect(pro.reasoning).toEqual({ effort: 'medium' });
+
+  const high = await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-6.1-sol', REASONING_EFFORT: 'high' });
+  expect(high.reasoning).toEqual({ effort: 'high' });
+
+  // An invalid value counts as 'none' so the model default (often medium) never applies silently.
+  const invalid = await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-5.4-mini', REASONING_EFFORT: 'turbo' });
+  expect(invalid.reasoning).toEqual({ effort: 'none' });
+});
+
+test('should openai send 24h cache retention only to models documented for it', async () => {
+  expect((await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-5.5', ENABLE_CONTEXT_CACHE: '1' })).prompt_cache_retention).toBe('24h');
+  expect((await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-5.4-mini', ENABLE_CONTEXT_CACHE: '1' }))).not.toHaveProperty('prompt_cache_retention');
+  expect((await openaiParamsFor({ OPENAI_MODEL_NAME: 'gpt-6.1-sol', ENABLE_CONTEXT_CACHE: '1' }))).not.toHaveProperty('prompt_cache_retention');
+});
+
+test('should gemini drop temperature, add thinking headroom, and fix turn order and unsupported images', async () => {
+  let captured;
+  const aiService = await loadAiService({
+    genai: {
+      GoogleGenAI: class {
+        constructor() {
+          this.models = {
+            generateContent: async params => {
+              captured = params;
+              return { text: 'ok' };
+            }
+          };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GEMINI_MODEL_NAME: 'gemini-3.8-flash' });
+
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: 'bot message being replied to' },
+    {
+      role: 'user',
+      content: [
+        { type: 'input_text', text: 'what is this?' },
+        { type: 'input_image', image_url: 'data:image/gif;base64,R0lG' },
+        { type: 'input_image', image_url: 'data:image/png;base64,iVBO' }
+      ]
+    },
+    { role: 'assistant', content: 'trailing model turn' }
+  ]);
+
+  expect(captured.config).not.toHaveProperty('temperature');
+  expect(captured.config.maxOutputTokens).toBe(1024 + 8192);
+  expect(captured.contents[0]).toEqual({ role: 'user', parts: [{ text: '[Earlier conversation]' }] });
+  expect(captured.contents[1].role).toBe('model');
+  const last = captured.contents[captured.contents.length - 1];
+  expect(last.role).toBe('user');
+  expect(last.parts).toEqual([
+    { text: 'what is this?' },
+    { text: '[An attached image/gif image could not be analyzed.]' },
+    { inlineData: { mimeType: 'image/png', data: 'iVBO' } }
+  ]);
+});
+
+test('should gemini never create explicit caches for Gemini 4 models', async () => {
+  let cacheCreates = 0;
+  let captured;
+  const aiService = await loadAiService({
+    genai: {
+      GoogleGenAI: class {
+        constructor() {
+          this.caches = { create: async () => { cacheCreates += 1; return { name: 'c' }; } };
+          this.models = {
+            generateContent: async params => {
+              captured = params;
+              return { text: 'ok' };
+            }
+          };
+        }
+      }
+    }
+  }, { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GEMINI_MODEL_NAME: 'gemini-4-hydrogen', ENABLE_CONTEXT_CACHE: '1' });
+
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'long system prompt '.repeat(400) },
+    { role: 'user', content: 'hi' }
+  ]);
+  expect(cacheCreates).toBe(0);
+  expect(captured.config).not.toHaveProperty('cachedContent');
+  expect(captured.config.systemInstruction).toMatch(/long system prompt/);
+});
+
+test('should claude add a leading user turn and drop trailing assistant turns', async () => {
+  const { calls, FakeAnthropic } = captureClaudeParams();
+  const aiService = await loadAiService({ anthropic: FakeAnthropic }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'assistant', content: 'bot message being replied to' },
+    { role: 'user', content: 'follow up' },
+    { role: 'assistant', content: 'trailing' }
+  ]);
+  expect(calls[0].messages).toEqual([
+    { role: 'user', content: '[Earlier conversation]' },
+    { role: 'assistant', content: 'bot message being replied to' },
+    { role: 'user', content: 'follow up' }
+  ]);
+});
+
+test('should claude ignore non-text user content when checking for time questions', async () => {
+  const { calls, FakeAnthropic } = captureClaudeParams();
+  const aiService = await loadAiService({ anthropic: FakeAnthropic }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake' });
+  const reply = await aiService.generateAIResponse([
+    { role: 'user', content: 'what time is it' },
+    { role: 'assistant', content: 'noon' },
+    { role: 'user', content: { not: 'text' } }
+  ]);
+  expect(reply).toBe('ok');
+  // The unusable last user turn is dropped from the request and doesn't trigger the time tool.
+  expect(calls[0].messages).toEqual([{ role: 'user', content: 'what time is it' }]);
+  expect(calls[0]).not.toHaveProperty('tools');
+});
+
+test('should send a low Gemini thinking level by default and clamp it per model', async () => {
+  const captured = [];
+  const factory = () => ({
+    GoogleGenAI: class {
+      constructor() {
+        this.models = {
+          generateContent: async (req) => {
+            captured.push(req);
+            return { text: 'ok' };
+          }
+        };
+      }
+    }
+  });
+  const conversation = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }];
+
+  const flash = await loadAiService({ genai: factory() }, {
+    AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GEMINI_MODEL_NAME: 'gemini-3.8-flash'
+  });
+  await flash.generateAIResponse(conversation);
+  expect(captured[0].config.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+
+  const modelDefault = await loadAiService({ genai: factory() }, {
+    AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GEMINI_MODEL_NAME: 'gemini-3.8-flash', GEMINI_THINKING_LEVEL: 'default'
+  });
+  await modelDefault.generateAIResponse(conversation);
+  expect(captured[1].config.thinkingConfig).toBeUndefined();
+
+  const { resolveGeminiThinkingLevel } = flash;
+  // Never raise thinking on models that default to less than the configured low level.
+  expect(resolveGeminiThinkingLevel('gemini-3.5-flash-lite', 'low')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-2.5-flash-lite', 'low')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-2.5-flash-lite', 'high')).toBe('high');
+  // Unsupported levels move to the nearest supported one.
+  expect(resolveGeminiThinkingLevel('gemini-3.8-flash', 'minimal')).toBe('low');
+  expect(resolveGeminiThinkingLevel('gemini-3.6-flash', 'xhigh')).toBe('high');
+  expect(resolveGeminiThinkingLevel('gemini-4-hydrogen', 'xhigh')).toBe('xhigh');
+  expect(resolveGeminiThinkingLevel('gemini-3.6-flash', 'medium')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-3-flash-preview', 'minimal')).toBe('minimal');
+  expect(resolveGeminiThinkingLevel('unknown-model', 'low')).toBeNull();
+  // Clamped to the model's own default: nothing to send.
+  expect(resolveGeminiThinkingLevel('gemini-3-flash-preview', 'xhigh')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-3.8-flash', null)).toBeNull();
 });

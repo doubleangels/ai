@@ -217,3 +217,5 @@ LICENSE
 tsconfig.json
 *.config.js
 *.config.ts
+# Any local env file (e.g. .env.doppler used by docker-compose) must never enter the image
+.env.*

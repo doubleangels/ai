@@ -1147,7 +1147,7 @@ test('should openAI and Claude branch coverage for optional request fields', asy
     stubModule(configPath, {
       ...DEFAULT_CONFIG,
       aiProvider: 'claude',
-      modelName: 'claude-sonnet-4-6'
+      modelName: 'claude-haiku-4-5'
     });
   });
   expect(await claudeService.generateAIResponse([{ role: 'user', content: 'hi' }])).toBe('final after max rounds');

@@ -337,3 +337,40 @@ test('should map HTTP 400, 404, 500, and generic API errors', async () => {
     });
   }
 });
+
+test('should pin the image client to v1beta unless GOOGLE_GENAI_API_VERSION is set', () => {
+  const constructorOptions = [];
+  const load = () => reloadModule(servicePath, () => {
+    stubModule(instrumentPath, defaultInstrumentStub());
+    stubModule(configPath, {
+      geminiApiKey: 'gemini-test-key',
+      geminiImageModel: 'gemini-3.1-flash-image',
+      geminiImageBackupModel: null,
+      imageGenerationTimeoutMs: 5000,
+      IMAGE_ASPECT_RATIOS: { '1:1': '1:1' },
+      DEFAULT_GEMINI_IMAGE_MODEL: 'gemini-3.1-flash-image'
+    });
+    stubModule('@google/genai', {
+      GoogleGenAI: class {
+        constructor(options) {
+          constructorOptions.push(options);
+          this.models = {};
+        }
+      }
+    });
+  });
+
+  const saved = process.env.GOOGLE_GENAI_API_VERSION;
+  try {
+    delete process.env.GOOGLE_GENAI_API_VERSION;
+    load();
+    process.env.GOOGLE_GENAI_API_VERSION = 'v1';
+    load();
+  } finally {
+    if (saved === undefined) delete process.env.GOOGLE_GENAI_API_VERSION;
+    else process.env.GOOGLE_GENAI_API_VERSION = saved;
+  }
+
+  expect(constructorOptions[0].apiVersion).toBe('v1beta');
+  expect(constructorOptions[1]).not.toHaveProperty('apiVersion');
+});

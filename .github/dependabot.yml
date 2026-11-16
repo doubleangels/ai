@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Actions are pinned to commit SHAs; Dependabot updates the SHA and the version comment together.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -7,7 +8,11 @@ updates:
     target-branch: "dev"
     commit-message:
       prefix: "[Github Actions]"
+    cooldown:
+      default-days: 2
 
+  # The 2-day cooldown keeps proposals older than pnpm's minimumReleaseAge (1 day), so CI's
+  # frozen install never trips over a release that is too new.
   - package-ecosystem: npm
     directory: "/"
     schedule:
@@ -15,3 +20,5 @@ updates:
     target-branch: "dev"
     commit-message:
       prefix: "[pnpm]"
+    cooldown:
+      default-days: 2

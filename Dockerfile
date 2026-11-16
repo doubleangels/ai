@@ -1,19 +1,19 @@
-# syntax=docker/dockerfile:1.4
+# syntax=docker/dockerfile:1
 # Dockerfile for AI Bot
-# Multi-stage build. Use node:24-alpine (no digest) so CI can pull latest Node + Alpine each build.
+# Multi-stage build. Use node:26-alpine (Active LTS, no digest) so CI can pull latest Node + Alpine each build.
 
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=256"
 
 WORKDIR /app
 
-# Fail the build if a stale cached base image predates the Oct 2026 Node security release (24.22.1)
-RUN node -e "const [a,b,c]=process.versions.node.split('.').map(Number);if(a<24||(a===24&&(b<22||(b===22&&c<1)))){console.error('Node '+process.versions.node+' < 24.22.1');process.exit(1)}"
+# Fail the build if a stale cached base image predates the latest Node 26 security release (26.12.1, Oct 2026)
+RUN node -e "const [a,b,c]=process.versions.node.split('.').map(Number);if(a<26||(a===26&&(b<12||(b===12&&c<1)))){console.error('Node '+process.versions.node+' < 26.12.1');process.exit(1)}"
 
 # Update Alpine package index and upgrade all packages, then add runtime deps
-RUN apk update && apk upgrade --no-cache && \
+RUN apk upgrade --no-cache && \
     apk add --no-cache dumb-init su-exec && \
     addgroup -g 1001 nodejs && \
     adduser -u 1001 -G nodejs -s /bin/sh -D discordbot
@@ -24,10 +24,12 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 # Build stage for native modules
 FROM base AS builder
 
-RUN corepack enable
+# Node 25+ no longer bundles corepack; install the pnpm version pinned in package.json#packageManager.
+RUN PNPM_VERSION=$(node -p "require('./package.json').packageManager.split('@')[1].split('+')[0]") && \
+    npm install -g "pnpm@${PNPM_VERSION}" && pnpm --version
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    apk update && apk add --no-cache python3 make g++ && \
+    apk add --no-cache python3 make g++ && \
     pnpm install --frozen-lockfile --prod && \
     find node_modules -type f \( -name '*.md' -o -name '*.map' -o -name 'LICENSE*' -o -name 'CHANGELOG*' \) -delete && \
     find node_modules -depth -type d \( -name test -o -name tests -o -name __tests__ -o -name docs \) -exec rm -rf {} + 2>/dev/null || true && \
@@ -41,10 +43,10 @@ FROM base AS runtime
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /root/.npm
 
 # Install Doppler CLI for runtime secrets (apk repo)
-RUN apk update && apk add --no-cache ca-certificates wget && \
+RUN apk add --no-cache ca-certificates wget && \
     wget -q -t3 'https://packages.doppler.com/public/cli/rsa.8004D9FF50437357.key' -O /etc/apk/keys/cli@doppler-8004D9FF50437357.rsa.pub && \
     echo 'https://packages.doppler.com/public/cli/alpine/any-version/main' >> /etc/apk/repositories && \
-    apk update && apk add --no-cache doppler && \
+    apk add --no-cache doppler && \
     apk del wget
 
 # Copy node_modules from builder stage (before app files for better caching)
@@ -52,15 +54,11 @@ COPY --from=builder --chown=discordbot:nodejs /app/node_modules ./node_modules
 
 # Copy application files (this layer changes most frequently).
 # Use a .dockerignore to exclude node_modules, .git, and other unneeded files from the build context.
+# COPY --chown already sets ownership; a separate `chown -R` would duplicate every file into a new layer.
 COPY --chown=discordbot:nodejs . .
 
-# Set ownership for the runtime user
-RUN chown -R discordbot:nodejs /app
-
-    # Apply latest Alpine secfixes after all layers (node base, doppler repo, app copy).
-# npm/npx are unused at runtime (pnpm in build, node + doppler at runtime); remove bundled npm CVE surface.
-RUN apk update && apk upgrade --no-cache && \
-rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+# Apply latest Alpine secfixes after all layers (node base, doppler repo).
+RUN apk upgrade --no-cache
 
 # Doppler config/cache dir; use /tmp so it works when root FS is read-only (compose tmpfs: /tmp)
 ENV DOPPLER_CONFIG_DIR=/tmp

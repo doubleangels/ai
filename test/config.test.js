@@ -16,17 +16,18 @@ function loadConfig(overrides) {
     }
   }
 
-  const loaded = reloadModule(configPath);
-
-  for (const [key, value] of saved) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
+  try {
+    return reloadModule(configPath);
+  } finally {
+    // Restore even when config exits (e.g. unsupported model) so env doesn't leak into later tests.
+    for (const [key, value] of saved) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
   }
-
-  return loaded;
 }
 
 test('should resolves OpenAI defaults and allowed guilds', () => {
@@ -638,14 +639,6 @@ test('should default to the openai provider when AI_PROVIDER is unset', () => {
   expect(config.aiProvider).toBe('openai');
 });
 
-test('should expose a constant temperature helper', () => {
-  const config = loadConfig({
-    AI_PROVIDER: 'openai',
-    OPENAI_MODEL_NAME: 'gpt-6-luna'
-  });
-  expect(config.getTemperature()).toBe(1.0);
-});
-
 test('should resolve gemini backup provider api key path', () => {
   const config = loadConfig({
     AI_PROVIDER: 'openai',
@@ -658,6 +651,98 @@ test('should resolve gemini backup provider api key path', () => {
   expect(config.backupModels).toEqual([
     { model: 'gemini-3.6-flash', provider: 'gemini', tier: 'secondary' }
   ]);
+});
+
+test('should accept only current models for every provider', () => {
+  const originalExit = process.exit;
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  process.exit = code => {
+    throw new Error(`process.exit ${code}`);
+  };
+  const outdated = {
+    openai: ['gpt-5.4-nano', 'gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4.1', 'o3', 'o4-mini', 'gpt-5.1', 'gpt-5.2-codex'],
+    gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite'],
+    claude: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-sonnet-4-0', 'claude-sonnet-4-20250514']
+  };
+  const current = {
+    openai: ['gpt-6-luna', 'gpt-6.1-sol', 'gpt-5.6-terra', 'gpt-5.5'],
+    gemini: ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'],
+    claude: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-2', 'claude-opus-4-8']
+  };
+  const envName = { openai: 'OPENAI_MODEL_NAME', gemini: 'GEMINI_MODEL_NAME', claude: 'CLAUDE_MODEL_NAME' };
+  try {
+    for (const [provider, models] of Object.entries(outdated)) {
+      for (const model of models) {
+        expect(() => loadConfig({ AI_PROVIDER: provider, [envName[provider]]: model })).toThrow('process.exit 1');
+      }
+    }
+    for (const [provider, models] of Object.entries(current)) {
+      for (const model of models) {
+        expect(loadConfig({ AI_PROVIDER: provider, [envName[provider]]: model }).modelName).toBe(model);
+      }
+    }
+  } finally {
+    process.exit = originalExit;
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  }
+});
+
+test('should fall back to the default image model when GEMINI_IMAGE_MODEL_NAME is outdated', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({ GEMINI_IMAGE_MODEL_NAME: 'gemini-3-pro-image-preview' });
+    expect(config.geminiImageModel).toBe('gemini-3.1-flash-image');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/not a supported Gemini Image model/));
+    expect(loadConfig({ GEMINI_IMAGE_MODEL_NAME: 'gemini-nano-banana-2.1' }).geminiImageModel).toBe('gemini-nano-banana-2.1');
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should parse CLAUDE_REASONING_EFFORT, CLAUDE_CACHE_MIN_TOKENS and MAX_IMAGE_DIMENSION', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const config = loadConfig({
+      AI_PROVIDER: 'claude',
+      CLAUDE_MODEL_NAME: 'claude-opus-5-5',
+      CLAUDE_REASONING_EFFORT: 'LOW',
+      CLAUDE_CACHE_MIN_TOKENS: '10',
+      MAX_IMAGE_DIMENSION: '100000'
+    });
+    expect(config.claudeEffort).toBe('low');
+    expect(config.claudeCacheMinTokens).toBe(1024);
+    expect(config.maxImageDimension).toBe(4096);
+
+    const defaults = loadConfig({
+      AI_PROVIDER: 'claude',
+      CLAUDE_MODEL_NAME: 'claude-opus-5-5',
+      CLAUDE_REASONING_EFFORT: 'turbo',
+      CLAUDE_CACHE_MIN_TOKENS: undefined,
+      MAX_IMAGE_DIMENSION: '0'
+    });
+    expect(defaults.claudeEffort).toBeNull();
+    expect(defaults.claudeCacheMinTokens).toBe(2048);
+    expect(defaults.maxImageDimension).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/CLAUDE_REASONING_EFFORT "turbo" is invalid/));
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test('should parse GEMINI_THINKING_LEVEL with low as the default', () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const base = { AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'k', GEMINI_MODEL_NAME: 'gemini-3.8-flash' };
+    expect(loadConfig({ ...base, GEMINI_THINKING_LEVEL: undefined }).geminiThinkingLevel).toBe('low');
+    expect(loadConfig({ ...base, GEMINI_THINKING_LEVEL: 'HIGH' }).geminiThinkingLevel).toBe('high');
+    expect(loadConfig({ ...base, GEMINI_THINKING_LEVEL: 'default' }).geminiThinkingLevel).toBeNull();
+    expect(loadConfig({ ...base, GEMINI_THINKING_LEVEL: 'turbo' }).geminiThinkingLevel).toBe('low');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/GEMINI_THINKING_LEVEL "turbo" is invalid/));
+  } finally {
+    warnSpy.mockRestore();
+  }
 });
 
 test('should parse ALLOWED_USER_IDS and warn about non-snowflake entries', () => {

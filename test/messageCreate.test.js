@@ -338,7 +338,13 @@ test('should sends channel cooldown notice when reply succeeds', async () => {
 });
 
 test('should traces reply chains and truncates quoted context', async () => {
-  const mod = loadMessageCreate({ generateAIResponse: async () => 'done' });
+  let sentUserTurn;
+  const mod = loadMessageCreate({
+    generateAIResponse: async conversation => {
+      sentUserTurn = JSON.stringify([...conversation].reverse().find(entry => entry.role === 'user').content);
+      return 'done';
+    }
+  });
   const parent = {
     id: 'parent-1',
     author: { id: 'user-2', username: 'bob', bot: false },
@@ -361,9 +367,14 @@ test('should traces reply chains and truncates quoted context', async () => {
   });
 
   await mod.execute(message);
+  // The request carries the (truncated) quote; stored history keeps only a short excerpt.
+  expect(sentUserTurn).toMatch(/\[truncated\]/);
   const history = message.client.conversationHistory.get('chan-1');
-  const userTurn = history.find(entry => entry.role === 'user');
-  expect(JSON.stringify(userTurn.content)).toMatch(/\[truncated\]/);
+  const storedTurn = JSON.stringify(history.find(entry => entry.role === 'user').content);
+  expect(storedTurn).not.toMatch(/\[truncated\]/);
+  expect(storedTurn).toMatch(/…\]/);
+  expect(storedTurn).toMatch(/follow up/);
+  expect(storedTurn.length).toBeLessThan(500);
 });
 
 test('should handles reply-to-bot prefetch without mention', async () => {
