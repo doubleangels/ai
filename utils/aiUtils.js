@@ -1308,7 +1308,6 @@ module.exports = {
   formatAIUserMessage,
   isAIUserErrorMessage,
   isBusyAIErrorReason,
-  classifyAIError,
   isSupportedVisionImageType,
   SYSTEM_MESSAGES
 };
