@@ -268,10 +268,13 @@ async function downloadImageAsBase64(url) {
         return;
       }
 
-      const mimeType = (response.headers['content-type'] || '').toString();
-      if (!mimeType.startsWith('image/')) {
+      // Validate what the CDN actually serves, not the uploader-declared type, and keep only the
+      // bare MIME type so the data URL stays parseable.
+      const rawMimeType = (response.headers['content-type'] || '').toString();
+      const mimeType = normalizeImageMimeType(rawMimeType);
+      if (!VISION_IMAGE_TYPES.has(mimeType)) {
         response.resume();
-        reject(new Error(`Unsupported content-type for image download: ${mimeType || 'unknown'}`));
+        reject(new Error(`Unsupported content-type for image download: ${rawMimeType.slice(0, 100) || 'unknown'}`));
         return;
       }
 
@@ -399,11 +402,24 @@ function inferImageContentTypeFromUrl(url) {
  * @returns {boolean}
  */
 function isSupportedVisionImageType(contentType) {
-  if (!contentType || typeof contentType !== 'string') return false;
-  const normalized = contentType.toLowerCase().trim();
-  if (!normalized.startsWith('image/')) return false;
-  if (normalized.includes('svg')) return false;
-  return true;
+  return VISION_IMAGE_TYPES.has(normalizeImageMimeType(contentType));
+}
+
+/**
+ * Image types every provider accepts for vision input. Anything else (SVG, BMP, AVIF, HEIC, TIFF)
+ * makes OpenAI and Claude reject the whole request with a 400, so it is never downloaded.
+ */
+const VISION_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+/**
+ * Lowercases a MIME type and drops parameters (e.g. "image/PNG; charset=binary" -> "image/png").
+ * @param {string|undefined} contentType
+ * @returns {string}
+ */
+function normalizeImageMimeType(contentType) {
+  if (!contentType || typeof contentType !== 'string') return '';
+  const base = contentType.split(';')[0].trim().toLowerCase();
+  return base === 'image/jpg' ? 'image/jpeg' : base;
 }
 
 /**

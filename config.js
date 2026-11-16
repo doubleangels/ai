@@ -2,7 +2,7 @@ require('dotenv').config({ quiet: true });
 const { captureError } = require('./instrument');
 
 // Model lists contain only CURRENT models (not deprecated, not shut down) per each provider's
-// model and deprecation pages as of 2026-11-12. Revisit when providers announce deprecations.
+// model and deprecation pages as of 2026-11-16. Revisit when providers announce deprecations.
 
 // OpenAI: Responses API models with text + image input (developers.openai.com/api/docs/models).
 const SUPPORTED_MODELS = [
@@ -24,7 +24,6 @@ const SUPPORTED_GEMINI_MODELS = [
   'gemini-3.6-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-pro-preview',
-  'gemini-3.1-flash-lite',
   'gemini-3-flash-preview',
   'gemini-2.5-flash-lite'
 ];
@@ -297,6 +296,13 @@ const allowedGuildIds = parseSnowflakeList('ALLOWED_GUILD_IDS', 'guild');
  */
 const allowedUserIds = parseSnowflakeList('ALLOWED_USER_IDS', 'user');
 
+/** Gemini thinking levels (generateContent thinkingConfig.thinkingLevel). */
+const GEMINI_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const geminiThinkingRaw = (process.env.GEMINI_THINKING_LEVEL || '').trim().toLowerCase();
+if (geminiThinkingRaw && geminiThinkingRaw !== 'default' && !GEMINI_THINKING_LEVELS.includes(geminiThinkingRaw)) {
+  console.warn(`GEMINI_THINKING_LEVEL "${process.env.GEMINI_THINKING_LEVEL}" is invalid; supported values are ${GEMINI_THINKING_LEVELS.join(', ')}, default. Using low.`);
+}
+
 const claudeEffortRaw = (process.env.CLAUDE_REASONING_EFFORT || '').trim().toLowerCase();
 if (claudeEffortRaw && !CLAUDE_EFFORT_LEVELS.includes(claudeEffortRaw)) {
   console.warn(`CLAUDE_REASONING_EFFORT "${process.env.CLAUDE_REASONING_EFFORT}" is invalid; supported values are ${CLAUDE_EFFORT_LEVELS.join(', ')}. Ignoring.`);
@@ -392,6 +398,11 @@ const config = {
   })(),
   // Max output tokens per response (all providers). Unset, invalid, or 0 => use default 1024; clamped to 256–65536.
   maxOutputTokens: Math.max(256, Math.min(65536, parseInt(process.env.MAX_OUTPUT_TOKENS, 10) || 1024)),
+  // Gemini thinking level. 'low' (default) caps thinking for chat; 'default' sends nothing so each
+  // model uses its own default (medium or high on most Gemini 3.x/4 models).
+  geminiThinkingLevel: geminiThinkingRaw === 'default'
+    ? null
+    : (GEMINI_THINKING_LEVELS.includes(geminiThinkingRaw) ? geminiThinkingRaw : 'low'),
   // Claude thinking (0 = off). Claude 4.5 models use this as budget_tokens; 4.6+ models use adaptive
   // thinking (any value > 0 turns it on) and ignore the number. Claude 5 models always think; use CLAUDE_REASONING_EFFORT.
   claudeThinkingBudgetTokens: Math.max(0, Math.min(32000, parseInt(process.env.CLAUDE_THINKING_BUDGET_TOKENS, 10) || 0)),
@@ -442,6 +453,7 @@ module.exports = {
   SUPPORTED_GEMINI_IMAGE_MODELS,
   SUPPORTED_CLAUDE_MODELS,
   CLAUDE_EFFORT_LEVELS,
+  GEMINI_THINKING_LEVELS,
   IMAGE_ASPECT_RATIOS,
   DEFAULT_GEMINI_IMAGE_MODEL
 };

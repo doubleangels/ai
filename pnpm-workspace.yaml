@@ -6,7 +6,8 @@ allowBuilds:
   '@sentry/profiling-node': true
   protobufjs: true
   unrs-resolver: true
-minimumReleaseAge: 0
+# Supply-chain guard: never resolve a package version published less than 24h ago.
+minimumReleaseAge: 1440
 overrides:
   tar: '>=7.5.11'
   minimatch: '>=10.2.1'
@@ -15,4 +16,5 @@ overrides:
   undici: 6.29.1
   browserslist: '>=4.28.7'
   js-yaml: '>=3.15.2'
+  glob: '>=14.0.2'
 nodeLinker: hoisted

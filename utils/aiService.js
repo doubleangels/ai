@@ -15,6 +15,7 @@ const {
   claudeThinkingBudgetTokens,
   claudeEffort,
   claudeCacheMinTokens,
+  geminiThinkingLevel,
   geminiSafetySettings,
   openaiTimeoutMs,
   openaiMaxRetries,
@@ -92,6 +93,44 @@ const GEMINI_MIN_CACHE_TOKENS = 1024;
  */
 const GEMINI_THINKING_HEADROOM_TOKENS = 8192;
 const GEMINI_MAX_OUTPUT_TOKENS = 32768;
+
+/**
+ * Gemini thinking per model (aistudio.google.com/docs/thinking, 2026-11-16): the model's default
+ * level and the levels it accepts. Defaults are medium or high on most models, which bills far more
+ * thinking than a chat reply needs.
+ */
+const GEMINI_LEVEL_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const GEMINI_THINKING_PROFILES = {
+  'gemini-2.5-flash-lite': { default: 'off', levels: ['low', 'medium', 'high'] },
+  'gemini-3-flash-preview': { default: 'high', levels: ['minimal', 'low', 'medium', 'high'] },
+  'gemini-3.1-pro-preview': { default: 'high', levels: ['low', 'medium', 'high'] },
+  'gemini-3.5-flash-lite': { default: 'minimal', levels: ['minimal', 'low', 'medium', 'high'] },
+  'gemini-3.6-flash': { default: 'medium', levels: ['minimal', 'low', 'medium', 'high'] },
+  'gemini-3.8-flash': { default: 'medium', levels: ['low', 'medium', 'high'] },
+  'gemini-4-hydrogen': { default: 'high', levels: ['low', 'medium', 'high', 'xhigh'] },
+  'gemini-4-carbon': { default: 'medium', levels: ['low', 'medium', 'high'] },
+  'gemini-4-argon': { default: 'medium', levels: ['low', 'medium', 'high'] }
+};
+
+/**
+ * Thinking level to send for a Gemini model, or null to leave the model's default. Unsupported
+ * levels move to the nearest supported one. A low/minimal setting never raises thinking on a model
+ * that already defaults to less (off or minimal): nothing is sent then.
+ * @param {string} model
+ * @param {string|null} configured
+ * @returns {string|null} lowercase level
+ */
+function resolveGeminiThinkingLevel(model, configured) {
+  const profile = GEMINI_THINKING_PROFILES[model];
+  if (!configured || !profile) return null;
+  const rank = level => GEMINI_LEVEL_ORDER.indexOf(level);
+  if (rank(configured) <= rank('low') && rank(profile.default) < rank(configured)) return null;
+  if (profile.levels.includes(configured)) return configured === profile.default ? null : configured;
+  const nearest = rank(configured) < rank(profile.levels[0])
+    ? profile.levels[0]
+    : profile.levels[profile.levels.length - 1];
+  return nearest === profile.default ? null : nearest;
+}
 
 /** Image types Gemini documents for inline input (GIF is not among them). */
 const GEMINI_INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif']);
@@ -639,6 +678,8 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
   const config = {
     maxOutputTokens: Math.min(GEMINI_MAX_OUTPUT_TOKENS, maxOutputTokens + GEMINI_THINKING_HEADROOM_TOKENS)
   };
+  const thinkingLevel = resolveGeminiThinkingLevel(activeModel, geminiThinkingLevel);
+  if (thinkingLevel) config.thinkingConfig = { thinkingLevel: thinkingLevel.toUpperCase() };
 
   let useCachedContent = false;
   const systemTokenEstimate = systemWithImageHint ? estimateTokensFromText(systemWithImageHint) : 0;
@@ -701,6 +742,7 @@ async function generateGeminiResponse(conversation, activeModel = modelName) {
     mapsGrounding: geminiUseMaps,
     hasImages: hasImages(conversation),
     usingContextCache: useCachedContent,
+    thinkingLevel: thinkingLevel || 'model default',
     safetySettings: config.safetySettings ? config.safetySettings.length : 0
   });
 
@@ -879,6 +921,21 @@ async function generateClaudeResponse(conversation, activeModel = modelName) {
         'Claude'
       );
       usageTotal = addClaudeUsage(usageTotal, response.usage);
+
+      // Claude 5 / Fable safety classifiers decline with HTTP 200 and stop_reason "refusal";
+      // the content is then empty or partial, so report it as a policy block, not an empty reply.
+      if (response.stop_reason === 'refusal') {
+        logger.warn('Claude declined the request.', {
+          provider: 'claude',
+          model: activeModel,
+          category: response.stop_details?.category ?? null,
+          toolRounds: round,
+          durationMs: Date.now() - startedAt,
+          outcome: 'refusal'
+        });
+        recordCount('ai.generate.refusal', 1, { provider: 'claude', model: activeModel });
+        return finish(formatAIUserMessage({ reason: 'content_filter', provider: 'claude' }));
+      }
 
       const toolUseBlocks = (response.content || []).filter(b => b.type === 'tool_use');
       if (toolUseBlocks.length === 0) {
@@ -1225,5 +1282,6 @@ async function generateAIResponse(conversation) {
 
 module.exports = {
   generateAIResponse,
-  ProviderBusyError
+  ProviderBusyError,
+  resolveGeminiThinkingLevel
 };

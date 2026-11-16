@@ -662,6 +662,11 @@ test('should isSupportedVisionImageType rejects SVG content types', () => {
   expect(aiUtils.isSupportedVisionImageType('image/svg+xml')).toBe(false);
   expect(aiUtils.isSupportedVisionImageType('text/plain')).toBe(false);
   expect(aiUtils.isSupportedVisionImageType(null)).toBe(false);
+  expect(aiUtils.isSupportedVisionImageType('image/JPEG; charset=binary')).toBe(true);
+  expect(aiUtils.isSupportedVisionImageType('image/jpg')).toBe(true);
+  expect(aiUtils.isSupportedVisionImageType('image/bmp')).toBe(false);
+  expect(aiUtils.isSupportedVisionImageType('image/heic')).toBe(false);
+  expect(aiUtils.isSupportedVisionImageType('image/avif')).toBe(false);
 });
 
 test('should isBusyAIErrorReason identifies retryable provider states', () => {

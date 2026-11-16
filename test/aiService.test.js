@@ -65,6 +65,35 @@ test('should uses Claude when configured', async () => {
   expect(reply).toBe('hello claude');
 });
 
+test('should report a Claude refusal stop reason as a content-policy block', async () => {
+  const aiService = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = {
+        create: async () => ({
+          content: [],
+          stop_reason: 'refusal',
+          stop_details: { type: 'refusal', category: 'cyber', explanation: 'x' },
+          usage: { input_tokens: 10, output_tokens: 0 }
+        })
+      };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake', CLAUDE_MODEL_NAME: 'claude-sonnet-5-5' });
+
+  const reply = await aiService.generateAIResponse([
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'hi' }
+  ]);
+  expect(reply).toBe('⚠️ Claude blocked the request due to content policy.');
+
+  const noDetails = await loadAiService({
+    anthropic: function FakeAnthropic() {
+      this.messages = { create: async () => ({ content: [], stop_reason: 'refusal' }) };
+    }
+  }, { AI_PROVIDER: 'claude', ANTHROPIC_API_KEY: 'fake', CLAUDE_MODEL_NAME: 'claude-sonnet-5-5' });
+  expect(await noDetails.generateAIResponse([{ role: 'user', content: 'hi' }]))
+    .toBe('⚠️ Claude blocked the request due to content policy.');
+});
+
 test('should map reasoning effort none to low on OpenAI models that require reasoning', async () => {
   const cases = [
     ['gpt-6-luna', 'none', 'none'],
@@ -2239,4 +2268,49 @@ test('should claude ignore non-text user content when checking for time question
   // The unusable last user turn is dropped from the request and doesn't trigger the time tool.
   expect(calls[0].messages).toEqual([{ role: 'user', content: 'what time is it' }]);
   expect(calls[0]).not.toHaveProperty('tools');
+});
+
+test('should send a low Gemini thinking level by default and clamp it per model', async () => {
+  const captured = [];
+  const factory = () => ({
+    GoogleGenAI: class {
+      constructor() {
+        this.models = {
+          generateContent: async (req) => {
+            captured.push(req);
+            return { text: 'ok' };
+          }
+        };
+      }
+    }
+  });
+  const conversation = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }];
+
+  const flash = await loadAiService({ genai: factory() }, {
+    AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GEMINI_MODEL_NAME: 'gemini-3.8-flash'
+  });
+  await flash.generateAIResponse(conversation);
+  expect(captured[0].config.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+
+  const modelDefault = await loadAiService({ genai: factory() }, {
+    AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'fake', GEMINI_MODEL_NAME: 'gemini-3.8-flash', GEMINI_THINKING_LEVEL: 'default'
+  });
+  await modelDefault.generateAIResponse(conversation);
+  expect(captured[1].config.thinkingConfig).toBeUndefined();
+
+  const { resolveGeminiThinkingLevel } = flash;
+  // Never raise thinking on models that default to less than the configured low level.
+  expect(resolveGeminiThinkingLevel('gemini-3.5-flash-lite', 'low')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-2.5-flash-lite', 'low')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-2.5-flash-lite', 'high')).toBe('high');
+  // Unsupported levels move to the nearest supported one.
+  expect(resolveGeminiThinkingLevel('gemini-3.8-flash', 'minimal')).toBe('low');
+  expect(resolveGeminiThinkingLevel('gemini-3.6-flash', 'xhigh')).toBe('high');
+  expect(resolveGeminiThinkingLevel('gemini-4-hydrogen', 'xhigh')).toBe('xhigh');
+  expect(resolveGeminiThinkingLevel('gemini-3.6-flash', 'medium')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-3-flash-preview', 'minimal')).toBe('minimal');
+  expect(resolveGeminiThinkingLevel('unknown-model', 'low')).toBeNull();
+  // Clamped to the model's own default: nothing to send.
+  expect(resolveGeminiThinkingLevel('gemini-3-flash-preview', 'xhigh')).toBeNull();
+  expect(resolveGeminiThinkingLevel('gemini-3.8-flash', null)).toBeNull();
 });

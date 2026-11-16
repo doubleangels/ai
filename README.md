@@ -124,14 +124,12 @@ Set variables in Doppler, or copy [`.env.example`](.env.example) to `.env` for l
 | `GEMINI_MODEL_NAME` | Gemini model                                                                 | `gemini-3.8-flash`       |
 | `CLAUDE_MODEL_NAME` | Claude model (e.g. `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`) | `claude-sonnet-5-5`      |
 
-Supported model IDs are validated in [`config.js`](config.js). Unsupported values exit the process. Lists were checked against each provider's model and deprecation pages in October 2026. Only active models are allowed, so deprecated and shut-down models are rejected.
-
-Only **current** models are accepted: nothing deprecated, legacy, or shut down, per each provider's model and deprecation pages as of 2026-11-12. Revisit the lists in `config.js` when providers announce deprecations.
+Supported model IDs are validated in [`config.js`](config.js). Only **current** models are accepted: nothing deprecated (including models with an announced shutdown date), legacy, or shut down, per each provider's model and deprecation pages as of 2026-11-16. Revisit the lists in `config.js` when providers announce deprecations.
 
 | Provider | Supported models |
 | :------- | :--------------- |
 | OpenAI | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-pro`, `gpt-5.4-mini`, `gpt-5.2`, `gpt-5.2-pro` |
-| Gemini (chat) | `gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`, `gemini-3-flash-preview`, `gemini-2.5-flash-lite` |
+| Gemini (chat) | `gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash-lite` |
 | Gemini (`/imagine`) | `gemini-nano-banana-2.1`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-3-pro-image` |
 | Claude | `claude-fable-5-2`, `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-5-5`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-haiku-5-5`, `claude-haiku-4-5` |
 
@@ -140,8 +138,8 @@ An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_N
 **Per-model request adjustments** (from each provider's docs, so newer models don't reject requests):
 
 - **OpenAI:** `REASONING_EFFORT` is raised to the model's minimum: `low` for `gpt-6-astra` and `gpt-6.1-sol`, and `medium` for the `-pro` models. An invalid value counts as `none`. With reasoning on, `max_output_tokens` gets 25,000 tokens of headroom, because reasoning tokens count against it. `prompt_cache_retention: 24h` is sent only to `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4` and `gpt-5.2`; newer models use their default 30-minute cache. `temperature` is never sent. The `-pro` models can take several minutes per request, so raise `OPENAI_TIMEOUT_MS` if you use them.
-- **Gemini:** `temperature` is never sent (deprecated on Gemini 3+, ignored by Gemini 4). `maxOutputTokens` gets 8,192 tokens of headroom (capped at 32,768), because thinking tokens count against it. Gemini 4 models skip explicit context caching, which they reject. GIF images aren't a documented Gemini input type, so they're replaced with a short note. Requests never start or end on a model turn.
-- **Claude:** requests never start with or end on an assistant turn (Claude requires a user turn first and rejects assistant prefill on 4.6+ models).
+- **Gemini:** `temperature` is never sent (deprecated on Gemini 3+, ignored by Gemini 4). Thinking is capped with `GEMINI_THINKING_LEVEL` (default `low`): most Gemini 3.x/4 models otherwise think at `medium` or `high` on every chat reply. The level moves to the nearest one each model accepts (`minimal` becomes `low` on Gemini 4 and `gemini-3.8-flash`; `xhigh` exists only on `gemini-4-hydrogen`), and `low` is never sent to models that already default to less (`gemini-2.5-flash-lite` off, `gemini-3.5-flash-lite` minimal). `maxOutputTokens` gets 8,192 tokens of headroom (capped at 32,768), because thinking tokens count against it. Gemini 4 models skip explicit context caching, which they reject. GIF images aren't a documented Gemini input type, so they're replaced with a short note. Requests never start or end on a model turn.
+- **Claude:** requests never start with or end on an assistant turn (Claude requires a user turn first and rejects assistant prefill on 4.6+ models). A `refusal` stop reason (Claude 5 / Fable safety classifiers, HTTP 200 with no answer) is logged with its category, counted as `ai.generate.refusal`, and shown as a content-policy message instead of "empty response".
 
 **Claude thinking:** Claude Haiku 4.5 thinks only when `CLAUDE_THINKING_BUDGET_TOKENS` > 0 (sent as `budget_tokens`). Claude 4.6–4.8 models use adaptive thinking when that variable is > 0 (the number only sizes `max_tokens` headroom). Claude 5 and Fable models always think adaptively; control their depth and cost with `CLAUDE_REASONING_EFFORT` (`low` is a good fit for chat). Claude requests never send `temperature`: the API version used by Anthropic SDK 1.x (`2026-10-21`) rejects sampling parameters.
 
@@ -157,6 +155,7 @@ An unsupported chat model exits at startup; an unsupported `GEMINI_IMAGE_MODEL_N
 | `GEMINI_SAFETY_SETTINGS`        | JSON array of `{ category, threshold }` safety settings             | _API defaults_ |
 | `REASONING_EFFORT`              | OpenAI reasoning: `none`, `low`, `medium`, `high`, `xhigh`, `max` (raised to the model's minimum; `max` becomes `xhigh` outside GPT-5.6/GPT-6) | `none` |
 | `RESPONSES_VERBOSITY`           | OpenAI text verbosity: `low`, `medium`, `high`                      | `low`          |
+| `GEMINI_THINKING_LEVEL`         | Gemini thinking: `minimal`, `low`, `medium`, `high`, `xhigh`, or `default` (send nothing, use each model's own default) | `low` |
 | `CLAUDE_THINKING_BUDGET_TOKENS` | Claude thinking (`0` = off, max 32000); see **Claude thinking** above | `0`          |
 | `CLAUDE_REASONING_EFFORT`                 | Claude effort: `low`, `medium`, `high`, `xhigh`, `max` (mapped or dropped for models that don't support a level) | `low` on Claude 5 / Fable, otherwise model default |
 | `OPENAI_TIMEOUT_MS`             | OpenAI client timeout (5000–300000)                                 | `60000`        |
@@ -214,7 +213,7 @@ The bot starts without `GEMINI_API_KEY`; `/imagine` is disabled until the key is
 - With `ENABLE_CONTEXT_CACHE=true` (default): **OpenAI** caches repeated prefixes automatically and the bot sends a stable `prompt_cache_key`. **Claude** gets one cache breakpoint before the latest user turn, but only once the prompt is estimated at `CLAUDE_CACHE_MIN_TOKENS` or more, because cache writes cost 1.25x input and expire after 5 minutes. **Gemini** explicit caches are created only when the system prompt reaches 1,024 tokens (the built-in prompt is ~200 tokens, so in practice Gemini's automatic implicit caching applies). Set `ENABLE_CONTEXT_CACHE=false` to disable.
 - **Token usage** is logged per call (`AI token usage.`) with input, output, cached-input, cache-write and reasoning tokens, and recorded as `ai.tokens.*` metrics. Use these to check cache hit rates and cost per provider/model.
 - **History staleness:** `conversationHistory` does not track Discord message IDs. Edited or deleted user messages may remain in memory until `/reset`, idle eviction, or token/length trimming. Deleting a **bot** reply removes the matching last assistant turn when content still matches.
-- **SVG images** are excluded from vision (raster formats only). Gemini also can't analyze GIFs.
+- **Vision images** are limited to PNG, JPEG, WebP and GIF, checked against the type the Discord CDN actually serves. Other formats (SVG, BMP, AVIF, HEIC, TIFF) are skipped, because OpenAI and Claude reject the whole request when one is attached. Gemini also can't analyze GIFs.
 - Set `SECONDARY_MODEL_NAME` (and optionally `TERTIARY_MODEL_NAME`) to lighter models if your primary often returns rate-limit or overload errors. Provider is inferred from the model ID; override with `SECONDARY_AI_PROVIDER` / `TERTIARY_AI_PROVIDER`. Each backup can use a different provider; its API key must be configured.
 
 ---
@@ -333,6 +332,7 @@ Metrics are no-ops when Sentry is disabled or metrics are turned off. Attributes
 | Metric                             | Attributes                                          | Source                        |
 | :--------------------------------- | :-------------------------------------------------- | :---------------------------- |
 | `ai.generate.requests`             | `provider`, `outcome`                               | `aiService.js`                |
+| `ai.generate.refusal`              | `provider`, `model`                                 | `aiService.js`                |
 | `discord.message.received`         | `provider`, `trigger` (`mention`, `reply`, `slash`) | `channelChatHandler.js`       |
 | `discord.message.responded`        | `provider`, `outcome`                               | `channelChatHandler.js`       |
 | `discord.message.rejected`         | `reason`                                            | `messageCreate.js`, `chat.js` |
@@ -393,13 +393,14 @@ After deploying with `SENTRY_DSN` set:
 ### Prerequisites
 
 - **Node.js 26.x** (matches CI and the Docker image; `>=24` is supported)
-- **pnpm 12.18** (pinned in `package.json` `packageManager`). Node 25+ no longer bundles Corepack, so install pnpm with `npm install -g pnpm@12.18.0` (or `corepack enable` on Node 24)
+- **pnpm 12.21** (pinned in `package.json` `packageManager`). Node 25+ no longer bundles Corepack, so install pnpm with `npm install -g pnpm@12.21.0` (or `corepack enable` on Node 24)
+- `pnpm-workspace.yaml` sets `minimumReleaseAge: 1440`: pnpm refuses package versions published less than 24 hours ago, including on `--frozen-lockfile` installs. If an install fails with `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`, wait a day or re-resolve with `pnpm clean --lockfile && pnpm install`.
 - Optional: [Doppler CLI](https://docs.doppler.com/docs/cli) for local secrets
 
 ### Install and run
 
 ```bash
-npm install -g pnpm@12.18.0   # or: corepack enable (Node 24 only)
+npm install -g pnpm@12.21.0   # or: corepack enable (Node 24 only)
 pnpm install --frozen-lockfile
 ```
 
@@ -448,6 +449,8 @@ The project is monitored on [DeepScan](https://deepscan.io/dashboard#view=projec
 
 Images are published to **GitHub Container Registry** as `ghcr.io/doubleangels/ai:latest` on the default branch.
 
+Every action is pinned to a full commit SHA with the version in a trailing comment, so a moved or hijacked tag can't change what CI runs. Dependabot updates the SHA and comment together. Dependabot waits 2 days after a release (`cooldown`) before proposing it, which keeps its PRs inside pnpm's 24-hour `minimumReleaseAge`.
+
 ### Docker image contents
 
 [`.dockerignore`](.dockerignore) excludes from the build context:
@@ -455,7 +458,7 @@ Images are published to **GitHub Container Registry** as `ghcr.io/doubleangels/a
 - `test/`, `jest.config.cjs`, `coverage/`, `*.lcov`, `.nyc_output/`
 - Documentation, CI configs, and dev tooling
 
-The runtime stage contains application code and production dependencies only (`pnpm install --prod --frozen-lockfile` in the builder). The image runs as user `discordbot` (UID 1001), includes `dumb-init` and the Doppler CLI, and exposes a health check on the Node process.
+The runtime stage contains application code and production dependencies only (`pnpm install --prod --frozen-lockfile` in the builder). The image runs as user `discordbot` (UID 1001), includes `dumb-init` and the Doppler CLI, and exposes a health check on the Node process. The build fails if the cached `node:26-alpine` base predates Node 26.12.1 (the October 2026 security release). Local `.env*` files (including `.env.doppler`) are excluded from the build context.
 
 ---
 
