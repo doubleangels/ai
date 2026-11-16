@@ -13,7 +13,6 @@ const {
   formatAIUserMessage,
   isAIUserErrorMessage
 } = require('./aiUtils');
-const { withDiscordRetry } = require('./discordApi');
 const { serializeError } = require('./logSanitize');
 const { Sentry, captureError, recordCount, recordDistribution, recordGauge, startSpan } = require('../instrument');
 const path = require('path');

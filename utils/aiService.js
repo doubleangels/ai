@@ -1093,7 +1093,7 @@ async function generateOpenAIResponse(conversation, activeModel = modelName) {
       return formatAIUserMessage({ error: apiError, provider: 'openai' });
     }
 
-    recordTokenUsage('openai', activeModel, normalizeOpenAIUsage(response?.usage));
+    recordTokenUsage('openai', activeModel, normalizeOpenAIUsage(response.usage));
 
     logger.debug('Received response from OpenAI API.', {
       responseId: response.id,
