@@ -192,8 +192,8 @@ importers:
         specifier: ^2.6.3
         version: 2.6.3
       '@google/genai':
-        specifier: ^3.3.0
-        version: 3.3.0(supports-color@8.1.1)
+        specifier: ^3.4.0
+        version: 3.4.0(supports-color@8.1.1)
       '@sentry/node':
         specifier: ^11.12.0
         version: 11.12.0
@@ -425,8 +425,8 @@ packages:
     resolution: {integrity: sha512-wPlQDxEmlDg5IxhJPuxXr3Vy9AjYq5xCvFWGJyD7w7Np8ZGu+Mc+97LCoEc/+AYCo2IDpKioiH0/c/mj5ZR9Uw==}
     engines: {node: '>=16.11.0'}
 
-  '@google/genai@3.3.0':
-    resolution: {integrity: sha512-XLjXedj0X8UrULZz1GnlTMSQxBDFdr+NCKZkOBaSVVYqmK30C6FCnKW31Ppn0ItO9DpNspCHFui257kPNpumKQ==}
+  '@google/genai@3.4.0':
+    resolution: {integrity: sha512-qjsg+KMRSUmQSkg/BVwcbgE/ROVo91Lx933SOicDlS7viU+Z7sBwK/c8TMvW/9W0OvBy17rwa+/sXn0kdKrDZw==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.25.2
@@ -2216,7 +2216,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@google/genai@3.3.0(supports-color@8.1.1)':
+  '@google/genai@3.4.0(supports-color@8.1.1)':
     dependencies:
       google-auth-library: 10.9.1(supports-color@8.1.1)
       p-retry: 4.6.2
